@@ -1,0 +1,251 @@
+{
+  "users": [
+    {
+      "id": "usr_1",
+      "name": "Shraddha Business Owner",
+      "email": "owner@arcocomm.com",
+      "companyName": "ARCO Communication Retail",
+      "phone": "+91 98765 43210",
+      "industry": "Retail & E-commerce",
+      "role": "admin",
+      "trialDaysRemaining": 14,
+      "onboardingCompleted": true,
+      "createdAt": "2026-08-20T08:08:50.366Z"
+    }
+  ],
+  "contacts": [
+    {
+      "id": "cnt_1",
+      "name": "Rahul Sharma",
+      "phone": "+91 98765 43210",
+      "email": "rahul.sharma@example.com",
+      "tag": "Lead",
+      "segment": "High Intent",
+      "status": "Open Lead",
+      "owner": "Shraddha",
+      "channel": "whatsapp",
+      "createdAt": "2026-08-19T10:30:00.000Z"
+    },
+    {
+      "id": "cnt_2",
+      "name": "Priya Mehta",
+      "phone": "+91 98234 56789",
+      "email": "priya.mehta@example.com",
+      "tag": "Customer",
+      "segment": "VIP",
+      "status": "Qualified",
+      "owner": "Shraddha",
+      "channel": "whatsapp",
+      "createdAt": "2026-08-18T14:20:00.000Z"
+    },
+    {
+      "id": "cnt_3",
+      "name": "Gaming World",
+      "phone": "@gamingworld_official",
+      "email": "contact@gamingworld.in",
+      "tag": "VIP",
+      "segment": "Recent Signups",
+      "status": "In Discussion",
+      "owner": "Team",
+      "channel": "instagram",
+      "createdAt": "2026-08-17T09:15:00.000Z"
+    }
+  ],
+  "campaigns": [
+    {
+      "id": "cmp_1",
+      "name": "Diwali Flash Sale 2026",
+      "channel": "whatsapp",
+      "type": "onetime",
+      "category": "Marketing",
+      "status": "Scheduled",
+      "recipients": 1450,
+      "delivered": 0,
+      "read": 0,
+      "replied": 0,
+      "createdAt": "2026-08-20T08:00:00.000Z",
+      "scheduledFor": "2026-08-25T10:00:00.000Z"
+    },
+    {
+      "id": "cmp_2",
+      "name": "Abandoned Cart Recovery Bot",
+      "channel": "whatsapp",
+      "type": "ongoing",
+      "category": "Utility",
+      "status": "Live",
+      "recipients": 320,
+      "delivered": 312,
+      "read": 280,
+      "replied": 94,
+      "createdAt": "2026-08-15T12:00:00.000Z"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "cnv_1",
+      "name": "Rahul Sharma",
+      "channel": "whatsapp",
+      "status": "Online",
+      "phone": "+91 98765 43210",
+      "unreadCount": 1,
+      "lastMessageTime": "10:42 AM",
+      "tag": "Lead",
+      "statusFilter": "open",
+      "assignee": "Me",
+      "messages": [
+        {
+          "id": "m1",
+          "sender": "them",
+          "text": "Hi, I want to know about your services.",
+          "time": "10:40 AM",
+          "timestamp": "2026-08-20T10:40:00.000Z"
+        },
+        {
+          "id": "m2",
+          "sender": "me",
+          "text": "Hello Rahul! Welcome to ARCO Communication. We provide end-to-end WhatsApp marketing, AI bots, and omnichannel support. How can we help your business today?",
+          "time": "10:41 AM",
+          "timestamp": "2026-08-20T10:41:00.000Z"
+        },
+        {
+          "id": "m3",
+          "sender": "them",
+          "text": "Can we schedule a quick demo for our sales team?",
+          "time": "10:42 AM",
+          "timestamp": "2026-08-20T10:42:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "cnv_2",
+      "name": "Priya Mehta",
+      "channel": "whatsapp",
+      "status": "Active 15m ago",
+      "phone": "+91 98234 56789",
+      "unreadCount": 0,
+      "lastMessageTime": "09:15 AM",
+      "tag": "Pricing Inquiry",
+      "statusFilter": "open",
+      "assignee": "Me",
+      "messages": [
+        {
+          "id": "m1",
+          "sender": "them",
+          "text": "Can you send me the pricing details?",
+          "time": "09:12 AM",
+          "timestamp": "2026-08-20T09:12:00.000Z"
+        },
+        {
+          "id": "m2",
+          "sender": "me",
+          "text": "Hi Priya! Our plans start at ₹999/mo for Starter and ₹2,499/mo for Growth with unlimited AI agents. Sending the full plan comparison sheet right away.",
+          "time": "09:15 AM",
+          "timestamp": "2026-08-20T09:15:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "cnv_3",
+      "name": "Gaming World",
+      "channel": "instagram",
+      "status": "Online",
+      "phone": "@gamingworld_official",
+      "unreadCount": 2,
+      "lastMessageTime": "Yesterday",
+      "tag": "Enterprise",
+      "statusFilter": "open",
+      "assignee": "Unassigned",
+      "messages": [
+        {
+          "id": "m1",
+          "sender": "them",
+          "text": "We are interested in your WhatsApp automation.",
+          "time": "Yesterday 4:20 PM",
+          "timestamp": "2026-08-19T16:20:00.000Z"
+        },
+        {
+          "id": "m2",
+          "sender": "them",
+          "text": "Specifically for tournament alerts and real-time player leaderboards.",
+          "time": "Yesterday 4:22 PM",
+          "timestamp": "2026-08-19T16:22:00.000Z"
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "id": "wf_1",
+      "name": "Welcome New WhatsApp Subscriber",
+      "trigger": "First incoming WhatsApp message",
+      "action": "Send interactive welcome catalog & menu",
+      "status": "active",
+      "executions": 1240
+    },
+    {
+      "id": "wf_2",
+      "name": "Lead Routing to Sales Rep",
+      "trigger": "Intent: Pricing or Demo",
+      "action": "Assign to agent & notify team in Inbox",
+      "status": "active",
+      "executions": 450
+    }
+  ],
+  "aiAgents": [
+    {
+      "id": "ai_1",
+      "name": "ARCO Sales AI Agent",
+      "model": "ARCO-v2.0-IntentEngine",
+      "channels": [
+        "whatsapp",
+        "instagram"
+      ],
+      "status": "live",
+      "systemPrompt": "You are ARCO AI, an expert sales and customer support assistant.",
+      "accuracyRate": "98.4%",
+      "conversationsHandled": 3420
+    }
+  ],
+  "integrations": {
+    "whatsapp": {
+      "connected": true,
+      "wabaId": "WABA_9824901840",
+      "phoneNumber": "+91 98765 43210",
+      "status": "Active & Verified",
+      "tier": "Tier 2 (10,000 msgs/day)"
+    },
+    "instagram": {
+      "connected": true,
+      "handle": "@arcocomm_official",
+      "status": "Active"
+    },
+    "metaAds": {
+      "connected": true,
+      "adAccountId": "act_981240912",
+      "status": "Active"
+    },
+    "shopify": {
+      "connected": false,
+      "storeUrl": "",
+      "status": "Not Connected"
+    }
+  },
+  "analytics": {
+    "totalContacts": 1450,
+    "activeConversations": 28,
+    "messagesSentThisMonth": 14200,
+    "deliveryRate": 99.2,
+    "readRate": 84.5,
+    "responseRate": 46.8,
+    "csatScore": 4.8,
+    "revenueInfluenced": "₹4,85,000"
+  },
+  "settings": {
+    "companyName": "ARCO Communication Retail",
+    "supportEmail": "support@arcocomm.com",
+    "defaultLanguage": "en",
+    "timezone": "Asia/Kolkata",
+    "autoAssignLeads": true,
+    "aiResponseDelaySeconds": 2
+  }
+}
