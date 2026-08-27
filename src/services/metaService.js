@@ -19,6 +19,13 @@ export const metaService = {
     }
   },
 
+  uploadGstCertificate: async ({ fileName, fileType, fileData, fileSize }) => {
+    return apiRequest('/meta/upload-gst', {
+      method: 'POST',
+      body: JSON.stringify({ fileName, fileType, fileData, fileSize }),
+    });
+  },
+
   getBusinesses: async () => {
     try {
       const res = await apiRequest('/meta/businesses');

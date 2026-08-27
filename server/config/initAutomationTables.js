@@ -37,6 +37,7 @@ export async function initAutomationTables() {
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE automation_settings ADD COLUMN IF NOT EXISTS custom_replies_enabled BOOLEAN DEFAULT true;
       CREATE INDEX IF NOT EXISTS idx_automation_settings_user_id ON automation_settings(user_id);
     `);
 

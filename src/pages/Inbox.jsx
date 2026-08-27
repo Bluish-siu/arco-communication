@@ -187,7 +187,7 @@ const initialConversations = [
 
 export default function Inbox() {
   const navigate = useNavigate();
-  const { user, businessSetup, logout } = useOnboarding();
+  const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
   const userName = businessSetup.companyName || user.name || 'Business Owner';
 
   const [conversations, setConversations] = useState(initialConversations);
@@ -808,9 +808,9 @@ export default function Inbox() {
           {/* Right Controls: Trial, Notifications, Settings, Profile */}
           <div className="flex items-center gap-3">
             {/* Trial Badge */}
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">
-              <Clock className="w-3.5 h-3.5 text-red-600" />
-              <span>14 Days Trial Remaining</span>
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+              <Clock className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{trialDaysRemaining} Days Trial Remaining</span>
             </div>
 
             {/* Notification Button */}

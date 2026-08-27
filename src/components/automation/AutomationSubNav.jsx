@@ -76,7 +76,10 @@ export default function AutomationSubNav() {
         <div className="space-y-0.5 pt-1">
           {utilityLinks.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path || (item.path === '/automation/interactive-list' && location.pathname.includes('/automation/interactive-list'));
+            const isActive =
+              location.pathname === item.path ||
+              (item.path.includes('/automation/whatsapp-forms') && location.pathname.includes('/automation/whatsapp-forms')) ||
+              (item.path === '/automation/interactive-list' && location.pathname.includes('/automation/interactive-list'));
             return (
               <NavLink
                 key={item.path}

@@ -12,6 +12,13 @@ const initialData = {
     name: '',
     isAuthenticated: false,
   },
+  subscription: {
+    planName: 'Trial Plan',
+    status: 'trial',
+    trialDaysRemaining: 6,
+    totalTrialDays: 14,
+    expiresAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
+  },
   businessSetup: {
     channel: 'Both',
     phone: '',
@@ -74,7 +81,15 @@ export function OnboardingProvider({ children }) {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return { ...initialData, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        return {
+          ...initialData,
+          ...parsed,
+          user: { ...initialData.user, ...(parsed.user || {}) },
+          subscription: { ...initialData.subscription, ...(parsed.subscription || {}) },
+          businessSetup: { ...initialData.businessSetup, ...(parsed.businessSetup || {}) },
+          industryData: { ...initialData.industryData, ...(parsed.industryData || {}) },
+        };
       }
     } catch (e) {
       console.error('Failed to load onboarding state:', e);
@@ -254,10 +269,23 @@ export function OnboardingProvider({ children }) {
     setData(initialData);
   };
 
+  const updateSubscription = (subscriptionData) => {
+    setData((prev) => ({
+      ...prev,
+      subscription: { ...(prev.subscription || initialData.subscription), ...subscriptionData },
+    }));
+  };
+
+  const currentSubscription = data?.subscription || initialData.subscription;
+  const trialDaysRemaining = currentSubscription?.trialDaysRemaining ?? 6;
+
   return (
     <OnboardingContext.Provider
       value={{
         ...data,
+        subscription: currentSubscription,
+        trialDaysRemaining,
+        updateSubscription,
         login,
         setAuthenticatedUser,
         logout,

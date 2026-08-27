@@ -10,6 +10,8 @@ router.get('/callback', metaController.handleCallback);
 
 // Protected WhatsApp Business endpoints
 router.get('/status', metaController.getStatus);
+router.get('/verify-connection', authenticateToken, metaController.verifyConnection);
+router.post('/upload-gst', authenticateToken, metaController.uploadGstCertificate);
 router.get('/businesses', authenticateToken, metaController.getBusinesses);
 router.get('/wabas', authenticateToken, metaController.getWabas);
 router.get('/phone-numbers', authenticateToken, metaController.getPhoneNumbers);

@@ -14,6 +14,8 @@ import {
   AlertCircle,
   CheckCircle2,
   X,
+  Clock,
+  Send,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -40,7 +42,7 @@ const RcsIcon = ({ className }) => (
 export default function Campaigns() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, businessSetup, logout } = useOnboarding();
+  const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
   const userName = businessSetup?.companyName || user?.name || 'Business Owner';
 
   // Navigation & Filter Tabs from URL query parameters
@@ -64,6 +66,12 @@ export default function Campaigns() {
   const [createWhatsAppWorkspaceOpen, setCreateWhatsAppWorkspaceOpen] = useState(false);
   const [createRcsModalOpen, setCreateRcsModalOpen] = useState(false);
 
+  // Real Send Now Modal State
+  const [sendNowModalOpen, setSendNowModalOpen] = useState(false);
+  const [selectedCampaignForSend, setSelectedCampaignForSend] = useState(null);
+  const [isSendingLive, setIsSendingLive] = useState(false);
+  const [liveSendResult, setLiveSendResult] = useState(null);
+
   // RCS Builder State
   const [rcsCampaignName, setRcsCampaignName] = useState('');
   const [rcsBody, setRcsBody] = useState('Experience next-gen RCS interactive messaging with verified ARCO sender badge.');
@@ -74,6 +82,46 @@ export default function Campaigns() {
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleOpenSendNow = (camp) => {
+    setSelectedCampaignForSend(camp);
+    setLiveSendResult(null);
+    setSendNowModalOpen(true);
+  };
+
+  const handleConfirmSendLive = async () => {
+    if (!selectedCampaignForSend?.id) return;
+    setIsSendingLive(true);
+    setLiveSendResult(null);
+
+    try {
+      const res = await campaignsService.sendNow(selectedCampaignForSend.id);
+      if (res?.success) {
+        setLiveSendResult({
+          success: true,
+          message: 'Campaign execution processed via Meta WhatsApp Cloud API',
+          data: res.data,
+        });
+        showToast('Campaign successfully dispatched to Meta WhatsApp Cloud API!');
+        loadCampaigns(false);
+      } else {
+        setLiveSendResult({
+          success: false,
+          error: res?.error || res?.message || 'Meta API returned an error',
+          missingFields: res?.missingFields,
+        });
+        showToast(res?.error || res?.message || 'Failed to send campaign', 'error');
+      }
+    } catch (err) {
+      setLiveSendResult({
+        success: false,
+        error: err.message || 'Failed to dispatch campaign to Meta Cloud API',
+      });
+      showToast(err.message || 'Failed to send campaign', 'error');
+    } finally {
+      setIsSendingLive(false);
+    }
   };
 
   // Close profile dropdown on outside click
@@ -217,8 +265,16 @@ export default function Campaigns() {
               <span className="text-gray-900 font-medium">Campaigns</span>
             </div>
 
-            {/* Profile Dropdown */}
+            {/* Profile & Controls */}
             <div className="flex items-center gap-3">
+              {/* Trial Plan Badge */}
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                <span className="font-bold">{subscription?.planName || 'Trial Plan'}</span>
+                <span className="text-[11px] text-emerald-600 flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> {trialDaysRemaining} Days Left
+                </span>
+              </div>
+
               <div className="relative profile-container">
                 <button
                   onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
@@ -521,14 +577,26 @@ export default function Campaigns() {
 
                           {/* Delivery Stats */}
                           <td className="py-3 px-4">
-                            <div className="flex items-center gap-2 text-[11px]">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="text-gray-700 font-medium">
+                                Sent: {camp.sent ?? 0}
+                              </span>
+                              <span className="text-gray-300">|</span>
                               <span className="text-emerald-700 font-medium">
-                                Delivered: {camp.delivered ?? camp.recipients ?? 0}
+                                Delivered: {camp.delivered || 0}
                               </span>
                               <span className="text-gray-300">|</span>
                               <span className="text-blue-700 font-medium">
-                                Read: {camp.read ?? Math.round((camp.recipients || 0) * 0.72)}
+                                Read: {camp.read || 0}
                               </span>
+                              {(camp.failureCount > 0 || camp.failure_count > 0) && (
+                                <>
+                                  <span className="text-gray-300">|</span>
+                                  <span className="text-red-700 font-bold">
+                                    Failed: {camp.failureCount || camp.failure_count}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </td>
 
@@ -544,7 +612,19 @@ export default function Campaigns() {
 
                           {/* Actions */}
                           <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {camp.status !== 'Completed' && camp.status !== 'Sending' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSendNow(camp)}
+                                  className="h-6 px-2 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-semibold rounded text-[10px] flex items-center gap-1 cursor-pointer shadow-2xs"
+                                  title="Send live campaign via Meta WhatsApp Cloud API"
+                                >
+                                  <Send className="w-2.5 h-2.5" />
+                                  <span>Send Now</span>
+                                </button>
+                              )}
+
                               <Link
                                 to={`/campaigns/${camp.id}`}
                                 className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
@@ -639,6 +719,126 @@ export default function Campaigns() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. SEND NOW CONFIRMATION MODAL (REAL META CLOUD API DISPATCH)             */}
+      {/* ========================================================================= */}
+      {sendNowModalOpen && selectedCampaignForSend && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+                  <WhatsAppIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900">Launch Live WhatsApp Campaign</h3>
+                  <p className="text-[11px] text-gray-500">Delivered via Meta WhatsApp Cloud API</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSendNowModalOpen(false)}
+                className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 text-xs">
+              
+              {/* Campaign summary card */}
+              <div className="p-3.5 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-gray-500 font-semibold uppercase">Campaign</span>
+                  <span className="font-bold text-gray-900 text-xs">{selectedCampaignForSend.name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-gray-500">Template</span>
+                  <span className="font-semibold text-gray-800">
+                    {selectedCampaignForSend.templateName || selectedCampaignForSend.template_name || 'Standard Template'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-gray-500">Audience Recipients</span>
+                  <span className="font-bold text-emerald-700">
+                    {(selectedCampaignForSend.recipients || 0).toLocaleString()} contacts
+                  </span>
+                </div>
+              </div>
+
+              {/* Notice */}
+              <div className="p-3 bg-emerald-50/60 rounded-lg border border-emerald-200 text-emerald-900 leading-relaxed text-[11px]">
+                <span className="font-bold">Live Delivery Engine:</span> This action will resolve dynamic template variables and dispatch real WhatsApp messages to eligible opted-in recipients. Official Meta WAMIDs will be recorded in the database.
+              </div>
+
+              {/* Live Dispatch Result */}
+              {liveSendResult && (
+                <div
+                  className={`p-3 rounded-lg text-xs space-y-1.5 ${
+                    liveSendResult.success
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                      : 'bg-red-50 border border-red-200 text-red-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold">
+                    {liveSendResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span>{liveSendResult.success ? 'Meta API Accepted & Processed' : 'Meta API Rejection'}</span>
+                  </div>
+                  {liveSendResult.data && (
+                    <div className="text-[11px] space-y-0.5 font-mono">
+                      <div>Status: <span className="font-bold">{liveSendResult.data.status}</span></div>
+                      <div>Sent to Meta: {liveSendResult.data.sent} / {liveSendResult.data.total}</div>
+                      {liveSendResult.data.failed > 0 && (
+                        <div className="text-red-700 font-bold">Failed: {liveSendResult.data.failed}</div>
+                      )}
+                    </div>
+                  )}
+                  {liveSendResult.error && (
+                    <div className="text-[11px] leading-relaxed">
+                      {liveSendResult.error}
+                      {liveSendResult.missingFields?.length > 0 && (
+                        <div className="mt-1 font-semibold text-[10px] text-red-700">
+                          Missing credentials: {liveSendResult.missingFields.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 border-t border-gray-100 flex items-center justify-end gap-2 bg-gray-50/50">
+              <button
+                type="button"
+                onClick={() => setSendNowModalOpen(false)}
+                className="h-8 px-3.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={isSendingLive}
+                onClick={handleConfirmSendLive}
+                className="h-8 px-4 bg-[#0d3b30] hover:bg-[#154d3f] disabled:bg-gray-300 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSendingLive ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span>{isSendingLive ? 'Sending to Meta...' : 'Send Live Campaign Now'}</span>
+              </button>
+            </div>
+
           </div>
         </div>
       )}

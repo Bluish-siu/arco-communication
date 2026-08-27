@@ -195,14 +195,14 @@ const EXACT_14_INTERAKT_SAMPLES = [
 export default function CreateCampaign() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, businessSetup } = useOnboarding();
-  const userName = businessSetup?.companyName || user?.name || 'Business Owner';
+  const isScratch = searchParams.get('mode') === 'scratch' || searchParams.get('scratch') === 'true';
+  const templateIdParam = searchParams.get('templateId');
 
   // Screen Mode: 'template_selection' (SCREEN 1) | 'builder' (SCREEN 2)
-  const [screenMode, setScreenMode] = useState('template_selection');
+  const [screenMode, setScreenMode] = useState(isScratch || templateIdParam ? 'builder' : 'template_selection');
 
   // Campaign Header State
-  const [campaignName, setCampaignName] = useState('Untitled Campaign');
+  const [campaignName, setCampaignName] = useState(isScratch ? 'New WhatsApp Broadcast' : 'Untitled Campaign');
   const [campaignCategory, setCampaignCategory] = useState('Marketing');
   const [campaignDescription, setCampaignDescription] = useState('');
 
@@ -216,13 +216,49 @@ export default function CreateCampaign() {
   );
 
   // Step 2: Message Template
-  const [selectedTemplate, setSelectedTemplate] = useState(EXACT_14_INTERAKT_SAMPLES[0]);
-  const [templateTab, setTemplateTab] = useState('samples'); // 'samples' | 'active'
+  const [selectedTemplate, setSelectedTemplate] = useState(() => {
+    if (isScratch) {
+      return {
+        id: `custom_${Date.now()}`,
+        name: 'Custom WhatsApp Campaign',
+        category: 'MARKETING',
+        language: 'en_US',
+        headerText: 'Special Announcement',
+        bodyText: 'Hi {{1}}, thank you for choosing ARCO! Here is your exclusive update: {{2}}.',
+        footerText: 'ARCO Communication',
+        buttons: [{ type: 'QUICK_REPLY', text: 'Talk to Support' }],
+      };
+    }
+    if (templateIdParam) {
+      const found = EXACT_14_INTERAKT_SAMPLES.find((t) => t.id === templateIdParam);
+      if (found) return found;
+    }
+    return EXACT_14_INTERAKT_SAMPLES[0];
+  });
+  const [templateTab, setTemplateTab] = useState('active'); // 'active' (Meta Approved) | 'samples'
   const [searchTheme, setSearchTheme] = useState('');
   const [sampleTemplates, setSampleTemplates] = useState(EXACT_14_INTERAKT_SAMPLES);
   const [activeTemplates, setActiveTemplates] = useState([]);
+  const [metaApprovedTemplates, setMetaApprovedTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [variableValues, setVariableValues] = useState({ 1: 'Valued Customer', 2: 'Special Promo' });
+  const [variableValues, setVariableValues] = useState({});
+
+  // Dynamically detect variable placeholders {{1}}, {{2}}, etc. in selected template body
+  const detectedVariables = React.useMemo(() => {
+    if (!selectedTemplate) return [];
+    if (Array.isArray(selectedTemplate.bodyVariables) && selectedTemplate.bodyVariables.length > 0) {
+      return selectedTemplate.bodyVariables;
+    }
+    const text = selectedTemplate.bodyText || selectedTemplate.body || '';
+    const matches = text.match(/\{\{(\d+)\}\}/g);
+    if (!matches) return [];
+    const vars = [];
+    matches.forEach((m) => {
+      const num = m.replace(/\D/g, '');
+      if (!vars.includes(num)) vars.push(num);
+    });
+    return vars.sort((a, b) => Number(a) - Number(b));
+  }, [selectedTemplate]);
 
   // Step 3: Audience
   const [audienceType, setAudienceType] = useState('segment'); // 'csv' | 'manual' | 'segment' | 'tag' | 'list'
@@ -233,8 +269,216 @@ export default function CreateCampaign() {
   const [selectedTag, setSelectedTag] = useState('');
   const [manualPhoneNumbers, setManualPhoneNumbers] = useState('');
   const [csvFileName, setCsvFileName] = useState('');
+  const [rawCsvRows, setRawCsvRows] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [columnMappingModalOpen, setColumnMappingModalOpen] = useState(false);
+  const [columnMappings, setColumnMappings] = useState({});
+  const [importedCsvContacts, setImportedCsvContacts] = useState([]);
+  const [viewContactsModalOpen, setViewContactsModalOpen] = useState(false);
+  const [contactsFilterTab, setContactsFilterTab] = useState('all');
+  const [csvStats, setCsvStats] = useState({ total: 0, eligible: 0, invalid: 0, optedIn: 0 });
   const [whatsappOptedOnly, setWhatsappOptedOnly] = useState(true);
   const [audienceReach, setAudienceReach] = useState(1334);
+
+  // Helper to parse CSV text
+  const parseCsvText = (text) => {
+    const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return { headers: [], rows: [] };
+
+    const parseLine = (line) => {
+      const result = [];
+      let current = '';
+      let insideQuote = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          insideQuote = !insideQuote;
+        } else if (char === ',' && !insideQuote) {
+          result.push(current.trim().replace(/^"|"$/g, ''));
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim().replace(/^"|"$/g, ''));
+      return result;
+    };
+
+    const headers = parseLine(lines[0]);
+    const rows = lines.slice(1).map((line) => {
+      const vals = parseLine(line);
+      const rowObj = {};
+      headers.forEach((h, idx) => {
+        rowObj[h] = vals[idx] !== undefined ? vals[idx] : '';
+      });
+      return rowObj;
+    });
+
+    return { headers, rows };
+  };
+
+  const normalizeClientPhone = ({ fullPhone, phone, countryCode }) => {
+    const cleanFull = fullPhone ? String(fullPhone).trim() : '';
+    const cleanPhone = phone ? String(phone).trim() : '';
+    const cleanCc = countryCode ? String(countryCode).replace(/\D/g, '') : '91';
+
+    // Scientific notation protection (e.g. 9.19748E+11)
+    if (/[eE][+-]?\d+/.test(cleanFull) || /[eE][+-]?\d+/.test(cleanPhone)) {
+      return {
+        isValid: false,
+        normalizedPhone: cleanFull || cleanPhone,
+        display: cleanFull || cleanPhone,
+        reason: 'Corrupted phone format: scientific notation detected (e.g. 9.19748E+11). Please format phone numbers as plain text in your CSV.',
+      };
+    }
+
+    if (cleanFull) {
+      const digits = cleanFull.replace(/\D/g, '');
+      if (digits.length >= 9 && digits.length <= 15) {
+        return { isValid: true, normalizedPhone: digits, display: `+${digits}` };
+      }
+    }
+
+    if (cleanPhone) {
+      let digits = cleanPhone.replace(/\D/g, '');
+      if (cleanCc) {
+        if (digits.startsWith(cleanCc) && digits.length >= cleanCc.length + 8) {
+          return { isValid: true, normalizedPhone: digits, display: `+${digits}` };
+        }
+        const combined = `${cleanCc}${digits}`;
+        if (combined.length >= 9 && combined.length <= 15) {
+          return { isValid: true, normalizedPhone: combined, display: `+${combined}` };
+        }
+      }
+      if (digits.length === 10 && /^[6-9]/.test(digits)) {
+        return { isValid: true, normalizedPhone: `91${digits}`, display: `+91 ${digits}` };
+      }
+      if (digits.length >= 9 && digits.length <= 15) {
+        return { isValid: true, normalizedPhone: digits, display: `+${digits}` };
+      }
+    }
+
+    return { isValid: false, normalizedPhone: cleanFull || cleanPhone, display: cleanFull || cleanPhone, reason: 'Invalid phone format (must be 9-15 digits with country code)' };
+  };
+
+  const isOptedIn = (val) => {
+    if (val === true) return true;
+    if (val === false || val === null || val === undefined) return false;
+    const str = String(val).trim().toLowerCase();
+    return ['true', '1', 'yes', 'y', 'opted', 'opt-in', 'opted-in'].includes(str);
+  };
+
+  const handleCsvFileUpload = (file) => {
+    if (!file) return;
+    setCsvFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const text = evt.target.result;
+        const { headers, rows } = parseCsvText(text);
+        if (headers.length === 0 || rows.length === 0) {
+          showToast('CSV file appears to be empty or missing headers', 'error');
+          return;
+        }
+        setCsvHeaders(headers);
+        setRawCsvRows(rows);
+
+        // Auto-guess column mappings based on headers
+        const initialMap = {};
+        headers.forEach((h) => {
+          const lower = h.toLowerCase().trim();
+          if (lower === 'full phone number' || lower === 'full phone' || lower === 'full_phone' || lower === 'mobile number (with country code)') {
+            initialMap[h] = 'Full Phone Number';
+          } else if (lower.includes('phone') || lower.includes('mobile') || lower.includes('contact')) {
+            initialMap[h] = 'Phone Number';
+          } else if (lower.includes('country') || lower.includes('code') || lower === 'cc') {
+            initialMap[h] = 'Country Code';
+          } else if (lower.includes('name')) {
+            initialMap[h] = 'Name';
+          } else if (lower.includes('email')) {
+            initialMap[h] = 'Email';
+          } else if (lower.includes('opted') || lower.includes('opt in') || lower.includes('opt-in') || lower.includes('whatsapp')) {
+            initialMap[h] = 'WhatsApp Opted';
+          } else {
+            initialMap[h] = h; // Custom attribute
+          }
+        });
+        setColumnMappings(initialMap);
+        setColumnMappingModalOpen(true);
+      } catch (err) {
+        showToast('Failed to parse CSV file: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleConfirmColumnMapping = () => {
+    let eligible = 0;
+    let invalid = 0;
+    let optedInTotal = 0;
+
+    const processed = rawCsvRows.map((row, idx) => {
+      let nameVal = '';
+      let fullPhoneVal = '';
+      let phoneVal = '';
+      let countryCodeVal = '91';
+      let emailVal = '';
+      let optedVal = true;
+
+      Object.entries(columnMappings).forEach(([colHeader, mappedTarget]) => {
+        const val = row[colHeader];
+        if (mappedTarget === 'Name') nameVal = val;
+        else if (mappedTarget === 'Full Phone Number') fullPhoneVal = val;
+        else if (mappedTarget === 'Phone Number') phoneVal = val;
+        else if (mappedTarget === 'Country Code') countryCodeVal = val;
+        else if (mappedTarget === 'Email') emailVal = val;
+        else if (mappedTarget === 'WhatsApp Opted') optedVal = val;
+      });
+
+      const opted = isOptedIn(optedVal);
+      if (opted) optedInTotal++;
+
+      const phoneCheck = normalizeClientPhone({ fullPhone: fullPhoneVal, phone: phoneVal, countryCode: countryCodeVal });
+
+      let status = 'Eligible';
+      let reason = '';
+      if (!phoneCheck.isValid) {
+        status = 'Invalid';
+        reason = phoneCheck.reason || 'Invalid phone';
+        invalid++;
+      } else if (whatsappOptedOnly && !opted) {
+        status = 'Opted Out';
+        reason = 'Customer not WhatsApp opted-in';
+        invalid++;
+      } else {
+        eligible++;
+      }
+
+      return {
+        id: `csv_row_${idx}`,
+        name: nameVal || row.Name || `Customer ${idx + 1}`,
+        phone: phoneCheck.normalizedPhone,
+        displayPhone: phoneCheck.display,
+        email: emailVal || row.Email || '',
+        countryCode: countryCodeVal,
+        whatsappOpted: opted,
+        status,
+        reason,
+        raw: row,
+      };
+    });
+
+    setImportedCsvContacts(processed);
+    setCsvStats({
+      total: rawCsvRows.length,
+      eligible,
+      invalid,
+      optedIn: optedInTotal,
+    });
+    setAudienceReach(eligible);
+    setColumnMappingModalOpen(false);
+    showToast(`Mapped ${rawCsvRows.length} contacts (${eligible} eligible recipients)`, 'success');
+  };
 
   // Step 4: Schedule
   const [scheduleMode, setScheduleMode] = useState('now'); // 'now' | 'custom'
@@ -273,20 +517,105 @@ export default function CreateCampaign() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // Test Message State
+  const [testModalOpen, setTestModalOpen] = useState(false);
+  const [testPhone, setTestPhone] = useState('+91 ');
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleSendTestMessage = async () => {
+    const rawPhone = testPhone ? testPhone.trim() : '';
+    if (!rawPhone || rawPhone === '+91' || rawPhone.replace(/\D/g, '').length < 8) {
+      showToast('Please enter a valid phone number with country code (e.g. +91 98765 43210)', 'error');
+      return;
+    }
+    if (!selectedTemplate) {
+      showToast('Please select a message template first', 'error');
+      return;
+    }
+
+    setSendingTest(true);
+    setTestResult(null);
+
+    try {
+      const payload = {
+        recipientPhone: rawPhone,
+        templateName: selectedTemplate.name || selectedTemplate.id,
+        templateLanguage: selectedTemplate.language || 'en_US',
+        variables: variableValues,
+        headerText: selectedTemplate.headerText,
+        buttons: selectedTemplate.buttons,
+      };
+
+      const res = await campaignsService.sendTestMessage(payload);
+      if (res?.success) {
+        setTestResult({
+          success: true,
+          wamid: res.data?.wamid || res.data?.metaMessageId,
+          recipientPhone: res.data?.recipientPhone || rawPhone,
+          templateName: res.data?.templateName || selectedTemplate.name,
+          message: 'Test message delivered to Meta WhatsApp Cloud API!',
+        });
+        showToast('Test message sent successfully via Meta Cloud API!');
+      } else {
+        const errorText = res?.errorCode === 132001
+          ? 'WhatsApp template not found for the selected language. Please select an approved template from your connected Meta WhatsApp Business account.'
+          : (res?.error || res?.message || 'Meta API returned an error');
+
+        setTestResult({
+          success: false,
+          error: errorText,
+          errorCode: res?.errorCode,
+          errorSubcode: res?.errorSubcode,
+          missingFields: res?.missingFields,
+        });
+        showToast(errorText, 'error');
+      }
+    } catch (err) {
+      setTestResult({
+        success: false,
+        error: err.message || 'Failed to connect to Meta WhatsApp Cloud API endpoint',
+      });
+      showToast(err.message || 'Failed to send test message', 'error');
+    } finally {
+      setSendingTest(false);
+    }
   };
 
   // Load Templates on Mount & Tab Change
   const loadTemplatesData = async () => {
     setLoadingTemplates(true);
     try {
-      if (templateTab === 'samples') {
+      // 1. Fetch real Meta approved templates from connected WABA
+      const metaRes = await campaignsService.getMetaTemplates();
+      const realMetaApproved = metaRes?.success && Array.isArray(metaRes.approved) ? metaRes.approved : [];
+      setMetaApprovedTemplates(realMetaApproved);
+
+      if (templateTab === 'active' || templateTab === 'meta') {
+        let list = realMetaApproved;
+        if (list.length === 0) {
+          const active = await campaignsService.getTemplates({ isSample: false, search: searchTheme });
+          list = Array.isArray(active) ? active : [];
+        }
+        const filtered = searchTheme.trim()
+          ? list.filter(
+              (t) =>
+                t.name.toLowerCase().includes(searchTheme.toLowerCase()) ||
+                (t.category && t.category.toLowerCase().includes(searchTheme.toLowerCase()))
+            )
+          : list;
+        setActiveTemplates(filtered);
+        if (filtered.length > 0) {
+          setSelectedTemplate((prev) => (prev && list.some((t) => t.id === prev.id) ? prev : filtered[0]));
+        }
+      } else {
         const samples = await campaignsService.getTemplates({ isSample: true, search: searchTheme });
         const list = Array.isArray(samples) && samples.length > 0 ? samples : EXACT_14_INTERAKT_SAMPLES;
-        
-        // Filter by Search if theme query is present
         const filtered = searchTheme.trim()
           ? list.filter(
               (t) =>
@@ -295,17 +624,9 @@ export default function CreateCampaign() {
                 t.category.toLowerCase().includes(searchTheme.toLowerCase())
             )
           : list;
-
         setSampleTemplates(filtered);
         if (filtered.length > 0 && !selectedTemplate) {
           setSelectedTemplate(filtered[0]);
-        }
-      } else {
-        const active = await campaignsService.getTemplates({ isSample: false, search: searchTheme });
-        const list = Array.isArray(active) ? active : [];
-        setActiveTemplates(list);
-        if (list.length > 0 && templateTab === 'active') {
-          setSelectedTemplate(list[0]);
         }
       }
     } catch (err) {
@@ -464,6 +785,17 @@ export default function CreateCampaign() {
       scheduledFor: scheduledTimestamp,
       scheduleTimezone,
       audienceType,
+      csvContacts: audienceType === 'csv' && importedCsvContacts.length > 0
+        ? importedCsvContacts.map((c) => ({
+            name: c.name,
+            fullPhone: c.displayPhone,
+            phone: c.phone,
+            email: c.email,
+            countryCode: c.countryCode,
+            whatsappOpted: c.whatsappOpted,
+            csvData: c.raw,
+          }))
+        : undefined,
       audienceFilter: {
         savedSegmentId: selectedSegmentId,
         tag: selectedTag,
@@ -570,31 +902,35 @@ export default function CreateCampaign() {
               </div>
             </header>
 
-            {/* Tabs / Sub-header bar: Left: Sample Ideas | Active Templates | Right: Android/Apple Icons */}
+            {/* Tabs / Sub-header bar: Left: Meta Approved | Sample Ideas | Right: Android/Apple Icons */}
             <div className="h-10 border-b border-gray-200 flex items-center justify-between px-0 bg-white shrink-0">
               <div className="flex items-center h-full text-xs font-medium">
                 <button
                   type="button"
+                  onClick={() => setTemplateTab('active')}
+                  className={`h-full px-5 flex items-center justify-center gap-1.5 border-r border-gray-200 transition-colors cursor-pointer ${
+                    templateTab === 'active' || templateTab === 'meta'
+                      ? 'bg-white text-[#0d3b30] font-bold border-b-2 border-b-[#0d3b30]'
+                      : 'bg-gray-50/70 text-gray-600 hover:text-gray-900 border-b border-b-gray-200'
+                  }`}
+                >
+                  <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Meta Approved</span>
+                  <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                    {metaApprovedTemplates.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setTemplateTab('samples')}
-                  className={`h-full px-6 flex items-center justify-center border-r border-gray-200 transition-colors cursor-pointer ${
+                  className={`h-full px-5 flex items-center justify-center border-r border-gray-200 transition-colors cursor-pointer ${
                     templateTab === 'samples'
                       ? 'bg-white text-[#0d3b30] font-bold border-b-2 border-b-[#0d3b30]'
                       : 'bg-gray-50/70 text-gray-600 hover:text-gray-900 border-b border-b-gray-200'
                   }`}
                 >
-                  Sample Ideas
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTemplateTab('active')}
-                  className={`h-full px-6 flex items-center justify-center border-r border-gray-200 transition-colors cursor-pointer ${
-                    templateTab === 'active'
-                      ? 'bg-white text-[#0d3b30] font-bold border-b-2 border-b-[#0d3b30]'
-                      : 'bg-gray-50/70 text-gray-600 hover:text-gray-900 border-b border-b-gray-200'
-                  }`}
-                >
-                  Active Templates
+                  Sample Ideas ({sampleTemplates.length})
                 </button>
               </div>
 
@@ -639,7 +975,7 @@ export default function CreateCampaign() {
                     <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
-                      placeholder="Search by Theme"
+                      placeholder="Search by Template Name"
                       value={searchTheme}
                       onChange={(e) => setSearchTheme(e.target.value)}
                       className="w-full h-7 pl-7 pr-2 rounded border border-gray-300 bg-white text-[11px] text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400"
@@ -653,7 +989,7 @@ export default function CreateCampaign() {
                     title="Refresh List"
                   >
                     <RefreshCw className={`w-2.5 h-2.5 ${loadingTemplates ? 'animate-spin' : ''}`} />
-                    <span>Refresh List</span>
+                    <span>Refresh</span>
                   </button>
                 </div>
 
@@ -662,31 +998,36 @@ export default function CreateCampaign() {
                   {loadingTemplates ? (
                     <div className="p-8 text-center text-gray-400 space-y-1.5">
                       <RefreshCw className="w-4 h-4 animate-spin mx-auto text-[#0d3b30]" />
-                      <p className="text-[11px]">Loading templates...</p>
+                      <p className="text-[11px]">Loading approved Meta templates...</p>
                     </div>
                   ) : currentTemplateList.length === 0 ? (
                     <div className="p-8 text-center text-gray-400 text-[11px]">
-                      No templates found matching your search
+                      No approved templates found matching your search.
                     </div>
                   ) : (
                     currentTemplateList.map((tmpl) => {
-                      const isSelected = selectedTemplate?.id === tmpl.id;
+                      const isSelected = selectedTemplate?.id === tmpl.id || selectedTemplate?.name === tmpl.name;
                       return (
                         <div
-                          key={tmpl.id}
+                          key={tmpl.id || tmpl.name}
                           onClick={() => setSelectedTemplate(tmpl)}
-                          className={`px-4 py-2 flex items-center justify-between cursor-pointer transition-colors border-b border-gray-100 ${
+                          className={`px-4 py-2.5 flex items-center justify-between cursor-pointer transition-colors border-b border-gray-100 ${
                             isSelected
                               ? 'bg-[#f0fdf4] border-l-4 border-[#0d3b30] pl-3'
                               : 'hover:bg-gray-50/80 border-l-4 border-transparent'
                           }`}
                         >
-                          <div className="min-w-0 pr-2">
-                            <div className={`text-xs leading-tight truncate ${isSelected ? 'text-gray-900 font-bold' : 'text-gray-800 font-semibold'}`}>
-                              {tmpl.name}
+                          <div className="min-w-0 pr-2 space-y-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs leading-tight truncate ${isSelected ? 'text-gray-900 font-bold' : 'text-gray-800 font-semibold'}`}>
+                                {tmpl.name}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                                {tmpl.status || 'APPROVED'}
+                              </span>
                             </div>
-                            <div className="text-[10px] text-gray-400 mt-0.5 leading-none">
-                              ({tmpl.language === 'hi_IN' ? 'Hindi' : 'English'})
+                            <div className="text-[10px] text-gray-500 font-mono">
+                              Language: <span className="font-semibold text-gray-700">{tmpl.language || 'en_US'}</span>
                             </div>
                           </div>
 
@@ -838,6 +1179,18 @@ export default function CreateCampaign() {
             </div>
 
             <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setTestResult(null);
+                  setTestModalOpen(true);
+                }}
+                className="h-8 px-3 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-emerald-900 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              >
+                <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Send Test Message</span>
+              </button>
+
               <button
                 type="button"
                 disabled={isSubmitting}
@@ -1007,30 +1360,64 @@ export default function CreateCampaign() {
                             </button>
                           </div>
 
-                          <div className="space-y-2.5">
-                            <span className="text-xs font-bold text-gray-700">Dynamic Variable Values</span>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-[11px] text-gray-500 mb-1 font-mono">&#123;&#123;1&#125;&#125; (Customer Name)</label>
-                                <input
-                                  type="text"
-                                  value={variableValues[1] || ''}
-                                  onChange={(e) => setVariableValues({ ...variableValues, 1: e.target.value })}
-                                  placeholder="e.g. Ramesh"
-                                  className="w-full h-8 px-2.5 rounded border border-gray-300 text-xs bg-white focus:outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] text-gray-500 mb-1 font-mono">&#123;&#123;2&#125;&#125; (Offer / Key Detail)</label>
-                                <input
-                                  type="text"
-                                  value={variableValues[2] || ''}
-                                  onChange={(e) => setVariableValues({ ...variableValues, 2: e.target.value })}
-                                  placeholder="e.g. FLAT 25% OFF"
-                                  className="w-full h-8 px-2.5 rounded border border-gray-300 text-xs bg-white focus:outline-none"
-                                />
-                              </div>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-gray-700">
+                                Template Dynamic Variables ({detectedVariables.length > 0 ? detectedVariables.map(v => `{{${v}}}`).join(', ') : 'None'})
+                              </span>
+                              {csvHeaders.length > 0 && (
+                                <span className="text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
+                                  {csvHeaders.length} CSV Columns Available
+                                </span>
+                              )}
                             </div>
+
+                            {detectedVariables.length === 0 ? (
+                              <div className="p-3.5 bg-emerald-50 rounded-lg border border-emerald-200 text-xs text-emerald-800 flex items-start gap-2.5">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                                <div>
+                                  <div className="font-bold text-emerald-900">No dynamic parameters required</div>
+                                  <div className="text-[11px] text-emerald-700 mt-0.5">
+                                    This approved Meta template contains pre-approved static text. It is ready for broadcast immediately without variable mapping.
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {detectedVariables.map((vNum) => (
+                                  <div key={vNum} className="space-y-1.5 p-2.5 rounded-lg border border-gray-200 bg-gray-50/50">
+                                    <label className="block text-[11px] font-bold text-gray-700 font-mono">
+                                      &#123;&#123;{vNum}&#125;&#125; (Variable {vNum})
+                                    </label>
+                                    {csvHeaders.length > 0 && (
+                                      <select
+                                        value={variableValues[vNum] || (csvHeaders[parseInt(vNum, 10) - 1] || 'Name')}
+                                        onChange={(e) => setVariableValues({ ...variableValues, [vNum]: e.target.value })}
+                                        className="w-full h-8 px-2.5 rounded border border-gray-300 text-xs bg-white focus:outline-none mb-1 font-semibold text-gray-800"
+                                      >
+                                        <optgroup label="Map to CSV Column">
+                                          {csvHeaders.map((h) => (
+                                            <option key={h} value={h}>CSV: {h}</option>
+                                          ))}
+                                        </optgroup>
+                                        <optgroup label="Standard CRM Fields">
+                                          <option value="Name">Name</option>
+                                          <option value="Email">Email</option>
+                                          <option value="Phone">Phone</option>
+                                        </optgroup>
+                                      </select>
+                                    )}
+                                    <input
+                                      type="text"
+                                      value={variableValues[vNum] || ''}
+                                      onChange={(e) => setVariableValues({ ...variableValues, [vNum]: e.target.value })}
+                                      placeholder={`Or enter static value for {{${vNum}}}`}
+                                      className="w-full h-7 px-2.5 rounded border border-gray-300 text-xs bg-white focus:outline-none placeholder-gray-400"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex justify-end pt-1">
@@ -1213,14 +1600,111 @@ export default function CreateCampaign() {
                       )}
 
                       {audienceType === 'csv' && (
-                        <div className="p-3.5 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
-                          <label className="block text-xs font-semibold text-gray-700">Upload Audience CSV File</label>
-                          <input
-                            type="file"
-                            accept=".csv"
-                            onChange={(e) => setCsvFileName(e.target.files[0]?.name || '')}
-                            className="text-xs text-gray-600"
-                          />
+                        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-xs font-bold text-gray-800">
+                              Upload WhatsApp Audience CSV File
+                            </label>
+                            {csvFileName && (
+                              <span className="text-[11px] font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                {csvFileName}
+                              </span>
+                            )}
+                          </div>
+
+                          {importedCsvContacts.length === 0 ? (
+                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center space-y-2 bg-white hover:bg-gray-50/50 transition-colors">
+                              <Upload className="w-8 h-8 text-[#0d3b30] mx-auto stroke-[1.5]" />
+                              <div>
+                                <label className="inline-block px-3.5 py-1.5 bg-[#0d3b30] hover:bg-[#154d3f] text-white text-xs font-semibold rounded shadow-xs cursor-pointer">
+                                  <span>Choose CSV File</span>
+                                  <input
+                                    type="file"
+                                    accept=".csv"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleCsvFileUpload(file);
+                                    }}
+                                    className="hidden"
+                                  />
+                                </label>
+                              </div>
+                              <p className="text-[11px] text-gray-500 leading-relaxed max-w-sm mx-auto">
+                                Supports CSV files with Name, Full Phone Number (+91...), Phone Number, Country Code, Email, Appointment Time, WhatsApp Opted, etc.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3 bg-white p-3.5 rounded-lg border border-emerald-200 shadow-2xs">
+                              <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                  <span className="font-bold text-xs text-gray-900">
+                                    Audience CSV Mapped & Verified
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setColumnMappingModalOpen(true)}
+                                    className="text-[11px] font-semibold text-[#0d3b30] hover:underline cursor-pointer"
+                                  >
+                                    Re-map Columns
+                                  </button>
+                                  <span className="text-gray-300">|</span>
+                                  <label className="text-[11px] font-semibold text-gray-600 hover:text-gray-900 cursor-pointer">
+                                    <span>Upload New</span>
+                                    <input
+                                      type="file"
+                                      accept=".csv"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleCsvFileUpload(file);
+                                      }}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+
+                              {/* 4 Stat Badges */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <div className="bg-gray-50 p-2 rounded border border-gray-200 text-center">
+                                  <div className="text-[10px] text-gray-500">Total Detected</div>
+                                  <div className="font-bold text-xs text-gray-900">{csvStats.total}</div>
+                                </div>
+                                <div className="bg-emerald-50 p-2 rounded border border-emerald-200 text-center">
+                                  <div className="text-[10px] text-emerald-700 font-semibold">Eligible (Will Send)</div>
+                                  <div className="font-bold text-xs text-emerald-900">{csvStats.eligible}</div>
+                                </div>
+                                <div className="bg-amber-50 p-2 rounded border border-amber-200 text-center">
+                                  <div className="text-[10px] text-amber-700">Opted-In Contacts</div>
+                                  <div className="font-bold text-xs text-amber-900">{csvStats.optedIn}</div>
+                                </div>
+                                <div className="bg-red-50 p-2 rounded border border-red-200 text-center">
+                                  <div className="text-[10px] text-red-700">Invalid / Skipped</div>
+                                  <div className="font-bold text-xs text-red-900">{csvStats.invalid}</div>
+                                </div>
+                              </div>
+
+                              {/* View Contacts Button */}
+                              <div className="pt-1 flex items-center justify-between">
+                                <span className="text-[11px] text-gray-500">
+                                  {csvStats.eligible} of {csvStats.total} contacts will receive this campaign.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setContactsFilterTab('all');
+                                    setViewContactsModalOpen(true);
+                                  }}
+                                  className="h-7 px-3 bg-[#0d3b30] hover:bg-[#154d3f] text-white text-[11px] font-semibold rounded shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Users className="w-3 h-3" />
+                                  <span>View Contacts Table</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1802,7 +2286,446 @@ export default function CreateCampaign() {
 
                 </div>
 
+                {/* Test Message Quick Action Under Smartphone */}
+                <div className="w-full bg-[#f2fbf6] border border-[#c4e9d0] rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-[#0d3b30]">
+                      <WhatsAppIcon className="w-4 h-4 text-emerald-700" />
+                      <span>Send a Real Test Message</span>
+                    </div>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded">
+                      Meta Cloud API
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 leading-relaxed">
+                    Verify real WhatsApp delivery directly to your physical phone before broadcasting to customers.
+                  </p>
+
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={testPhone}
+                      onChange={(e) => setTestPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      className="flex-1 h-8 px-2.5 rounded border border-gray-300 text-xs bg-white focus:outline-none focus:border-[#0d3b30]"
+                    />
+                    <button
+                      type="button"
+                      disabled={sendingTest}
+                      onClick={handleSendTestMessage}
+                      className="h-8 px-3 bg-[#0d3b30] hover:bg-[#154d3f] disabled:bg-gray-300 text-white text-xs font-semibold rounded shadow-2xs flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      {sendingTest ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                      <span>{sendingTest ? 'Sending...' : 'Send Test'}</span>
+                    </button>
+                  </div>
+
+                  {testResult && (
+                    <div
+                      className={`p-2.5 rounded-lg text-xs space-y-1 ${
+                        testResult.success
+                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                          : 'bg-red-50 border border-red-200 text-red-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold">
+                        {testResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                        )}
+                        <span>{testResult.success ? 'Meta API Accepted' : 'Meta API Error'}</span>
+                      </div>
+                      {testResult.wamid && (
+                        <div className="text-[10px] font-mono break-all bg-white/70 p-1 rounded border border-emerald-200 text-emerald-800">
+                          WAMID: {testResult.wamid}
+                        </div>
+                      )}
+                      {testResult.error && (
+                        <div className="text-[11px] leading-tight">
+                          {testResult.error}
+                          {testResult.missingFields?.length > 0 && (
+                            <div className="mt-1 font-semibold text-[10px]">
+                              Missing: {testResult.missingFields.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SEND TEST MESSAGE MODAL                                                   */}
+      {/* ========================================================================= */}
+      {testModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+                  <WhatsAppIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900">Send Real WhatsApp Test</h3>
+                  <p className="text-[11px] text-gray-500">Delivered via Meta WhatsApp Cloud API</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTestModalOpen(false)}
+                className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 text-xs">
+              
+              {/* Selected Template Details */}
+              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-1">
+                <div className="text-[11px] font-semibold text-gray-500 uppercase">Template Selected</div>
+                <div className="font-bold text-gray-900 text-xs">{selectedTemplate?.name || 'Standard WhatsApp Promo'}</div>
+                <div className="text-[11px] text-gray-600 font-mono">Language: {selectedTemplate?.language || 'en_US'}</div>
+              </div>
+
+              {/* Recipient Phone Input */}
+              <div className="space-y-1.5">
+                <label className="block font-semibold text-gray-700">Test Recipient Phone Number</label>
+                <input
+                  type="text"
+                  value={testPhone}
+                  onChange={(e) => setTestPhone(e.target.value)}
+                  placeholder="+91 98765 43210"
+                  className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs focus:outline-none focus:border-[#0d3b30]"
+                />
+                <p className="text-[11px] text-gray-400">
+                  Include international country code prefix (e.g. +91 for India, +1 for US).
+                </p>
+              </div>
+
+              {/* Live Test Result */}
+              {testResult && (
+                <div
+                  className={`p-3 rounded-lg text-xs space-y-1.5 ${
+                    testResult.success
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                      : 'bg-red-50 border border-red-200 text-red-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold">
+                    {testResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span>{testResult.success ? 'Meta API Accepted & Dispatched' : 'Meta API Rejection'}</span>
+                  </div>
+                  {testResult.wamid && (
+                    <div className="text-[10px] font-mono break-all bg-white/80 p-2 rounded border border-emerald-200 text-emerald-800">
+                      <span className="font-bold">WhatsApp Message ID (wamid):</span>
+                      <br />
+                      {testResult.wamid}
+                    </div>
+                  )}
+                  {testResult.error && (
+                    <div className="text-[11px] leading-relaxed">
+                      {testResult.error}
+                      {testResult.missingFields?.length > 0 && (
+                        <div className="mt-1 font-semibold text-[10px] text-red-700">
+                          Missing credentials: {testResult.missingFields.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2 bg-gray-50/50">
+              <button
+                type="button"
+                onClick={() => setTestModalOpen(false)}
+                className="h-8 px-3.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={sendingTest}
+                onClick={handleSendTestMessage}
+                className="h-8 px-4 bg-[#0d3b30] hover:bg-[#154d3f] disabled:bg-gray-300 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                {sendingTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span>{sendingTest ? 'Sending to Meta...' : 'Send Test Now'}</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 1. COLUMN MAPPING MODAL (INTERAKT-STYLE)                                  */}
+      {/* ========================================================================= */}
+      {columnMappingModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div>
+                <h3 className="font-bold text-sm text-gray-900">
+                  Map columns to attributes for successful upload
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  <span className="font-semibold text-gray-700">{csvFileName || 'CSV file'}</span> has {csvHeaders.length} columns & {rawCsvRows.length} rows
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setColumnMappingModalOpen(false)}
+                className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body / Mapping Table */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs flex-1">
+              <p className="text-[11px] text-gray-600 bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200">
+                Match each column from your CSV to a contact attribute. Full Phone Number (+91...) or Phone Number + Country Code will be automatically normalized to E.164.
+              </p>
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-600">
+                      <th className="py-2.5 px-3">CSV Column Name</th>
+                      <th className="py-2.5 px-3">Map to Attribute</th>
+                      <th className="py-2.5 px-3">Sample Values (Preview)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-gray-800">
+                    {csvHeaders.map((header) => {
+                      const sampleVals = rawCsvRows.slice(0, 3).map((r) => r[header]).filter(Boolean);
+                      return (
+                        <tr key={header} className="hover:bg-gray-50/50">
+                          <td className="py-2.5 px-3 font-semibold text-gray-900">
+                            {header}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <select
+                              value={columnMappings[header] || header}
+                              onChange={(e) => setColumnMappings({ ...columnMappings, [header]: e.target.value })}
+                              className="h-8 px-2.5 rounded border border-gray-300 bg-white text-xs text-gray-800 focus:outline-none focus:border-[#0d3b30] w-full font-medium"
+                            >
+                              <optgroup label="Standard Contact Attributes">
+                                <option value="Name">Name</option>
+                                <option value="Full Phone Number">Full Phone Number (+91...)</option>
+                                <option value="Phone Number">Phone Number</option>
+                                <option value="Country Code">Country Code</option>
+                                <option value="Email">Email</option>
+                                <option value="WhatsApp Opted">WhatsApp Opted</option>
+                              </optgroup>
+                              <optgroup label="Custom Template Variables">
+                                <option value={header}>Use as {header} (Template variable)</option>
+                              </optgroup>
+                            </select>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] text-gray-500">
+                            {sampleVals.length > 0 ? (
+                              sampleVals.join(' • ')
+                            ) : (
+                              <span className="italic text-gray-400">Empty</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3.5 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <span className="text-[11px] text-gray-500">
+                {rawCsvRows.length} contacts will be verified against phone & WhatsApp opt-in rules.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setColumnMappingModalOpen(false)}
+                  className="h-8 px-3.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmColumnMapping}
+                  className="h-8 px-4 bg-[#0d3b30] hover:bg-[#154d3f] text-white text-xs font-semibold rounded-lg shadow-xs cursor-pointer"
+                >
+                  Confirm & Validate Audience
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. VIEW IMPORTED CONTACTS TABLE MODAL                                     */}
+      {/* ========================================================================= */}
+      {viewContactsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div>
+                <h3 className="font-bold text-sm text-gray-900">
+                  Imported Audience Contacts ({importedCsvContacts.length})
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Verified for WhatsApp Cloud API campaign delivery
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewContactsModalOpen(false)}
+                className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="px-6 py-2 border-b border-gray-200 bg-white flex items-center gap-4 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setContactsFilterTab('all')}
+                className={`pb-1.5 transition-colors cursor-pointer ${
+                  contactsFilterTab === 'all'
+                    ? 'border-b-2 border-[#0d3b30] text-[#0d3b30]'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                All Contacts ({importedCsvContacts.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setContactsFilterTab('eligible')}
+                className={`pb-1.5 transition-colors cursor-pointer ${
+                  contactsFilterTab === 'eligible'
+                    ? 'border-b-2 border-emerald-600 text-emerald-700'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                Eligible ({csvStats.eligible})
+              </button>
+              <button
+                type="button"
+                onClick={() => setContactsFilterTab('invalid')}
+                className={`pb-1.5 transition-colors cursor-pointer ${
+                  contactsFilterTab === 'invalid'
+                    ? 'border-b-2 border-red-600 text-red-700'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                Invalid / Skipped ({csvStats.invalid})
+              </button>
+            </div>
+
+            {/* Contacts Table */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-600">
+                      <th className="py-2.5 px-3">Name</th>
+                      <th className="py-2.5 px-3">Phone (Normalized)</th>
+                      <th className="py-2.5 px-3">Email</th>
+                      <th className="py-2.5 px-3">WhatsApp Opted</th>
+                      <th className="py-2.5 px-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-gray-800">
+                    {importedCsvContacts
+                      .filter((c) => {
+                        if (contactsFilterTab === 'eligible') return c.status === 'Eligible';
+                        if (contactsFilterTab === 'invalid') return c.status !== 'Eligible';
+                        return true;
+                      })
+                      .map((contact) => (
+                        <tr key={contact.id} className="hover:bg-gray-50/50">
+                          <td className="py-2.5 px-3 font-semibold text-gray-900">
+                            {contact.name}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            {contact.displayPhone || contact.phone}
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-500">
+                            {contact.email || '-'}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                contact.whatsappOpted
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}
+                            >
+                              {contact.whatsappOpted ? 'Yes' : 'No'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                contact.status === 'Eligible'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : contact.status === 'Opted Out'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}
+                            >
+                              {contact.status}
+                            </span>
+                            {contact.reason && (
+                              <span className="block text-[10px] text-gray-400 mt-0.5">
+                                {contact.reason}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end bg-gray-50/50">
+              <button
+                type="button"
+                onClick={() => setViewContactsModalOpen(false)}
+                className="h-8 px-4 bg-[#0d3b30] hover:bg-[#154d3f] text-white text-xs font-semibold rounded-lg shadow-xs cursor-pointer"
+              >
+                Close Table
+              </button>
             </div>
 
           </div>

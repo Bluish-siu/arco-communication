@@ -79,6 +79,108 @@ export const whatsappController = {
         }
       }
 
+      // 2. Handle Meta WhatsApp Status Updates (sent, delivered, read, failed)
+      const statuses = change?.statuses;
+      if (Array.isArray(statuses) && statuses.length > 0) {
+        for (const st of statuses) {
+          const wamid = st.id;
+          const statusVal = st.status; // 'sent' | 'delivered' | 'read' | 'failed'
+          const timestamp = st.timestamp ? new Date(parseInt(st.timestamp, 10) * 1000) : new Date();
+
+          if (wamid) {
+            console.log(`[WhatsApp Webhook Status Update] WAMID: ${wamid}, Status: ${statusVal}`);
+
+            // Find campaign recipient with this meta_message_id
+            const rcpRes = await query(
+              'SELECT id, campaign_id, status FROM campaign_recipients WHERE meta_message_id = $1 LIMIT 1',
+              [wamid]
+            );
+
+            if (rcpRes.rows.length > 0) {
+              const rcp = rcpRes.rows[0];
+
+              if (statusVal === 'delivered') {
+                await query(
+                  `UPDATE campaign_recipients 
+                   SET status = CASE WHEN status IN ('read', 'replied') THEN status ELSE 'delivered' END,
+                       delivered_at = COALESCE(delivered_at, $1),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [timestamp, rcp.id]
+                );
+              } else if (statusVal === 'read') {
+                await query(
+                  `UPDATE campaign_recipients 
+                   SET status = CASE WHEN status = 'replied' THEN status ELSE 'read' END,
+                       read_at = COALESCE(read_at, $1),
+                       delivered_at = COALESCE(delivered_at, $1),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [timestamp, rcp.id]
+                );
+              } else if (statusVal === 'failed') {
+                const errMsg = st.errors?.[0]?.message || st.errors?.[0]?.title || 'Meta delivery failed';
+                const errCode = st.errors?.[0]?.code || 'META_DELIVERY_FAILURE';
+                await query(
+                  `UPDATE campaign_recipients 
+                   SET status = 'failed',
+                       failed_at = COALESCE(failed_at, $1),
+                       error_message = $2,
+                       error_code = $3,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $4`,
+                  [timestamp, errMsg, String(errCode), rcp.id]
+                );
+              }
+
+              // Recalculate campaign statistics in real-time
+              const statsRes = await query(
+                `SELECT 
+                   COUNT(*) as total,
+                   COUNT(*) FILTER (WHERE status = 'pending') as pending,
+                   COUNT(*) FILTER (WHERE status = 'sent') as sent,
+                   COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
+                   COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
+                   COUNT(*) FILTER (WHERE status = 'replied') as replied,
+                   COUNT(*) FILTER (WHERE status = 'failed') as failed
+                 FROM campaign_recipients WHERE campaign_id = $1`,
+                [rcp.campaign_id]
+              );
+
+              const stats = statsRes.rows[0];
+              const remainingPending = parseInt(stats.pending, 10);
+              const failedCount = parseInt(stats.failed, 10);
+              const totalCount = parseInt(stats.total, 10);
+
+              const campStatus = remainingPending === 0
+                ? (failedCount === totalCount ? 'Failed' : (failedCount > 0 ? 'Partially Completed' : 'Completed'))
+                : 'Sending';
+
+              await query(
+                `UPDATE campaigns 
+                 SET delivered = $1,
+                     read = $2,
+                     replied = $3,
+                     failure_count = $4,
+                     status = $5,
+                     completed_at = CASE WHEN $6 = 'Completed' OR $6 = 'Partially Completed' THEN CURRENT_TIMESTAMP ELSE completed_at END,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $7`,
+                [
+                  parseInt(stats.delivered, 10),
+                  parseInt(stats.read, 10),
+                  parseInt(stats.replied, 10),
+                  failedCount,
+                  campStatus,
+                  campStatus,
+                  rcp.campaign_id,
+                ]
+              );
+            }
+          }
+        }
+      }
+
       res.status(200).send('EVENT_RECEIVED');
     } catch (error) {
       console.error('[WhatsApp Webhook Error]:', error);

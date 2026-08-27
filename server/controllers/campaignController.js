@@ -1,54 +1,152 @@
 import { db, query } from '../config/db.js';
+import {
+  metaWhatsAppService,
+  normalizeRecipientPhone,
+  isWhatsAppOpted,
+} from '../services/metaWhatsAppService.js';
 
 export const campaignController = {
+  // POST /api/campaigns/send-test (Real Meta WhatsApp Cloud API Test Message Sender)
+  sendTestMessage: async (req, res, next) => {
+    try {
+      const {
+        recipientPhone,
+        testNumber,
+        templateName,
+        templateLanguage = 'en_US',
+        variables = {},
+        headerVariables = [],
+        headerText,
+        buttonPayloads = [],
+      } = req.body;
+
+      const targetPhone = recipientPhone || testNumber;
+      if (!targetPhone || !String(targetPhone).trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Recipient phone number is required for sending a test message (e.g. +91 98765 43210)',
+        });
+      }
+
+      if (!templateName || !String(templateName).trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'WhatsApp template name is required',
+        });
+      }
+
+      const result = await metaWhatsAppService.sendTemplateMessage({
+        to: targetPhone,
+        templateName: String(templateName).trim(),
+        languageCode: templateLanguage,
+        variables,
+        headerVariables,
+        headerText,
+        buttonPayloads,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error,
+          message: result.message || result.error,
+          errorCode: result.errorCode,
+          errorSubcode: result.errorSubcode,
+          errorType: result.errorType,
+          fbtraceId: result.fbtraceId,
+          missingFields: result.missingFields,
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Test message successfully delivered to Meta WhatsApp Cloud API',
+        data: {
+          wamid: result.wamid,
+          metaMessageId: result.metaMessageId,
+          recipientPhone: result.recipientPhone,
+          templateName: result.templateName,
+          status: result.status,
+          timestamp: result.timestamp,
+          metaResponse: result.metaResponse,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // GET /api/campaigns
   getAll: async (req, res, next) => {
     try {
       const { type, channel, status, category, creator, search, dateRange } = req.query;
-      let sql = 'SELECT * FROM campaigns WHERE 1=1';
+      let sql = `
+        SELECT 
+          c.*,
+          COALESCE(r.total_recs, c.recipients) as calculated_recipients,
+          COALESCE(r.sent_recs, 0) as calculated_sent,
+          COALESCE(r.delivered_recs, c.delivered) as calculated_delivered,
+          COALESCE(r.read_recs, c.read) as calculated_read,
+          COALESCE(r.replied_recs, c.replied) as calculated_replied,
+          COALESCE(r.failed_recs, c.failure_count) as calculated_failed
+        FROM campaigns c
+        LEFT JOIN (
+          SELECT 
+            campaign_id,
+            COUNT(*) as total_recs,
+            COUNT(*) FILTER (WHERE status = 'sent') as sent_recs,
+            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered_recs,
+            COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read_recs,
+            COUNT(*) FILTER (WHERE status = 'replied') as replied_recs,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed_recs
+          FROM campaign_recipients
+          GROUP BY campaign_id
+        ) r ON c.id = r.campaign_id
+        WHERE 1=1
+      `;
       const params = [];
 
       if (type && type !== 'all') {
         params.push(type.toLowerCase());
-        sql += ` AND LOWER(type) = $${params.length}`;
+        sql += ` AND LOWER(c.type) = $${params.length}`;
       }
 
       if (channel && channel !== 'all') {
         params.push(channel.toLowerCase());
-        sql += ` AND LOWER(channel) = $${params.length}`;
+        sql += ` AND LOWER(c.channel) = $${params.length}`;
       }
 
       if (status && status !== 'all') {
         params.push(status.toLowerCase());
-        sql += ` AND LOWER(status) = $${params.length}`;
+        sql += ` AND LOWER(c.status) = $${params.length}`;
       }
 
       if (category && category !== 'all') {
         params.push(category.toLowerCase());
-        sql += ` AND LOWER(category) = $${params.length}`;
+        sql += ` AND LOWER(c.category) = $${params.length}`;
       }
 
       if (creator && creator !== 'all') {
         params.push(creator);
-        sql += ` AND created_by = $${params.length}`;
+        sql += ` AND c.created_by = $${params.length}`;
       }
 
       if (search && search.trim()) {
         params.push(`%${search.trim().toLowerCase()}%`);
-        sql += ` AND (LOWER(name) LIKE $${params.length} OR LOWER(COALESCE(template_name, '')) LIKE $${params.length})`;
+        sql += ` AND (LOWER(c.name) LIKE $${params.length} OR LOWER(COALESCE(c.template_name, '')) LIKE $${params.length})`;
       }
 
       if (dateRange && dateRange !== 'all') {
         if (dateRange === 'today') {
-          sql += ` AND created_at >= CURRENT_DATE`;
+          sql += ` AND c.created_at >= CURRENT_DATE`;
         } else if (dateRange === 'week') {
-          sql += ` AND created_at >= CURRENT_DATE - INTERVAL '7 days'`;
+          sql += ` AND c.created_at >= CURRENT_DATE - INTERVAL '7 days'`;
         } else if (dateRange === 'month') {
-          sql += ` AND created_at >= CURRENT_DATE - INTERVAL '30 days'`;
+          sql += ` AND c.created_at >= CURRENT_DATE - INTERVAL '30 days'`;
         }
       }
 
-      sql += ' ORDER BY created_at DESC';
+      sql += ' ORDER BY c.created_at DESC';
       const result = await query(sql, params);
 
       const formatted = result.rows.map((c) => ({
@@ -58,11 +156,12 @@ export const campaignController = {
         type: c.type || 'onetime',
         category: c.category || 'Marketing',
         status: c.status || 'Scheduled',
-        recipients: parseInt(c.recipients || 0, 10),
-        delivered: parseInt(c.delivered || 0, 10),
-        read: parseInt(c.read || 0, 10),
-        replied: parseInt(c.replied || 0, 10),
-        failureCount: parseInt(c.failure_count || 0, 10),
+        recipients: parseInt(c.calculated_recipients ?? c.recipients ?? 0, 10),
+        sent: parseInt(c.calculated_sent ?? 0, 10),
+        delivered: parseInt(c.calculated_delivered ?? c.delivered ?? 0, 10),
+        read: parseInt(c.calculated_read ?? c.read ?? 0, 10),
+        replied: parseInt(c.calculated_replied ?? c.replied ?? 0, 10),
+        failureCount: parseInt(c.calculated_failed ?? c.failure_count ?? 0, 10),
         scheduledFor: c.scheduled_for,
         sentAt: c.sent_at,
         completedAt: c.completed_at,
@@ -169,7 +268,7 @@ export const campaignController = {
     }
   },
 
-  // POST /api/campaigns (Creates campaign & populates recipient queue in batches)
+  // POST /api/campaigns (Creates campaign & populates recipient queue)
   create: async (req, res, next) => {
     try {
       const {
@@ -191,66 +290,132 @@ export const campaignController = {
         variableMapping,
         recurringConfig,
         status,
+        csvContacts,
       } = req.body;
 
       if (!name || !name.trim()) {
         return res.status(400).json({ success: false, error: 'Campaign name is required' });
       }
 
-      // 1. Build audience query to select contacts from PostgreSQL
-      let audienceSql = 'SELECT id, name, phone, email FROM contacts WHERE 1=1';
-      const audienceParams = [];
+      let eligibleRecipients = [];
+      const rawCsvContacts = Array.isArray(csvContacts) && csvContacts.length > 0
+        ? csvContacts
+        : (Array.isArray(recipients) && recipients.length > 0 ? recipients : []);
 
-      if (audienceType === 'saved_segment' && audienceFilter?.savedSegmentId) {
-        const segRes = await query('SELECT conditions FROM segments WHERE id = $1', [audienceFilter.savedSegmentId]);
-        if (segRes.rows.length > 0 && Array.isArray(segRes.rows[0].conditions)) {
-          segRes.rows[0].conditions.forEach((cond) => {
-            if (cond.field === 'whatsapp_opted') {
-              audienceParams.push(String(cond.value) === 'true');
-              audienceSql += ` AND whatsapp_opted = $${audienceParams.length}`;
-            } else if (cond.field === 'segment') {
-              audienceParams.push(cond.value);
-              audienceSql += ` AND segment = $${audienceParams.length}`;
-            } else if (cond.field === 'tag') {
-              audienceParams.push(cond.value);
-              if (cond.operator === 'is_not') {
-                audienceSql += ` AND (tag != $${audienceParams.length} AND NOT (tags @> jsonb_build_array($${audienceParams.length}::text)))`;
-              } else {
-                audienceSql += ` AND (tag = $${audienceParams.length} OR tags @> jsonb_build_array($${audienceParams.length}::text))`;
-              }
-            } else if (cond.field === 'status') {
-              audienceParams.push(cond.value);
-              audienceSql += ` AND status = $${audienceParams.length}`;
-            }
+      // 1. Process CSV / Explicit Audience if provided
+      if (rawCsvContacts.length > 0) {
+        const onlyOpted = audienceFilter?.whatsappOptedOnly !== false;
+
+        rawCsvContacts.forEach((row, idx) => {
+          // Check opt-in
+          const rawOpted = row.whatsappOpted ?? row.whatsapp_opted ?? row['WhatsApp Opted'] ?? row['whatsapp opted'] ?? true;
+          const optedIn = isWhatsAppOpted(rawOpted);
+
+          if (onlyOpted && !optedIn) {
+            return; // Skip non-opted contacts when filter is active
+          }
+
+          // Normalize Phone
+          const phoneNorm = normalizeRecipientPhone({
+            fullPhone: row.fullPhone || row.full_phone || row['Full Phone Number'] || row['Full Phone'],
+            phone: row.phone || row.phoneNumber || row['Phone Number'] || row.phone_number,
+            countryCode: row.countryCode || row.country_code || row['Country Code'] || '91',
           });
-        }
+
+          if (!phoneNorm.isValid) {
+            return; // Skip invalid phone numbers
+          }
+
+          const recipientName = row.name || row.Name || row['Full Name'] || 'Customer';
+          const recipientEmail = row.email || row.Email || null;
+          const countryCode = row.countryCode || row.country_code || row['Country Code'] || '91';
+
+          // Preserve all extra CSV data for template variable interpolation
+          const csvData = { ...row };
+
+          eligibleRecipients.push({
+            id: `rcp_csv_${Date.now()}_${idx}`,
+            contactId: null,
+            name: recipientName,
+            phone: phoneNorm.normalizedPhone,
+            email: recipientEmail,
+            countryCode,
+            whatsappOpted: optedIn,
+            csvData,
+          });
+        });
       } else {
-        if (audienceType === 'active') {
-          audienceSql += " AND (status != 'Closed' AND status != 'Lost')";
-        } else if (audienceType === 'segment' && audienceFilter?.segment && audienceFilter.segment !== 'all') {
-          audienceParams.push(audienceFilter.segment);
-          audienceSql += ` AND segment = $${audienceParams.length}`;
-        } else if (audienceType === 'tag' && audienceFilter?.tag && audienceFilter.tag !== 'all') {
-          audienceParams.push(audienceFilter.tag);
-          audienceSql += ` AND (tag = $${audienceParams.length} OR tags @> jsonb_build_array($${audienceParams.length}::text))`;
-        } else if (audienceType === 'status' && audienceFilter?.status && audienceFilter.status !== 'all') {
-          audienceParams.push(audienceFilter.status);
-          audienceSql += ` AND status = $${audienceParams.length}`;
+        // 2. Build audience query to select contacts from PostgreSQL
+        let audienceSql = 'SELECT id, name, phone, email, country_code, whatsapp_opted FROM contacts WHERE 1=1';
+        const audienceParams = [];
+
+        if (audienceType === 'saved_segment' && audienceFilter?.savedSegmentId) {
+          const segRes = await query('SELECT conditions FROM segments WHERE id = $1', [audienceFilter.savedSegmentId]);
+          if (segRes.rows.length > 0 && Array.isArray(segRes.rows[0].conditions)) {
+            segRes.rows[0].conditions.forEach((cond) => {
+              if (cond.field === 'whatsapp_opted') {
+                audienceParams.push(String(cond.value) === 'true');
+                audienceSql += ` AND whatsapp_opted = $${audienceParams.length}`;
+              } else if (cond.field === 'segment') {
+                audienceParams.push(cond.value);
+                audienceSql += ` AND segment = $${audienceParams.length}`;
+              } else if (cond.field === 'tag') {
+                audienceParams.push(cond.value);
+                if (cond.operator === 'is_not') {
+                  audienceSql += ` AND (tag != $${audienceParams.length} AND NOT (tags @> jsonb_build_array($${audienceParams.length}::text)))`;
+                } else {
+                  audienceSql += ` AND (tag = $${audienceParams.length} OR tags @> jsonb_build_array($${audienceParams.length}::text))`;
+                }
+              } else if (cond.field === 'status') {
+                audienceParams.push(cond.value);
+                audienceSql += ` AND status = $${audienceParams.length}`;
+              }
+            });
+          }
+        } else {
+          if (audienceType === 'active') {
+            audienceSql += " AND (status != 'Closed' AND status != 'Lost')";
+          } else if (audienceType === 'segment' && audienceFilter?.segment && audienceFilter.segment !== 'all') {
+            audienceParams.push(audienceFilter.segment);
+            audienceSql += ` AND segment = $${audienceParams.length}`;
+          } else if (audienceType === 'tag' && audienceFilter?.tag && audienceFilter.tag !== 'all') {
+            audienceParams.push(audienceFilter.tag);
+            audienceSql += ` AND (tag = $${audienceParams.length} OR tags @> jsonb_build_array($${audienceParams.length}::text))`;
+          } else if (audienceType === 'status' && audienceFilter?.status && audienceFilter.status !== 'all') {
+            audienceParams.push(audienceFilter.status);
+            audienceSql += ` AND status = $${audienceParams.length}`;
+          }
+
+          if (audienceFilter?.whatsappOptedOnly) {
+            audienceSql += ' AND whatsapp_opted = true';
+          }
         }
 
-        if (audienceFilter?.whatsappOptedOnly) {
-          audienceSql += ' AND whatsapp_opted = true';
-        }
+        const targetedContactsRes = await query(audienceSql, audienceParams);
+        eligibleRecipients = targetedContactsRes.rows.map((c, idx) => {
+          const phoneNorm = normalizeRecipientPhone({
+            fullPhone: c.phone,
+            phone: c.phone,
+            countryCode: c.country_code || '91',
+          });
+          return {
+            id: `rcp_db_${c.id || idx}`,
+            contactId: c.id || null,
+            name: c.name || 'Valued Customer',
+            phone: phoneNorm.normalizedPhone || c.phone || '919876543210',
+            email: c.email || '',
+            countryCode: c.country_code || '91',
+            whatsappOpted: c.whatsapp_opted !== false,
+            csvData: { Name: c.name, Email: c.email, Phone: c.phone },
+          };
+        });
       }
 
-      const targetedContactsRes = await query(audienceSql, audienceParams);
-      const targetedContacts = targetedContactsRes.rows;
-      const totalRecipientsCount = targetedContacts.length > 0 ? targetedContacts.length : (recipients || 1450);
-
+      const totalRecipientsCount = eligibleRecipients.length > 0 ? eligibleRecipients.length : (recipients || 0);
       const campaignId = `cmp_${Date.now()}`;
       const campaignStatus = status || 'Scheduled';
 
-      // 2. Insert campaign master record
+      // 3. Insert campaign master record
       const result = await query(
         `INSERT INTO campaigns (
            id, name, description, channel, type, category, status, recipients, delivered, read, replied,
@@ -286,30 +451,38 @@ export const campaignController = {
 
       const newCampaign = result.rows[0];
 
-      // 3. Populate recipient queue in bulk batches of 100
-      if (targetedContacts.length > 0) {
+      // 4. Populate recipient queue in bulk batches of 100
+      if (eligibleRecipients.length > 0) {
         const batchChunkSize = 100;
-        for (let i = 0; i < targetedContacts.length; i += batchChunkSize) {
-          const chunk = targetedContacts.slice(i, i + batchChunkSize);
+        for (let i = 0; i < eligibleRecipients.length; i += batchChunkSize) {
+          const chunk = eligibleRecipients.slice(i, i + batchChunkSize);
           const batchNum = Math.floor(i / batchChunkSize) + 1;
           const placeholders = [];
           const values = [];
 
           chunk.forEach((c, idx) => {
-            const offset = idx * 6;
-            placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`);
+            const offset = idx * 10;
+            placeholders.push(
+              `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10})`
+            );
             values.push(
-              `rcp_${campaignId}_${c.id || idx}`,
+              `rcp_${campaignId}_${idx}`,
               campaignId,
-              c.id || null,
+              c.contactId || null,
               c.name || 'Valued Customer',
-              c.phone || '+91 9876543210',
+              c.phone,
+              c.email || '',
+              c.countryCode || '91',
+              c.whatsappOpted !== false,
+              JSON.stringify(c.csvData || {}),
               batchNum
             );
           });
 
           await query(
-            `INSERT INTO campaign_recipients (id, campaign_id, contact_id, name, phone, batch_number)
+            `INSERT INTO campaign_recipients (
+               id, campaign_id, contact_id, name, phone, email, country_code, whatsapp_opted, csv_data, batch_number
+             )
              VALUES ${placeholders.join(', ')}
              ON CONFLICT (id) DO NOTHING`,
             values
@@ -332,6 +505,217 @@ export const campaignController = {
           templateName: newCampaign.template_name,
           createdBy: newCampaign.created_by,
           createdAt: newCampaign.created_at,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/campaigns/:id/send-now (Real Meta WhatsApp Cloud API Live Send Executor)
+  sendNow: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+
+      // 1. Verify Meta Credentials
+      const creds = await metaWhatsAppService.getCredentials();
+      if (!creds.isConfigured) {
+        return res.status(400).json({
+          success: false,
+          error: 'WHATSAPP_NOT_CONNECTED',
+          message: 'WhatsApp Business API is not connected. Please configure your Meta credentials before sending.',
+          missingFields: creds.missingFields,
+        });
+      }
+
+      // 2. Fetch Campaign
+      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      if (campRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      }
+
+      const campaign = campRes.rows[0];
+
+      // 3. Fetch Pending Recipients
+      const pendingRes = await query(
+        `SELECT id, name, phone, email, country_code, whatsapp_opted, csv_data, batch_number
+         FROM campaign_recipients
+         WHERE campaign_id = $1 AND status = 'pending'
+         ORDER BY batch_number ASC, id ASC`,
+        [id]
+      );
+
+      const pendingRecipients = pendingRes.rows;
+      if (pendingRecipients.length === 0) {
+        return res.json({
+          success: true,
+          message: 'All recipients for this campaign have already been processed.',
+          data: {
+            campaignId: id,
+            status: campaign.status,
+            remainingPending: 0,
+          },
+        });
+      }
+
+      // 4. Update status to 'Sending'
+      await query(
+        `UPDATE campaigns 
+         SET status = 'Sending', sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
+        [id]
+      );
+
+      const variableMapping = typeof campaign.variable_mapping === 'string'
+        ? JSON.parse(campaign.variable_mapping || '{}')
+        : (campaign.variable_mapping || {});
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      // 5. Batch Process Recipients (Chunk size 10)
+      const batchSize = 10;
+      for (let i = 0; i < pendingRecipients.length; i += batchSize) {
+        const chunk = pendingRecipients.slice(i, i + batchSize);
+
+        await Promise.all(
+          chunk.map(async (recipient) => {
+            const rawCsv = typeof recipient.csv_data === 'string'
+              ? JSON.parse(recipient.csv_data || '{}')
+              : (recipient.csv_data || {});
+
+            // Dynamic Variable Interpolation
+            const resolvedVariables = {};
+            Object.entries(variableMapping).forEach(([varKey, mappingTarget]) => {
+              const targetStr = String(mappingTarget).trim();
+              // Lookup in CSV attributes, recipient fields, or static
+              let resolvedVal = null;
+
+              // Case-insensitive lookup in csvData
+              if (rawCsv && typeof rawCsv === 'object') {
+                const matchKey = Object.keys(rawCsv).find(
+                  (k) => k.toLowerCase() === targetStr.toLowerCase() || `{{${k.toLowerCase()}}}` === targetStr.toLowerCase()
+                );
+                if (matchKey && rawCsv[matchKey] !== undefined && rawCsv[matchKey] !== null) {
+                  resolvedVal = rawCsv[matchKey];
+                }
+              }
+
+              if (resolvedVal === null) {
+                if (targetStr.toLowerCase() === 'name' || targetStr.toLowerCase() === '{{name}}') {
+                  resolvedVal = recipient.name;
+                } else if (targetStr.toLowerCase() === 'email' || targetStr.toLowerCase() === '{{email}}') {
+                  resolvedVal = recipient.email;
+                } else if (targetStr.toLowerCase() === 'phone' || targetStr.toLowerCase() === '{{phone}}') {
+                  resolvedVal = recipient.phone;
+                } else {
+                  resolvedVal = targetStr; // Static value
+                }
+              }
+
+              resolvedVariables[varKey] = resolvedVal || '';
+            });
+
+            // Dispatch via Meta WhatsApp Cloud API
+            const metaResult = await metaWhatsAppService.sendTemplateMessage({
+              to: recipient.phone,
+              templateName: campaign.template_name,
+              languageCode: campaign.template_language || 'en_US',
+              variables: resolvedVariables,
+            });
+
+            if (metaResult.success) {
+              successCount++;
+              await query(
+                `UPDATE campaign_recipients 
+                 SET status = 'sent',
+                     sent_at = CURRENT_TIMESTAMP,
+                     meta_message_id = $1,
+                     error_message = NULL,
+                     error_code = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $2`,
+                [metaResult.wamid, recipient.id]
+              );
+            } else {
+              failureCount++;
+              await query(
+                `UPDATE campaign_recipients 
+                 SET status = 'failed',
+                     failed_at = CURRENT_TIMESTAMP,
+                     error_message = $1,
+                     error_code = $2,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3`,
+                [metaResult.error || 'Meta dispatch error', String(metaResult.errorCode || 'META_API_ERROR'), recipient.id]
+              );
+            }
+          })
+        );
+      }
+
+      // 6. Recalculate Master Campaign Statistics from Database
+      const statsRes = await query(
+        `SELECT 
+           COUNT(*) as total,
+           COUNT(*) FILTER (WHERE status = 'pending') as pending,
+           COUNT(*) FILTER (WHERE status = 'sent') as sent,
+           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
+           COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
+           COUNT(*) FILTER (WHERE status = 'replied') as replied,
+           COUNT(*) FILTER (WHERE status = 'failed') as failed
+         FROM campaign_recipients WHERE campaign_id = $1`,
+        [id]
+      );
+
+      const stats = statsRes.rows[0];
+      const remainingPending = parseInt(stats.pending, 10);
+      const totalRecipients = parseInt(stats.total, 10);
+      const failedTotal = parseInt(stats.failed, 10);
+
+      const finalStatus = remainingPending === 0
+        ? (failedTotal === totalRecipients ? 'Failed' : (failedTotal > 0 ? 'Partially Completed' : 'Completed'))
+        : 'Sending';
+
+      await query(
+        `UPDATE campaigns 
+         SET delivered = $1,
+             read = $2,
+             replied = $3,
+             failure_count = $4,
+             status = $5,
+             completed_at = CASE WHEN $6 = 'Completed' OR $6 = 'Partially Completed' THEN CURRENT_TIMESTAMP ELSE completed_at END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7`,
+        [
+          parseInt(stats.delivered, 10),
+          parseInt(stats.read, 10),
+          parseInt(stats.replied, 10),
+          failedTotal,
+          finalStatus,
+          finalStatus,
+          id,
+        ]
+      );
+
+      res.json({
+        success: true,
+        message: 'Campaign processed via Meta WhatsApp Cloud API',
+        data: {
+          campaignId: id,
+          status: finalStatus,
+          total: totalRecipients,
+          processed: pendingRecipients.length,
+          sent: successCount,
+          failed: failureCount,
+          stats: {
+            total: totalRecipients,
+            sent: parseInt(stats.sent, 10),
+            delivered: parseInt(stats.delivered, 10),
+            read: parseInt(stats.read, 10),
+            failed: failedTotal,
+            pending: remainingPending,
+          },
         },
       });
     } catch (error) {
@@ -377,6 +761,7 @@ export const campaignController = {
         `SELECT 
            COUNT(*) as total,
            COUNT(*) FILTER (WHERE status = 'pending') as pending,
+           COUNT(*) FILTER (WHERE status = 'sent') as sent,
            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
            COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
            COUNT(*) FILTER (WHERE status = 'replied') as replied,
@@ -394,11 +779,17 @@ export const campaignController = {
           phone: r.phone,
           status: r.status,
           batchNumber: r.batch_number,
+          metaMessageId: r.meta_message_id,
+          countryCode: r.country_code,
+          whatsappOpted: r.whatsapp_opted,
+          csvData: typeof r.csv_data === 'string' ? JSON.parse(r.csv_data || '{}') : r.csv_data,
           sentAt: r.sent_at,
           deliveredAt: r.delivered_at,
           readAt: r.read_at,
           repliedAt: r.replied_at,
+          failedAt: r.failed_at,
           errorMessage: r.error_message,
+          errorCode: r.error_code,
         })),
         total,
         page,
@@ -415,11 +806,12 @@ export const campaignController = {
   processBatch: async (req, res, next) => {
     try {
       const { id } = req.params;
-      const batchSize = parseInt(req.body.batchSize || '100', 10);
+      const batchSize = Math.min(50, Math.max(1, parseInt(req.body.batchSize || '10', 10)));
 
       // 1. Fetch next batch of pending recipients
       const pendingRes = await query(
-        `SELECT id, phone, name FROM campaign_recipients 
+        `SELECT id, name, phone, email, country_code, whatsapp_opted, csv_data, batch_number
+         FROM campaign_recipients 
          WHERE campaign_id = $1 AND status = 'pending' 
          ORDER BY batch_number ASC, id ASC 
          LIMIT $2`,
@@ -428,10 +820,23 @@ export const campaignController = {
 
       const pendingRows = pendingRes.rows;
       if (pendingRows.length === 0) {
-        // Mark campaign as completed
-        await query(
-          "UPDATE campaigns SET status = 'Completed', completed_at = CURRENT_TIMESTAMP WHERE id = $1",
+        // Recalculate and mark completed
+        const statsRes = await query(
+          `SELECT 
+             COUNT(*) as total,
+             COUNT(*) FILTER (WHERE status = 'pending') as pending,
+             COUNT(*) FILTER (WHERE status = 'failed') as failed
+           FROM campaign_recipients WHERE campaign_id = $1`,
           [id]
+        );
+        const stats = statsRes.rows[0];
+        const finalStatus = parseInt(stats.failed, 10) === parseInt(stats.total, 10)
+          ? 'Failed'
+          : (parseInt(stats.failed, 10) > 0 ? 'Partially Completed' : 'Completed');
+
+        await query(
+          `UPDATE campaigns SET status = $1, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [finalStatus, id]
         );
 
         return res.json({
@@ -443,31 +848,78 @@ export const campaignController = {
         });
       }
 
-      const idsToUpdate = pendingRows.map((r) => r.id);
+      // 2. Fetch Campaign details
+      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      const campaign = campRes.rows[0] || {};
+      const variableMapping = typeof campaign.variable_mapping === 'string'
+        ? JSON.parse(campaign.variable_mapping || '{}')
+        : (campaign.variable_mapping || {});
 
-      // 2. Mark recipients as delivered / read / replied (simulation/dispatch engine)
-      await query(
-        `UPDATE campaign_recipients
-         SET status = CASE 
-               WHEN RIGHT(id, 1) IN ('0', '5') THEN 'replied'
-               WHEN RIGHT(id, 1) IN ('1', '2', '3', '7') THEN 'read'
-               WHEN RIGHT(id, 1) = '9' THEN 'failed'
-               ELSE 'delivered'
-             END,
-             sent_at = CURRENT_TIMESTAMP,
-             delivered_at = CURRENT_TIMESTAMP + INTERVAL '1 second',
-             read_at = CASE WHEN RIGHT(id, 1) IN ('0', '1', '2', '3', '5', '7') THEN CURRENT_TIMESTAMP + INTERVAL '10 seconds' ELSE NULL END,
-             replied_at = CASE WHEN RIGHT(id, 1) IN ('0', '5') THEN CURRENT_TIMESTAMP + INTERVAL '45 seconds' ELSE NULL END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ANY($1)`,
-        [idsToUpdate]
-      );
+      // 3. Process Batch
+      for (const recipient of pendingRows) {
+        const rawCsv = typeof recipient.csv_data === 'string'
+          ? JSON.parse(recipient.csv_data || '{}')
+          : (recipient.csv_data || {});
 
-      // 3. Recalculate campaign master statistics
+        const resolvedVariables = {};
+        Object.entries(variableMapping).forEach(([varKey, mappingTarget]) => {
+          const targetStr = String(mappingTarget).trim();
+          let resolvedVal = null;
+
+          if (rawCsv && typeof rawCsv === 'object') {
+            const matchKey = Object.keys(rawCsv).find(
+              (k) => k.toLowerCase() === targetStr.toLowerCase() || `{{${k.toLowerCase()}}}` === targetStr.toLowerCase()
+            );
+            if (matchKey && rawCsv[matchKey] !== undefined && rawCsv[matchKey] !== null) {
+              resolvedVal = rawCsv[matchKey];
+            }
+          }
+
+          if (resolvedVal === null) {
+            if (targetStr.toLowerCase() === 'name' || targetStr.toLowerCase() === '{{name}}') {
+              resolvedVal = recipient.name;
+            } else if (targetStr.toLowerCase() === 'email' || targetStr.toLowerCase() === '{{email}}') {
+              resolvedVal = recipient.email;
+            } else if (targetStr.toLowerCase() === 'phone' || targetStr.toLowerCase() === '{{phone}}') {
+              resolvedVal = recipient.phone;
+            } else {
+              resolvedVal = targetStr;
+            }
+          }
+
+          resolvedVariables[varKey] = resolvedVal || '';
+        });
+
+        const metaResult = await metaWhatsAppService.sendTemplateMessage({
+          to: recipient.phone,
+          templateName: campaign.template_name || 'promo_offer',
+          languageCode: campaign.template_language || 'en_US',
+          variables: resolvedVariables,
+        });
+
+        if (metaResult.success) {
+          await query(
+            `UPDATE campaign_recipients 
+             SET status = 'sent', sent_at = CURRENT_TIMESTAMP, meta_message_id = $1, error_message = NULL, error_code = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [metaResult.wamid, recipient.id]
+          );
+        } else {
+          await query(
+            `UPDATE campaign_recipients 
+             SET status = 'failed', failed_at = CURRENT_TIMESTAMP, error_message = $1, error_code = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [metaResult.error || 'Meta API delivery failed', String(metaResult.errorCode || 'META_API_ERROR'), recipient.id]
+          );
+        }
+      }
+
+      // 4. Recalculate campaign master statistics
       const statsRes = await query(
         `SELECT 
            COUNT(*) as total,
            COUNT(*) FILTER (WHERE status = 'pending') as pending,
+           COUNT(*) FILTER (WHERE status = 'sent') as sent,
            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
            COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
            COUNT(*) FILTER (WHERE status = 'replied') as replied,
@@ -497,7 +949,7 @@ export const campaignController = {
           parseInt(stats.read, 10),
           parseInt(stats.replied, 10),
           parseInt(stats.failed, 10),
-          isCompleted ? 'Completed' : 'Sending',
+          isCompleted ? (parseInt(stats.failed, 10) === parseInt(stats.total, 10) ? 'Failed' : (parseInt(stats.failed, 10) > 0 ? 'Partially Completed' : 'Completed')) : 'Sending',
           isCompleted,
           id,
         ]
@@ -895,6 +1347,19 @@ export const campaignController = {
           createdAt: t.created_at,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/campaigns/meta-templates
+  getMetaTemplates: async (req, res, next) => {
+    try {
+      const result = await metaWhatsAppService.getWhatsAppTemplates();
+      if (!result.success) {
+        return res.status(result.error === 'WHATSAPP_NOT_CONNECTED' ? 400 : 502).json(result);
+      }
+      res.json(result);
     } catch (error) {
       next(error);
     }

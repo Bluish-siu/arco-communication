@@ -21,7 +21,7 @@ import { segmentsService } from '../services/segmentsService';
 import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
 
 export default function Segments() {
-  const { user, businessSetup, logout } = useOnboarding();
+  const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
   const userName = businessSetup?.companyName || user?.name || 'Business Owner';
   const navigate = useNavigate();
 
@@ -175,8 +175,16 @@ export default function Segments() {
               <span className="text-gray-900 font-medium">Segments</span>
             </div>
 
-            {/* Profile Dropdown */}
+            {/* Profile & Controls */}
             <div className="flex items-center gap-3">
+              {/* Trial Plan Badge */}
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                <span className="font-bold">{subscription?.planName || 'Trial Plan'}</span>
+                <span className="text-[11px] text-emerald-600 flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> {trialDaysRemaining} Days Left
+                </span>
+              </div>
+
               <div className="relative profile-container">
                 <button
                   onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}

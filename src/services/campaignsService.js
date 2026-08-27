@@ -25,6 +25,15 @@ export const campaignsService = {
     return res.data;
   },
 
+  // POST /api/campaigns/send-test
+  sendTestMessage: async (testPayload) => {
+    const res = await apiRequest('/campaigns/send-test', {
+      method: 'POST',
+      body: JSON.stringify(testPayload),
+    });
+    return res;
+  },
+
   // POST /api/campaigns
   createCampaign: async (campaignData) => {
     const res = await apiRequest('/campaigns', {
@@ -78,10 +87,18 @@ export const campaignsService = {
   },
 
   // POST /api/campaigns/:id/process-batch
-  processBatch: async (id, batchSize = 100) => {
+  processBatch: async (id, batchSize = 10) => {
     const res = await apiRequest(`/campaigns/${id}/process-batch`, {
       method: 'POST',
       body: JSON.stringify({ batchSize }),
+    });
+    return res;
+  },
+
+  // POST /api/campaigns/:id/send-now (Real Meta WhatsApp Live Sending)
+  sendNow: async (id) => {
+    const res = await apiRequest(`/campaigns/${id}/send-now`, {
+      method: 'POST',
     });
     return res;
   },
@@ -112,5 +129,16 @@ export const campaignsService = {
   getTemplate: async (id) => {
     const res = await apiRequest(`/campaign-templates/${id}`);
     return res.data;
+  },
+
+  // GET /api/campaigns/meta-templates (Real approved WhatsApp templates from connected Meta WABA)
+  getMetaTemplates: async () => {
+    try {
+      const res = await apiRequest('/campaigns/meta-templates');
+      return res;
+    } catch (err) {
+      console.warn('[Campaigns Service] getMetaTemplates failed:', err);
+      return { success: false, data: [], approved: [], error: err.message };
+    }
   },
 };

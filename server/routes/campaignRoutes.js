@@ -7,6 +7,8 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/audiences', campaignController.getAudiences);
+router.get('/meta-templates', campaignController.getMetaTemplates);
+router.post('/send-test', campaignController.sendTestMessage);
 router.get('/', campaignController.getAll);
 router.post('/', campaignController.create);
 router.get('/:id', campaignController.getById);
@@ -18,5 +20,6 @@ router.delete('/:id', campaignController.delete);
 // Bulk Recipient Queue & Delivery Engine Routes
 router.get('/:id/recipients', campaignController.getRecipients);
 router.post('/:id/process-batch', campaignController.processBatch);
+router.post('/:id/send-now', campaignController.sendNow);
 
 export default router;

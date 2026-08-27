@@ -18,6 +18,7 @@ import {
   BarChart3,
   RefreshCw,
   Plus,
+  Clock,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -25,7 +26,7 @@ import { ctwaService } from '../services/ctwaService';
 
 export default function AdPerformance() {
   const navigate = useNavigate();
-  const { user, businessSetup, logout } = useOnboarding();
+  const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
   const userName = businessSetup?.companyName || user?.name || 'Business Owner';
 
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -100,8 +101,16 @@ export default function AdPerformance() {
               <span className="text-gray-900 font-medium">Meta Ads (Click-to-WhatsApp)</span>
             </div>
 
-            {/* Profile Dropdown */}
+            {/* Profile & Controls */}
             <div className="flex items-center gap-3">
+              {/* Trial Plan Badge */}
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                <span className="font-bold">{subscription?.planName || 'Trial Plan'}</span>
+                <span className="text-[11px] text-emerald-600 flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> {trialDaysRemaining} Days Left
+                </span>
+              </div>
+
               <div className="relative profile-container">
                 <button
                   type="button"

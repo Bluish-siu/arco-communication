@@ -56,11 +56,13 @@ export const automationController = {
       if (outOfOffice !== undefined) updatePayload.out_of_office = outOfOffice;
       if (welcomeMessage !== undefined) updatePayload.welcome_message = welcomeMessage;
       if (delayedResponse !== undefined) updatePayload.delayed_response = delayedResponse;
+      if (req.body.customRepliesEnabled !== undefined) updatePayload.custom_replies_enabled = !!req.body.customRepliesEnabled;
 
       if (!settings) {
         settings = await db.insert('automation_settings', {
           id: `aset_${userId}`,
           user_id: userId,
+          custom_replies_enabled: req.body.customRepliesEnabled !== undefined ? !!req.body.customRepliesEnabled : true,
           ...updatePayload,
         });
       } else {
@@ -80,6 +82,92 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { channel, search } = req.query;
+
+      // Seed standard custom replies if empty
+      const countRes = await query('SELECT COUNT(*) as count FROM custom_auto_replies WHERE user_id = $1', [userId]);
+      if (parseInt(countRes.rows[0]?.count || '0', 10) === 0) {
+        const defaultReplies = [
+          {
+            id: `car_wa_1`,
+            user_id: userId,
+            channel: 'whatsapp',
+            trigger_keyword: 'What digital solutions do you offer?',
+            additional_triggers: JSON.stringify([
+              'digital solutions', 'what services do you provide', 'software development',
+              'web development', 'mobile apps', 'ai integration',
+              'solutions list', 'digital offerings', 'tech stack'
+            ]),
+            match_type: 'contains',
+            action_type: 'auto_reply',
+            response_message: 'We offer custom websites, mobile apps, enterprise cloud infrastructure, AI autonomous agents, and WhatsApp marketing automation workflows tailored to your scale.',
+            status: 'active',
+            conversations_sent: 0,
+          },
+          {
+            id: `car_wa_2`,
+            user_id: userId,
+            channel: 'whatsapp',
+            trigger_keyword: 'What industries do you work with?',
+            additional_triggers: JSON.stringify([
+              'industries', 'sectors', 'clients', 'healthcare',
+              'ecommerce', 'retail', 'real estate', 'fintech', 'education'
+            ]),
+            match_type: 'contains',
+            action_type: 'auto_reply',
+            response_message: 'We work with growing SMEs, healthcare, e-commerce & D2C retailers, real estate developers, educational institutes, and fintech startups.',
+            status: 'active',
+            conversations_sent: 0,
+          },
+          {
+            id: `car_wa_3`,
+            user_id: userId,
+            channel: 'whatsapp',
+            trigger_keyword: 'Why should we choose ARCO?',
+            additional_triggers: JSON.stringify([
+              'why choose us', 'benefits', 'features', 'advantage',
+              'why arco', 'support', 'reliability', 'pricing comparison', 'reviews'
+            ]),
+            match_type: 'contains',
+            action_type: 'auto_reply',
+            response_message: 'We prioritize understanding your business objectives with dedicated 24/7 technical support, official Meta Cloud API infrastructure, 99.9% delivery uptime, and built-in AI conversational agents.',
+            status: 'active',
+            conversations_sent: 0,
+          },
+          {
+            id: `car_ig_1`,
+            user_id: userId,
+            channel: 'instagram',
+            trigger_keyword: 'Price please',
+            additional_triggers: JSON.stringify(['price', 'cost', 'how much', 'pricing']),
+            match_type: 'contains',
+            action_type: 'auto_reply',
+            response_message: 'Hey there! 👋 Thanks for reaching out! Our plans start at ₹999/mo with unlimited agent accounts. Check out https://arco.ai/pricing',
+            status: 'active',
+            conversations_sent: 0,
+          },
+          {
+            id: `car_ig_2`,
+            user_id: userId,
+            channel: 'instagram',
+            trigger_keyword: 'Collaboration inquiry',
+            additional_triggers: JSON.stringify(['collab', 'partnership', 'influencer', 'sponsor']),
+            match_type: 'contains',
+            action_type: 'auto_reply',
+            response_message: "Hi! We'd love to explore creator partnerships. Please DM your media kit or email us at partners@arco.ai.",
+            status: 'active',
+            conversations_sent: 0,
+          },
+        ];
+
+        for (const dr of defaultReplies) {
+          await query(
+            `INSERT INTO custom_auto_replies (id, user_id, channel, trigger_keyword, additional_triggers, match_type, action_type, response_message, status, conversations_sent, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (id) DO NOTHING`,
+            [dr.id, dr.user_id, dr.channel, dr.trigger_keyword, dr.additional_triggers, dr.match_type, dr.action_type, dr.response_message, dr.status, dr.conversations_sent]
+          );
+        }
+      }
 
       let sql = 'SELECT * FROM custom_auto_replies WHERE user_id = $1';
       const params = [userId];
@@ -106,7 +194,13 @@ export const automationController = {
   createCustomReply: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
-      const { trigger_keyword, additional_triggers, match_type, action_type, response_message, channel, status } = req.body;
+      const trigger_keyword = req.body.trigger_keyword || req.body.trigger;
+      const response_message = req.body.response_message || req.body.response;
+      const additional_triggers = req.body.additional_triggers || req.body.additionalTriggers || [];
+      const match_type = req.body.match_type || req.body.matchType || 'contains';
+      const action_type = req.body.action_type || req.body.actionType || 'auto_reply';
+      const channel = req.body.channel || 'whatsapp';
+      const status = req.body.status || 'active';
 
       if (!trigger_keyword) {
         return res.status(400).json({ success: false, error: 'Trigger keyword is required' });
@@ -218,6 +312,21 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { search, status } = req.query;
+
+      // Ensure standard Interakt workflows exist
+      const standardWorkflows = [
+        { id: 'wf_analytics_1', name: 'ai_performance_analytics_dashboard_vf', trigger: 'Customer reaches out', action: 'Route to analytics workflow', user_id: userId },
+        { id: 'wf_support_2', name: 'ai_ai-powered_customer_support_tg', trigger: 'Customer asks question', action: 'AI support resolution triage', user_id: userId },
+        { id: 'wf_onboarding_3', name: 'ai_automated_client_onboarding_cw', trigger: 'First inbound conversation', action: 'Client discovery & onboarding sequence', user_id: userId },
+      ];
+      for (const wf of standardWorkflows) {
+        await query(
+          `INSERT INTO workflows (id, user_id, name, trigger, action, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) DO NOTHING`,
+          [wf.id, wf.user_id, wf.name, wf.trigger, wf.action]
+        );
+      }
 
       let sql = 'SELECT * FROM workflows WHERE (user_id = $1 OR user_id IS NULL)';
       const params = [userId];
@@ -989,6 +1098,47 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { search } = req.query;
+
+      // Seed standard WhatsApp forms if empty
+      const countRes = await query('SELECT COUNT(*) as count FROM whatsapp_forms');
+      if (parseInt(countRes.rows[0]?.count || '0', 10) === 0) {
+        const defaultForms = [
+          {
+            id: 'form_tech_req',
+            user_id: userId,
+            title: 'Technical Requirements & Project Details',
+            description: 'Collect client technical stack, scope, and budget in WhatsApp chat',
+            form_id: 'tech_requirements_flow',
+            status: 'published',
+            fields: JSON.stringify([
+              { id: 'f1', type: 'text', label: 'Full Name', required: true },
+              { id: 'f2', type: 'text', label: 'Project Scope', required: true },
+              { id: 'f3', type: 'dropdown', label: 'Budget Range', options: ['< ₹50,000', '₹50k - ₹2 Lakhs', '> ₹2 Lakhs'] },
+            ]),
+          },
+          {
+            id: 'form_feedback',
+            user_id: userId,
+            title: 'Customer Satisfaction & Feedback',
+            description: 'Instant 1-click customer feedback survey',
+            form_id: 'csat_survey_flow',
+            status: 'published',
+            fields: JSON.stringify([
+              { id: 'f1', type: 'rating', label: 'Rate your experience (1-5)', required: true },
+              { id: 'f2', type: 'textarea', label: 'Additional Comments' },
+            ]),
+          },
+        ];
+
+        for (const f of defaultForms) {
+          await query(
+            `INSERT INTO whatsapp_forms (id, user_id, title, description, form_id, status, fields, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (id) DO NOTHING`,
+            [f.id, f.user_id, f.title, f.description, f.form_id, f.status, f.fields]
+          );
+        }
+      }
 
       let sql = 'SELECT * FROM whatsapp_forms WHERE user_id = $1';
       const params = [userId];

@@ -125,7 +125,16 @@ export const automationService = {
   getAiAgentData: async () => {
     return apiRequest('/automation/ai-agent');
   },
+  getWhatsAppAiAgentData: async () => {
+    return apiRequest('/automation/ai-agent');
+  },
   updateAiAgentConfig: async (configData) => {
+    return apiRequest('/automation/ai-agent/config', {
+      method: 'PUT',
+      body: JSON.stringify(configData),
+    });
+  },
+  saveWhatsAppAiAgentData: async (configData) => {
     return apiRequest('/automation/ai-agent/config', {
       method: 'PUT',
       body: JSON.stringify(configData),
@@ -201,6 +210,10 @@ export const automationService = {
 
   // 8. WhatsApp Forms
   getForms: async (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(`/automation/forms${query ? `?${query}` : ''}`);
+  },
+  getWhatsAppForms: async (params = {}) => {
     const query = new URLSearchParams(params).toString();
     return apiRequest(`/automation/forms${query ? `?${query}` : ''}`);
   },

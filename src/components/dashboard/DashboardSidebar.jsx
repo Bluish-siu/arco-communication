@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Menu,
@@ -55,13 +55,28 @@ export default function DashboardSidebar() {
   const [activeSubItem, setActiveSubItem] = useState('');
   
   // Track open submenus (multiple can stay open)
+  const isMarketRoute =
+    location.pathname.includes('/templates') ||
+    location.pathname.includes('/segments') ||
+    location.pathname.includes('/campaigns') ||
+    location.pathname.includes('/analytics/campaign-reports') ||
+    location.pathname.includes('/analytics/ad-performance') ||
+    location.pathname.includes('/ctwa') ||
+    location.pathname.includes('/market');
+
   const [expandedMenus, setExpandedMenus] = useState(() => ({
-    market: false,
+    market: isMarketRoute,
     support: location.pathname.includes('/automation/chat-assignment') || location.pathname.includes('/analytics/overview'),
     automation: location.pathname.includes('/automation') && !location.pathname.includes('/automation/chat-assignment'),
     salesCrm: location.pathname.includes('sales') || location.pathname.includes('task') || location.pathname.includes('contact'),
     commerce: location.pathname.includes('commerce') || location.pathname.includes('catalog'),
   }));
+
+  useEffect(() => {
+    if (isMarketRoute) {
+      setExpandedMenus((prev) => ({ ...prev, market: true }));
+    }
+  }, [location.pathname]);
 
   const toggleSubmenu = (key, e) => {
     if (e) {
@@ -357,6 +372,8 @@ export default function DashboardSidebar() {
                           const isSubActive =
                             activeSubItem === sub.id ||
                             sub.link === location.pathname ||
+                            (sub.id === 'meta-ads' && (location.pathname === '/analytics/ad-performance' || location.pathname.startsWith('/ctwa') || location.pathname === '/market/meta-ads')) ||
+                            (sub.id === 'campaign-reports' && (location.pathname === '/analytics/campaign-reports' || location.pathname === '/market/campaign-reports')) ||
                             (sub.id === 'templates' && location.pathname.startsWith('/templates')) ||
                             (sub.id === 'commerce-settings' && location.pathname === '/commerce-settings') ||
                             (sub.id === 'catalog' && (location.pathname === '/commerce/catalog' || location.pathname === '/catalog')) ||
