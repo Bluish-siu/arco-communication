@@ -20,6 +20,7 @@ import templateRoutes from './templateRoutes.js';
 import automationRoutes from './automationRoutes.js';
 import integrationRoutes from './integrationRoutes.js';
 import shopifyWebhookRoutes from './shopifyWebhookRoutes.js';
+import chatAssignmentRoutes from './chatAssignmentRoutes.js';
 
 const router = Router();
 

@@ -77,18 +77,30 @@ app.get('/', (req, res) => {
 app.use(errorHandler);
 
 // Start listening
-const PORT = config.port;
-app.listen(PORT, '0.0.0.0', async () => {
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (config.port || 5000);
+const HOST = process.env.HOST || config.host || '0.0.0.0';
+
+const server = app.listen(PORT, HOST, async () => {
+  const address = server.address();
+  const boundHost = typeof address === 'object' && address ? address.address : HOST;
+  const boundPort = typeof address === 'object' && address ? address.port : PORT;
+
   console.log(`=========================================`);
   console.log(`🚀 ARCO Communication Backend Server running`);
-  console.log(`📍 Port: ${PORT}`);
+  console.log(`📍 Host: ${boundHost}`);
+  console.log(`📍 Port: ${boundPort}`);
   console.log(`🐘 Database: PostgreSQL 18 (arco_communication)`);
-  console.log(`🌐 Base URL: http://localhost:${PORT}/api`);
-  console.log(`🩺 Health Check: http://localhost:${PORT}/api/health`);
+  console.log(`🌐 Base URL: http://${boundHost}:${boundPort}/api`);
+  console.log(`🩺 Health Check: http://${boundHost}:${boundPort}/api/health`);
   console.log(`=========================================`);
 
   // Test PostgreSQL connection
   await testDbConnection();
+});
+
+server.on('error', (err) => {
+  console.error('[Server Listen Error]:', err.message);
+  process.exit(1);
 });
 
 export default app;

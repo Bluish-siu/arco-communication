@@ -371,6 +371,54 @@ async function main() {
     );
   });
 
+  // -------------------------------------------------------------
+  // Test 14: Server Routes Module Integrity
+  // -------------------------------------------------------------
+  await runAsyncTest('14. Server API routes index evaluates cleanly without ReferenceError', async () => {
+    const apiRoutesModule = await import('../routes/index.js');
+    assert.ok(apiRoutesModule.default, 'apiRoutes default export must be defined');
+    assert.strictEqual(typeof apiRoutesModule.default, 'function', 'apiRoutes should be an Express Router function');
+  });
+
+  // -------------------------------------------------------------
+  // Test 15: Render Port Binding & Start Configuration
+  // -------------------------------------------------------------
+  runTest('15. Render port binding defaults to 0.0.0.0 and package.json start script exists', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const pkgPath = path.resolve(process.cwd(), 'package.json');
+    const serverPath = path.resolve(process.cwd(), 'server/server.js');
+    const configPath = path.resolve(process.cwd(), 'server/config/index.js');
+
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    assert.strictEqual(pkg.scripts.start, 'node server/server.js', 'package.json must contain start script');
+
+    const serverCode = fs.readFileSync(serverPath, 'utf8');
+    const configCode = fs.readFileSync(configPath, 'utf8');
+
+    // Confirm binding to 0.0.0.0
+    assert.ok(
+      serverCode.includes("const HOST = process.env.HOST || config.host || '0.0.0.0';"),
+      'server.js must bind to 0.0.0.0'
+    );
+
+    // Confirm PORT fallback to 5000 and process.env.PORT support
+    assert.ok(
+      serverCode.includes('process.env.PORT'),
+      'server.js must check process.env.PORT'
+    );
+    assert.ok(
+      configCode.includes('5000'),
+      'config/index.js must have 5000 fallback'
+    );
+
+    // Confirm no hardcoded localhost base URL
+    assert.ok(
+      !serverCode.includes('http://localhost:${PORT}/api'),
+      'server.js must not hardcode localhost in startup Base URL'
+    );
+  });
+
   console.log('\n-------------------------------------------------------------');
   console.log(` RESULTS: ${passedTests}/${totalTests} Tests Passed`);
   console.log('-------------------------------------------------------------\n');
