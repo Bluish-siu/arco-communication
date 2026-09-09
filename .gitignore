@@ -24,3 +24,9 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+# Scratch directory and reports
+scratch/
+*.pdf
+ARCO_CODEBASE_ANALYSIS.md
+

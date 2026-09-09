@@ -21,6 +21,7 @@ import {
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { integrationService } from '../services/integrationService';
+import { isShopifyEmbedded, getShopifyParams } from '../utils/shopifyAppBridge';
 
 const ALL_CATEGORIES = [
   'All Categories',
@@ -67,6 +68,8 @@ function ShopifyLogo({ className = 'w-9 h-9' }) {
 export default function Integrations() {
   const [searchParams] = useSearchParams();
   const { user } = useOnboarding();
+  const isEmbedded = isShopifyEmbedded();
+  const { shop: embeddedShop } = getShopifyParams();
 
   // Filters State
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'free' | 'paid'
@@ -157,32 +160,13 @@ export default function Integrations() {
 
       const { authUrl, shop } = oauthRes.data;
 
-      // 2. If real OAuth redirect is configured, redirect browser to Shopify
-      if (authUrl.startsWith('https://')) {
+      // 2. Redirect browser to Shopify OAuth Authorization
+      if (authUrl && authUrl.startsWith('https://')) {
         window.location.href = authUrl;
         return;
       }
 
-      // 3. Dev / Simulated direct OAuth exchange
-      const connectRes = await integrationService.connectShopify({
-        shop,
-        shopName: shop.replace('.myshopify.com', ''),
-      });
-
-      if (connectRes.success) {
-        setShopifyStatus({
-          connected: true,
-          shopDomain: shop,
-          shopName: shop.replace('.myshopify.com', ''),
-          status: 'connected',
-          installedAt: new Date().toISOString(),
-        });
-        setIsConnectModalOpen(false);
-        setShopInput('');
-        showToast('Shopify Sales Channel connected successfully!', 'success');
-      } else {
-        setModalError(connectRes.error || 'Failed to complete Shopify connection');
-      }
+      setModalError('Shopify API Key is not configured on the server. Please configure SHOPIFY_API_KEY in environment variables.');
     } catch (err) {
       setModalError(err.message || 'Connection request failed. Please check the shop domain.');
     } finally {
@@ -414,10 +398,20 @@ export default function Integrations() {
                           Free
                         </span>
 
-                        {shopifyStatus.connected ? (
+                        {loading ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-full">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-600" />
+                            Connecting...
+                          </span>
+                        ) : shopifyStatus.connected ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                             Connected
+                          </span>
+                        ) : shopifyStatus.status === 'error' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-amber-800 text-[11px] font-bold rounded-full">
+                            <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                            Sync Needed
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-100 text-slate-600 text-[11px] font-medium rounded-full">
@@ -443,15 +437,36 @@ export default function Integrations() {
                     </p>
 
                     {/* Connected Store Metadata Box */}
-                    {shopifyStatus.connected && shopifyStatus.shopDomain && (
+                    {shopifyStatus.connected && (shopifyStatus.shopDomain || embeddedShop) && (
                       <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1">
                         <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-900">
                           <Store className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="truncate">{shopifyStatus.shopDomain}</span>
+                          <span className="truncate">{shopifyStatus.shopDomain || embeddedShop}</span>
                         </div>
                         <div className="text-[10px] text-emerald-700 font-medium">
                           Status: Active Catalog & Order Webhooks
                         </div>
+                      </div>
+                    )}
+
+                    {/* Embedded Connecting Progress Box */}
+                    {isEmbedded && loading && (
+                      <div className="mt-4 p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-center gap-2 text-xs text-blue-800 font-medium">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0" />
+                        <span>Initializing session for {embeddedShop || 'Shopify Store'}...</span>
+                      </div>
+                    )}
+
+                    {/* Embedded Session Error Box */}
+                    {isEmbedded && !loading && !shopifyStatus.connected && (
+                      <div className="mt-4 p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-900">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>{shopifyStatus.error || 'Shopify embedded handshake required'}</span>
+                        </div>
+                        <p className="text-[10px] text-amber-700 leading-tight">
+                          Store: <span className="font-mono">{embeddedShop || shopifyStatus.shopDomain || 'Detected from Shopify Admin'}</span>
+                        </p>
                       </div>
                     )}
                   </div>
@@ -461,7 +476,7 @@ export default function Integrations() {
                     {shopifyStatus.connected ? (
                       <>
                         <a
-                          href={`https://${shopifyStatus.shopDomain || 'myshopify.com'}/admin`}
+                          href={`https://${shopifyStatus.shopDomain || embeddedShop || 'myshopify.com'}/admin`}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
@@ -476,6 +491,31 @@ export default function Integrations() {
                           className="px-3.5 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-700 rounded-lg transition-colors cursor-pointer"
                         >
                           Disconnect
+                        </button>
+                      </>
+                    ) : isEmbedded ? (
+                      <>
+                        <div className="text-[11px] font-medium text-slate-400">
+                          {loading ? 'Authenticating...' : 'Embedded Mode'}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={loadStatus}
+                          disabled={loading}
+                          className="inline-flex items-center justify-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-xl shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-60"
+                        >
+                          {loading ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              Connecting...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              Authorize & Sync
+                            </>
+                          )}
                         </button>
                       </>
                     ) : (
@@ -538,8 +578,8 @@ export default function Integrations() {
         </div>
       </div>
 
-      {/* 5. SHOPIFY CONNECT MODAL */}
-      {isConnectModalOpen && (
+      {/* 5. SHOPIFY CONNECT MODAL (STANDALONE ONLY) */}
+      {!isEmbedded && isConnectModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-md w-full p-6 relative animate-in zoom-in-95 duration-200">
             

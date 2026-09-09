@@ -17,15 +17,16 @@ import metaRoutes from './metaRoutes.js';
 import commerceRoutes from './commerceRoutes.js';
 import checkoutBotRoutes from './checkoutBotRoutes.js';
 import templateRoutes from './templateRoutes.js';
-import chatAssignmentRoutes from './chatAssignmentRoutes.js';
 import automationRoutes from './automationRoutes.js';
 import integrationRoutes from './integrationRoutes.js';
+import shopifyWebhookRoutes from './shopifyWebhookRoutes.js';
 
 const router = Router();
 
 // Mount all feature routes
 router.use('/auth', authRoutes);
 router.use('/integrations', integrationRoutes);
+router.use('/shopify', shopifyWebhookRoutes);
 router.use('/automation', automationRoutes);
 router.use('/meta', metaRoutes);
 router.use('/chat-assignment', chatAssignmentRoutes);
