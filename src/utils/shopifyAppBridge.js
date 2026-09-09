@@ -48,19 +48,53 @@ export function getShopifyParams() {
 export function ensureAppBridgeLoaded() {
   if (typeof window === 'undefined' || !isShopifyEmbedded()) return Promise.resolve(null);
 
+  // 1. If window.shopify already exists, immediately return it
   if (window.shopify) {
     return Promise.resolve(window.shopify);
   }
 
-  return new Promise((resolve, reject) => {
-    // Check if script element already exists
+  return new Promise((resolve) => {
+    // 2. Check if script element already exists in the document (e.g. declared in index.html)
     const existing = document.querySelector(`script[src="${APP_BRIDGE_SCRIPT_URL}"]`);
     if (existing) {
-      existing.addEventListener('load', () => resolve(window.shopify));
-      existing.addEventListener('error', (e) => reject(e));
+      if (window.shopify) {
+        return resolve(window.shopify);
+      }
+
+      // Check if already finished loading
+      if (existing.dataset.loaded === 'true' || existing.readyState === 'complete' || existing.readyState === 'loaded') {
+        return resolve(window.shopify || null);
+      }
+
+      // If still loading, wait safely with cleanup and timeout
+      const cleanup = () => {
+        existing.removeEventListener('load', onLoad);
+        existing.removeEventListener('error', onError);
+        clearTimeout(timer);
+      };
+
+      const onLoad = () => {
+        existing.dataset.loaded = 'true';
+        cleanup();
+        resolve(window.shopify || null);
+      };
+
+      const onError = () => {
+        cleanup();
+        resolve(null);
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve(window.shopify || null);
+      }, 3000);
+
+      existing.addEventListener('load', onLoad);
+      existing.addEventListener('error', onError);
       return;
     }
 
+    // 3. Prevent duplicate script injection; only inject if not present
     const apiKey = import.meta.env?.VITE_SHOPIFY_API_KEY;
     if (apiKey) {
       let metaTag = document.querySelector('meta[name="shopify-api-key"]');
@@ -78,7 +112,10 @@ export function ensureAppBridgeLoaded() {
     if (apiKey) {
       script.setAttribute('data-api-key', apiKey);
     }
-    script.onload = () => resolve(window.shopify);
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve(window.shopify || null);
+    };
     script.onerror = (err) => {
       console.warn('[Shopify App Bridge] Failed to load CDN script:', err);
       resolve(null);
@@ -89,33 +126,51 @@ export function ensureAppBridgeLoaded() {
 
 /**
  * Retrieves a short-lived Shopify ID Token (Session Token) via App Bridge
+ * Enforces a strict 5-second timeout to prevent UI freezes.
  * @returns {Promise<string|null>}
  */
 export async function getShopifyIdToken() {
   if (!isShopifyEmbedded()) return null;
 
-  try {
+  const TOKEN_TIMEOUT_MS = 5000;
+  const timeoutMessage = 'Shopify App Bridge session token request timed out. Please reload the Shopify app and try again.';
+
+  const fetchToken = async () => {
     const shopify = await ensureAppBridgeLoaded();
-    if (shopify && typeof shopify.idToken === 'function') {
-      const token = await shopify.idToken();
-      return token;
+    const tokenFn = (shopify && typeof shopify.idToken === 'function')
+      ? shopify.idToken
+      : (window.shopify && typeof window.shopify.idToken === 'function')
+        ? window.shopify.idToken
+        : null;
+
+    if (!tokenFn) {
+      throw new Error('Shopify App Bridge is not available in the current frame.');
     }
 
-    // Fallback if window.shopify global is already initialized by parent frame
-    if (window.shopify && typeof window.shopify.idToken === 'function') {
-      return await window.shopify.idToken();
-    }
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, TOKEN_TIMEOUT_MS);
+    });
 
-    // Short retry if App Bridge is completing handshake with parent frame
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    if (window.shopify && typeof window.shopify.idToken === 'function') {
-      return await window.shopify.idToken();
+    try {
+      const token = await Promise.race([
+        tokenFn(),
+        timeoutPromise,
+      ]);
+      return token || null;
+    } finally {
+      clearTimeout(timer);
     }
+  };
 
-    return null;
+  try {
+    const token = await fetchToken();
+    return token;
   } catch (err) {
-    console.warn('[Shopify App Bridge] Failed to obtain ID token:', err.message);
-    return null;
+    console.warn('[Shopify App Bridge] Session token error:', err.message);
+    throw err;
   }
 }
 
@@ -123,11 +178,15 @@ export async function getShopifyIdToken() {
  * Generates headers containing Authorization: Bearer <ID_TOKEN> if available
  */
 export async function getShopifyAuthHeaders() {
-  const idToken = await getShopifyIdToken();
-  if (idToken) {
-    return {
-      Authorization: `Bearer ${idToken}`,
-    };
+  try {
+    const idToken = await getShopifyIdToken();
+    if (idToken) {
+      return {
+        Authorization: `Bearer ${idToken}`,
+      };
+    }
+  } catch {
+    // Gracefully return empty headers if token acquisition fails
   }
   return {};
 }

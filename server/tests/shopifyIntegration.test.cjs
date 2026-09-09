@@ -419,6 +419,58 @@ async function main() {
     );
   });
 
+  // -------------------------------------------------------------
+  // Test 16: Synchronous App Bridge script in index.html
+  // -------------------------------------------------------------
+  runTest('16. index.html contains exactly one synchronous App Bridge CDN script', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const indexPath = path.resolve(process.cwd(), 'index.html');
+    const content = fs.readFileSync(indexPath, 'utf8');
+
+    assert.ok(
+      content.includes('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>'),
+      'index.html must contain App Bridge CDN script'
+    );
+
+    const matches = content.match(/cdn\.shopify\.com\/shopifycloud\/app-bridge\.js/g);
+    assert.strictEqual(matches?.length, 1, 'index.html must contain exactly one App Bridge script reference');
+  });
+
+  // -------------------------------------------------------------
+  // Test 17: App Bridge Deadlock Prevention & 5s Token Timeout
+  // -------------------------------------------------------------
+  runTest('17. App Bridge prevents duplicate script injection and enforces 5s timeout', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const bridgePath = path.resolve(process.cwd(), 'src/utils/shopifyAppBridge.js');
+    const bridgeCode = fs.readFileSync(bridgePath, 'utf8');
+
+    // Confirm immediate return if window.shopify exists
+    assert.ok(
+      bridgeCode.includes('if (window.shopify)'),
+      'ensureAppBridgeLoaded must check if window.shopify already exists'
+    );
+
+    // Confirm already loaded check without hanging on past load events
+    assert.ok(
+      bridgeCode.includes("existing.dataset.loaded === 'true'") || bridgeCode.includes("existing.readyState === 'complete'"),
+      'ensureAppBridgeLoaded must detect already-loaded script safely'
+    );
+
+    // Confirm 5-second timeout on token request
+    assert.ok(
+      bridgeCode.includes('TOKEN_TIMEOUT_MS = 5000') || bridgeCode.includes('5000'),
+      'getShopifyIdToken must enforce a 5-second timeout'
+    );
+
+    // Confirm timeout error message
+    assert.ok(
+      bridgeCode.includes('Shopify App Bridge session token request timed out'),
+      'getShopifyIdToken must reject with clear timeout error'
+    );
+  });
+
   console.log('\n-------------------------------------------------------------');
   console.log(` RESULTS: ${passedTests}/${totalTests} Tests Passed`);
   console.log('-------------------------------------------------------------\n');
