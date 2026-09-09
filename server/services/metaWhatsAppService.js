@@ -138,7 +138,7 @@ export const metaWhatsAppService = {
     const envToken = process.env.META_ACCESS_TOKEN || process.env.META_WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN;
     const envPhoneId = process.env.META_PHONE_NUMBER_ID || process.env.META_WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
     const envWabaId = process.env.META_WABA_ID || process.env.META_BUSINESS_ACCOUNT_ID || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-    const version = process.env.META_GRAPH_API_VERSION || 'v21.0';
+    const version = process.env.META_GRAPH_API_VERSION || 'v25.0';
 
     const isEnvConfigured = Boolean(
       envToken &&
@@ -301,53 +301,115 @@ export const metaWhatsAppService = {
       };
     }
 
-    // Build components if not provided directly
+    // 1. Dynamically inspect Meta template definition from WABA
+    let effectiveLanguage = languageCode || 'en';
+    let resolvedHeaderImage = headerImageUrl || headerMediaUrl || null;
+    let foundTmpl = null;
+
+    try {
+      const templatesRes = await metaWhatsAppService.getWhatsAppTemplates();
+      foundTmpl = templatesRes.data?.find((t) => t.name === templateName) || templatesRes.approved?.find((t) => t.name === templateName);
+      
+      if (foundTmpl) {
+        // Pre-check template review status with Meta (Requirement 8)
+        const tmplStatus = (foundTmpl.status || '').toUpperCase();
+        if (['PENDING', 'IN_PROGRESS', 'IN_REVIEW', 'IN-REVIEW', 'SUBMITTED'].includes(tmplStatus)) {
+          console.log(`[Meta Cloud API Guard] Template "${templateName}" is currently ${tmplStatus}. Refusing to send before Meta approval.`);
+          return {
+            success: false,
+            status: 'pending',
+            isUnderReview: true,
+            error: `Template "${templateName}" is currently under Meta review. Messaging will be enabled once Meta approves the template.`,
+            message: `Template "${templateName}" is currently under Meta review. Messaging will be enabled once Meta approves the template.`,
+            templateStatus: foundTmpl.status,
+            templateName,
+          };
+        } else if (tmplStatus === 'REJECTED') {
+          console.log(`[Meta Cloud API Guard] Template "${templateName}" is REJECTED.`);
+          return {
+            success: false,
+            status: 'rejected',
+            error: `Template "${templateName}" was rejected by Meta. Reason: ${foundTmpl.rejectedReason || 'Does not comply with Meta guidelines'}.`,
+            message: `Template "${templateName}" was rejected by Meta.`,
+            templateStatus: foundTmpl.status,
+            templateName,
+          };
+        }
+
+        // Auto-match approved language
+        if (foundTmpl.language && foundTmpl.language !== effectiveLanguage) {
+          console.log(`[Meta Cloud API] Auto-matched approved template language: "${foundTmpl.language}" for "${templateName}"`);
+          effectiveLanguage = foundTmpl.language;
+        }
+
+        // Dynamically inspect HEADER component in current Meta template definition
+        const headerComp = foundTmpl.components?.find((c) => c.type === 'HEADER');
+        if (headerComp?.format === 'IMAGE' && !resolvedHeaderImage && headerComp.example?.header_handle?.[0]) {
+          resolvedHeaderImage = headerComp.example.header_handle[0];
+          console.log(`[Meta Cloud API] Auto-resolved IMAGE header handle for "${templateName}"`);
+        }
+      }
+    } catch (e) {
+      // Lookup failed - proceed with caution without crashing
+    }
+
+    // 2. Dynamically build components based on actual template definition
     let formattedComponents = Array.isArray(components) && components.length > 0 ? [...components] : [];
 
     if (formattedComponents.length === 0) {
-      // 1. Media Header Resolution (IMAGE, VIDEO, DOCUMENT) or Text Header
-      let resolvedHeaderImage = headerImageUrl || headerMediaUrl || null;
-      if (!resolvedHeaderImage && !headerVariables?.length) {
-        try {
-          const templatesRes = await metaWhatsAppService.getWhatsAppTemplates();
-          const foundTmpl = templatesRes.approved?.find((t) => t.name === templateName);
-          const headerComp = foundTmpl?.components?.find((c) => c.type === 'HEADER');
-          if (headerComp?.format === 'IMAGE' && headerComp.example?.header_handle?.[0]) {
-            resolvedHeaderImage = headerComp.example.header_handle[0];
-          }
-        } catch (e) {
-          // ignore lookup error
+      const headerComp = foundTmpl?.components?.find((c) => c.type === 'HEADER');
+
+      // A. HEADER COMPONENT: Only construct header parameter if Meta template actually contains a HEADER
+      if (headerComp) {
+        if (headerComp.format === 'IMAGE' && resolvedHeaderImage) {
+          formattedComponents.push({
+            type: 'header',
+            parameters: [
+              {
+                type: 'image',
+                image: { link: resolvedHeaderImage },
+              },
+            ],
+          });
+        } else if (headerComp.format === 'VIDEO' && resolvedHeaderImage) {
+          formattedComponents.push({
+            type: 'header',
+            parameters: [
+              {
+                type: 'video',
+                video: { link: resolvedHeaderImage },
+              },
+            ],
+          });
+        } else if (headerComp.format === 'DOCUMENT' && resolvedHeaderImage) {
+          formattedComponents.push({
+            type: 'header',
+            parameters: [
+              {
+                type: 'document',
+                document: { link: resolvedHeaderImage },
+              },
+            ],
+          });
+        } else if (headerComp.format === 'TEXT' && Array.isArray(headerVariables) && headerVariables.length > 0) {
+          formattedComponents.push({
+            type: 'header',
+            parameters: headerVariables.map((val) => ({
+              type: 'text',
+              text: String(val),
+            })),
+          });
         }
       }
+      // If no HEADER component exists in foundTmpl, NO header parameter is attached!
 
-      if (resolvedHeaderImage) {
-        formattedComponents.push({
-          type: 'header',
-          parameters: [
-            {
-              type: 'image',
-              image: { link: resolvedHeaderImage },
-            },
-          ],
-        });
-      } else if (Array.isArray(headerVariables) && headerVariables.length > 0) {
-        formattedComponents.push({
-          type: 'header',
-          parameters: headerVariables.map((val) => ({
-            type: 'text',
-            text: String(val),
-          })),
-        });
-      }
-
-      // 2. Body parameters from variables object or array
+      // B. BODY COMPONENT: Only add body parameters if variables are required/provided
       const bodyParams = [];
       if (Array.isArray(variables)) {
         variables.forEach((val) => {
           bodyParams.push({ type: 'text', text: String(val) });
         });
       } else if (typeof variables === 'object' && variables !== null) {
-        // Sort keys numeric if {{1}}, {{2}} format
         const keys = Object.keys(variables).sort((a, b) => Number(a) - Number(b));
         keys.forEach((k) => {
           if (variables[k] !== undefined && variables[k] !== null && variables[k] !== '') {
@@ -363,7 +425,7 @@ export const metaWhatsAppService = {
         });
       }
 
-      // 3. Button parameters (if dynamic URL or quick reply payload)
+      // C. BUTTONS COMPONENT: Only add parameters if dynamic URL or quick reply payload
       if (Array.isArray(buttonPayloads) && buttonPayloads.length > 0) {
         buttonPayloads.forEach((btn, idx) => {
           if (btn.type === 'url' && btn.parameter) {
@@ -385,7 +447,7 @@ export const metaWhatsAppService = {
       }
     }
 
-    // Construct Meta WhatsApp Cloud API payload
+    // 3. Construct Meta WhatsApp Cloud API payload
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -394,16 +456,21 @@ export const metaWhatsAppService = {
       template: {
         name: templateName,
         language: {
-          code: languageCode || 'en_US',
+          code: effectiveLanguage,
         },
         ...(formattedComponents.length > 0 ? { components: formattedComponents } : {}),
       },
     };
 
+    const headerType = formattedComponents.find((c) => c.type === 'header')?.parameters?.[0]?.type?.toUpperCase() || (foundTmpl?.components?.find((c) => c.type === 'HEADER')?.format || 'NONE');
     const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
 
     try {
-      console.log(`[Meta Cloud API Dispatch] Sending template "${templateName}" to ${cleanTo}...`);
+      // Diagnostic Log Entry for Outgoing Request (Requirement 16 - No tokens exposed)
+      console.log(
+        `[Meta Cloud API Outgoing Request] Phone Number ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | Template: "${templateName}" | Language: "${effectiveLanguage}" | Header Type: ${headerType} | Endpoint: ${url}`
+      );
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -416,11 +483,34 @@ export const metaWhatsAppService = {
       const data = await response.json();
 
       if (!response.ok || data.error) {
-        console.error('[Meta Cloud API Error]:', data.error || data);
+        console.error('[Meta Cloud API Error Response]:', JSON.stringify({
+          status: response.status,
+          errorCode: data.error?.code,
+          errorSubcode: data.error?.error_subcode,
+          errorMessage: data.error?.message,
+          errorType: data.error?.type,
+          fbtraceId: data.error?.fbtrace_id,
+        }));
+
         let customErrorMsg = data.error?.message || `Meta API HTTP ${response.status}`;
         if (data.error?.code === 132001) {
-          customErrorMsg = 'WhatsApp template not found for the selected language. Please select an approved template from your connected Meta WhatsApp Business account.';
+          try {
+            const allTmplsRes = await metaWhatsAppService.getWhatsAppTemplates();
+            const matchingTmpl = allTmplsRes.data?.find((t) => t.name === templateName);
+            if (matchingTmpl && matchingTmpl.status === 'PENDING') {
+              customErrorMsg = `Template "${templateName}" is currently PENDING review by Meta. Meta Cloud API only permits sending messages after the template status changes to APPROVED.`;
+            } else {
+              customErrorMsg = `WhatsApp template "${templateName}" not found or not yet approved for language "${effectiveLanguage}". Please select an approved template from your connected Meta WhatsApp Business account.`;
+            }
+          } catch (e) {
+            customErrorMsg = `WhatsApp template "${templateName}" not found or not yet approved for language "${effectiveLanguage}". Please select an approved template from your connected Meta WhatsApp Business account.`;
+          }
+        } else if (data.error?.code === 190) {
+          customErrorMsg = `Meta Access Token Session Expired (Error #190): ${data.error?.message || 'Please update META_ACCESS_TOKEN in .env'}`;
+        } else if (data.error?.code === 131030) {
+          customErrorMsg = `Recipient phone number (+${cleanTo}) is not in Meta Allowed Numbers list. In Development/Test mode, add this number in Meta App Dashboard > WhatsApp > API Setup > To phone number.`;
         }
+
         return {
           success: false,
           error: customErrorMsg,
@@ -434,7 +524,37 @@ export const metaWhatsAppService = {
       }
 
       const wamid = data.messages?.[0]?.id || `wamid_${Date.now()}`;
-      console.log(`[Meta Cloud API Success] Message delivered to Meta Queue. WAMID: ${wamid}`);
+      const messageStatus = data.messages?.[0]?.message_status || 'accepted';
+
+      // Diagnostic Log Entry for Successful Dispatch (Requirement 16)
+      console.log(
+        `[Meta Cloud API Outgoing Success] Phone Number ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | Template: "${templateName}" | Language: "${effectiveLanguage}" | Header Type: ${headerType} | WAMID: ${wamid} | Status: ${messageStatus}`
+      );
+
+      // Persist outbound dispatch in whatsapp_message_logs
+      try {
+        await query(
+          `INSERT INTO whatsapp_message_logs (
+             wamid, recipient_phone, template_name, template_language, sender_phone_id,
+             status, raw_payload, raw_response, accepted_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (wamid) DO UPDATE SET
+             status = EXCLUDED.status,
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            wamid,
+            cleanTo,
+            templateName,
+            effectiveLanguage,
+            creds.phoneNumberId,
+            messageStatus,
+            JSON.stringify(payload),
+            JSON.stringify(data),
+          ]
+        );
+      } catch (logErr) {
+        console.warn('[metaWhatsAppService] Failed to record message in whatsapp_message_logs:', logErr.message);
+      }
 
       return {
         success: true,
@@ -442,7 +562,9 @@ export const metaWhatsAppService = {
         metaMessageId: wamid,
         recipientPhone: cleanTo,
         templateName,
-        status: 'sent',
+        templateLanguage: effectiveLanguage,
+        senderPhoneId: creds.phoneNumberId,
+        status: messageStatus,
         timestamp: new Date().toISOString(),
         metaResponse: data,
       };

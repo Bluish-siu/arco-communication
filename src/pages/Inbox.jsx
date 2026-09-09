@@ -39,12 +39,67 @@ import {
   Calendar,
   ShieldAlert,
   RotateCcw,
+  Edit3,
+  Save,
+  FileText,
+  Mail,
+  DollarSign,
+  Copy,
+  CheckSquare,
+  Square,
+  Bookmark,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { inboxService } from '../services/inboxService';
 import { contactsService } from '../services/contactsService';
+
+// 7 Pre-Approved Interakt & Meta Style Quick Replies
+const STANDARD_QUICK_REPLIES = [
+  {
+    id: 'qr_welcome',
+    title: 'Welcome & Introduction',
+    category: 'General',
+    text: 'Hello {{name}}! Welcome to ARCO Communication. How can we assist your business today?',
+  },
+  {
+    id: 'qr_pricing',
+    title: 'Pricing & Plans Overview',
+    category: 'Sales',
+    text: 'Hi {{name}}! Our growth plans start at ₹999/month for Starter and ₹2,499/month for Growth with unlimited AI agents. Would you like a detailed breakdown?',
+  },
+  {
+    id: 'qr_support_hours',
+    title: 'Support Working Hours',
+    category: 'Support',
+    text: 'Our live support team is available Monday through Saturday, 9:00 AM to 7:00 PM IST. We are always happy to help!',
+  },
+  {
+    id: 'qr_demo',
+    title: 'Schedule a Product Demo',
+    category: 'Sales',
+    text: 'We would love to give you a live walkthrough of ARCO Communication! Please let us know a convenient time or date for a 15-minute Google Meet.',
+  },
+  {
+    id: 'qr_order_status',
+    title: 'Order Status Update',
+    category: 'Commerce',
+    text: 'Hello {{name}}! Your order has been confirmed and is currently being packed for shipment. You will receive real-time tracking updates right here on WhatsApp.',
+  },
+  {
+    id: 'qr_catalog',
+    title: 'Product Catalog Share',
+    category: 'Commerce',
+    text: 'Please take a look at our featured product catalog. Let us know if you would like to place an order or have questions about specific items!',
+  },
+  {
+    id: 'qr_feedback',
+    title: 'Customer Satisfaction Check',
+    category: 'Support',
+    text: 'How was your experience with our support team today? Please rate us from 1 to 5 stars. Your feedback helps us improve!',
+  },
+];
 
 // Custom Contextual Instagram Icon
 const InstagramIcon = ({ className }) => (
@@ -250,6 +305,33 @@ export default function Inbox() {
   const [drawerCsvPreviewRows, setDrawerCsvPreviewRows] = useState([]);
   const [drawerCsvImporting, setDrawerCsvImporting] = useState(false);
 
+  // =========================================================================
+  // STEP 4: CONTACT INSPECTOR DRAWER STATE & ATTRIBUTE CONTROLS
+  // =========================================================================
+  const [isContactDrawerOpen, setIsContactDrawerOpen] = useState(false);
+  const [inspectorDetails, setInspectorDetails] = useState(null);
+  const [inspectorLoading, setInspectorLoading] = useState(false);
+  const [inspectorSaving, setInspectorSaving] = useState(false);
+  const [inspectorName, setInspectorName] = useState('');
+  const [inspectorPhone, setInspectorPhone] = useState('');
+  const [inspectorEmail, setInspectorEmail] = useState('');
+  const [inspectorUserId, setInspectorUserId] = useState('');
+  const [inspectorTag, setInspectorTag] = useState('Lead');
+  const [inspectorLabel, setInspectorLabel] = useState('');
+  const [inspectorAssignee, setInspectorAssignee] = useState('Me');
+  const [inspectorChatStatus, setInspectorChatStatus] = useState('open');
+  const [inspectorWhatsappOpted, setInspectorWhatsappOpted] = useState(true);
+  const [inspectorIsSpam, setInspectorIsSpam] = useState(false);
+  const [inspectorDealValue, setInspectorDealValue] = useState('0');
+  const [inspectorNotes, setInspectorNotes] = useState('');
+
+  // =========================================================================
+  // STEP 5: QUICK REPLY & SNIPPETS POPOVER STATE
+  // =========================================================================
+  const [isQuickReplyOpen, setIsQuickReplyOpen] = useState(false);
+  const [quickReplySearch, setQuickReplySearch] = useState('');
+  const quickReplyRef = useRef(null);
+
   const messagesEndRef = useRef(null);
 
   const showToast = (message, type = 'success') => {
@@ -257,7 +339,7 @@ export default function Inbox() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Prevent background scrolling when modals or drawers are open
+  // Prevent background scrolling when modals are open
   useEffect(() => {
     if (isNewContactModalOpen || isCreateContactDrawerOpen || isFilterModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -765,6 +847,178 @@ export default function Inbox() {
     }
   };
 
+  // Close Quick Reply Popover when clicking outside
+  useEffect(() => {
+    function handleClickOutsideQuickReply(e) {
+      if (quickReplyRef.current && !quickReplyRef.current.contains(e.target)) {
+        setIsQuickReplyOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutsideQuickReply);
+    return () => document.removeEventListener('mousedown', handleClickOutsideQuickReply);
+  }, []);
+
+  // Sync inspector with selected conversation
+  const syncInspectorWithChat = (chat, contactData = null) => {
+    if (!chat) return;
+    setInspectorName(chat.name || '');
+    setInspectorPhone(chat.phone || '');
+    setInspectorTag(chat.tag || 'Lead');
+    setInspectorLabel(chat.label || '');
+    setInspectorAssignee(chat.assignee || 'Me');
+    setInspectorChatStatus(chat.statusFilter || 'open');
+    setInspectorIsSpam(Boolean(chat.isSpam));
+
+    if (contactData) {
+      setInspectorEmail(contactData.email || '');
+      setInspectorUserId(contactData.userId || '');
+      setInspectorWhatsappOpted(contactData.whatsappOpted !== false);
+      setInspectorDealValue(String(contactData.dealValue || 0));
+      setInspectorNotes(contactData.notes || '');
+    } else {
+      // Find matching contact if available in local list
+      const matched = availableContacts.find(
+        (c) => c.phone === chat.phone || c.name?.toLowerCase() === chat.name?.toLowerCase()
+      );
+      if (matched) {
+        setInspectorEmail(matched.email || '');
+        setInspectorUserId(matched.user_id || '');
+        setInspectorWhatsappOpted(matched.whatsapp_opted !== false);
+        setInspectorDealValue(String(matched.value || 0));
+        setInspectorNotes(matched.notes || '');
+      } else {
+        setInspectorEmail('');
+        setInspectorUserId('');
+        setInspectorWhatsappOpted(true);
+        setInspectorDealValue('0');
+        setInspectorNotes('');
+      }
+    }
+  };
+
+  // Open Contact Inspector and fetch latest attributes from backend
+  const handleOpenContactInspector = async (chatToInspect = selectedChat) => {
+    if (!chatToInspect) return;
+    setIsContactDrawerOpen(true);
+    syncInspectorWithChat(chatToInspect);
+
+    setInspectorLoading(true);
+    try {
+      const fullConv = await inboxService.getConversation(chatToInspect.id);
+      if (fullConv) {
+        setInspectorDetails(fullConv);
+        syncInspectorWithChat(fullConv, fullConv.contact);
+      }
+    } catch (err) {
+      console.warn('Failed to load full contact details:', err);
+    } finally {
+      setInspectorLoading(false);
+    }
+  };
+
+  // Save changes from Contact Inspector Drawer to backend
+  const handleSaveContactInspector = async (overrides = {}) => {
+    if (!selectedChatId) return;
+    setInspectorSaving(true);
+
+    const targetName = overrides.name !== undefined ? overrides.name : inspectorName;
+    const targetPhone = overrides.phone !== undefined ? overrides.phone : inspectorPhone;
+    const targetTag = overrides.tag !== undefined ? overrides.tag : inspectorTag;
+    const targetLabel = overrides.label !== undefined ? overrides.label : inspectorLabel;
+    const targetAssignee = overrides.assignee !== undefined ? overrides.assignee : inspectorAssignee;
+    const targetStatus = overrides.chatStatus !== undefined ? overrides.chatStatus : inspectorChatStatus;
+    const targetOpted = overrides.whatsappOpted !== undefined ? overrides.whatsappOpted : inspectorWhatsappOpted;
+    const targetSpam = overrides.isSpam !== undefined ? overrides.isSpam : inspectorIsSpam;
+    const targetDealValue = overrides.dealValue !== undefined ? overrides.dealValue : inspectorDealValue;
+    const targetNotes = overrides.notes !== undefined ? overrides.notes : inspectorNotes;
+    const targetEmail = overrides.email !== undefined ? overrides.email : inspectorEmail;
+    const targetUserId = overrides.userId !== undefined ? overrides.userId : inspectorUserId;
+
+    const payload = {
+      name: targetName,
+      phone: targetPhone,
+      email: targetEmail,
+      userId: targetUserId,
+      tag: targetTag,
+      label: targetLabel,
+      assignee: targetAssignee,
+      chatStatus: targetStatus,
+      statusFilter: targetStatus,
+      whatsappOpted: targetOpted,
+      isSpam: targetSpam,
+      dealValue: targetDealValue,
+      notes: targetNotes,
+    };
+
+    try {
+      const res = await inboxService.updateConversation(selectedChatId, payload);
+      if (res) {
+        // Update local conversations list
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id === selectedChatId) {
+              return {
+                ...c,
+                name: payload.name || c.name,
+                phone: payload.phone || c.phone,
+                tag: payload.tag,
+                label: payload.label,
+                assignee: payload.assignee,
+                statusFilter: payload.statusFilter,
+                isSpam: payload.isSpam,
+              };
+            }
+            return c;
+          })
+        );
+        showToast('Contact attributes updated successfully', 'success');
+      } else {
+        showToast('Failed to update contact attributes', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Error updating contact', 'error');
+    } finally {
+      setInspectorSaving(false);
+    }
+  };
+
+  // Instant attribute quick-updates
+  const handleUpdateAssignee = async (newAssignee) => {
+    setInspectorAssignee(newAssignee);
+    await handleSaveContactInspector({ assignee: newAssignee });
+  };
+
+  const handleUpdateTag = async (newTag) => {
+    setInspectorTag(newTag);
+    await handleSaveContactInspector({ tag: newTag });
+  };
+
+  const handleUpdateChatStatus = async (newStatus) => {
+    setInspectorChatStatus(newStatus);
+    await handleSaveContactInspector({ chatStatus: newStatus });
+  };
+
+  const handleToggleOpted = async () => {
+    const nextVal = !inspectorWhatsappOpted;
+    setInspectorWhatsappOpted(nextVal);
+    await handleSaveContactInspector({ whatsappOpted: nextVal });
+  };
+
+  const handleToggleSpam = async () => {
+    const nextVal = !inspectorIsSpam;
+    setInspectorIsSpam(nextVal);
+    await handleSaveContactInspector({ isSpam: nextVal });
+  };
+
+  // Insert quick reply snippet into message composer
+  const handleInsertQuickReply = (snippetText) => {
+    if (!snippetText) return;
+    const personalizedText = snippetText.replace(/\{\{name\}\}/g, selectedChat?.name || 'there');
+    setMessageInput((prev) => (prev ? `${prev} ${personalizedText}` : personalizedText));
+    setIsQuickReplyOpen(false);
+    showToast('Quick reply inserted into message input', 'success');
+  };
+
   return (
     <div className="h-screen flex flex-col bg-slate-50 text-slate-800 relative overflow-hidden font-sans">
       {/* 0. SIDEBAR NAVIGATION */}
@@ -1142,135 +1396,471 @@ export default function Inbox() {
             </button>
           </div>
 
-          {/* B. MAIN CONVERSATION VIEW (Large Right Panel) */}
+          {/* B. MAIN CONVERSATION VIEW & CONTACT INSPECTOR SPLIT */}
           <div
-            className={`flex-1 flex flex-col bg-slate-50/50 h-full overflow-hidden ${
+            className={`flex-1 flex flex-row bg-slate-50/50 h-full overflow-hidden ${
               !selectedChatId ? 'hidden lg:flex' : 'flex'
             }`}
           >
-            {selectedChat ? (
-              <>
-                {/* 1. Chat Header */}
-                <div className="h-16 sm:h-18 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs">
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedChatId(null)}
-                      className="lg:hidden p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
+            {/* 1. Chat Thread Area */}
+            <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-slate-200">
+              {selectedChat ? (
+                <>
+                  {/* Chat Header */}
+                  <div className="h-16 sm:h-18 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs">
+                    <div
+                      onClick={() => handleOpenContactInspector()}
+                      className="flex items-center gap-3 cursor-pointer group"
+                      title="Click to view contact inspector"
                     >
-                      <ArrowLeft className="w-4 h-4" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedChatId(null);
+                        }}
+                        className="lg:hidden p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
 
-                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-bold text-sm flex items-center justify-center shadow-xs">
-                      {selectedChat.name.charAt(0)}
+                      <div className="w-10 h-10 rounded-xl bg-slate-900 group-hover:bg-emerald-800 text-white font-bold text-sm flex items-center justify-center shadow-xs transition-colors">
+                        {selectedChat.name.charAt(0)}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
+                            {selectedChat.name}
+                          </h3>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            {selectedChat.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5">
+                          <span>{selectedChat.phone}</span>
+                          <span>•</span>
+                          <span className="capitalize">{selectedChat.channel}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenContactInspector()}
+                        className={`p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors ${
+                          isContactDrawerOpen ? 'bg-emerald-50 text-emerald-700 font-bold' : ''
+                        }`}
+                        title="Contact details & attributes"
+                      >
+                        <Info className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Chat Messages Area */}
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                    {selectedChat.messages.map((msg) => {
+                      const isMe = msg.sender === 'me';
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                        >
+                          <div
+                            className={`max-w-[85%] sm:max-w-md p-3.5 rounded-2xl text-xs leading-relaxed ${
+                              isMe
+                                ? 'bg-emerald-600 text-white rounded-tr-xs shadow-xs'
+                                : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs shadow-xs'
+                            }`}
+                          >
+                            <p className="whitespace-pre-wrap">{msg.text}</p>
+                          </div>
+                          <div className="flex items-center gap-1 mt-1 px-1 text-[10px] text-slate-400">
+                            <span>{msg.time}</span>
+                            {isMe && <CheckCheck className="w-3 h-3 text-emerald-600" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {/* Message Composer with Quick Reply Popover */}
+                  <div className="relative">
+                    {/* Quick Reply Popover */}
+                    {isQuickReplyOpen && (
+                      <div
+                        ref={quickReplyRef}
+                        className="absolute bottom-full mb-2 left-4 right-4 sm:left-6 sm:right-auto sm:w-96 z-40 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3.5 space-y-3 animate-in slide-in-from-bottom-2 duration-150 font-sans"
+                      >
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                          <div className="flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                            <h4 className="text-xs font-bold text-slate-900">Quick Reply Snippets</h4>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsQuickReplyOpen(false)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={quickReplySearch}
+                            onChange={(e) => setQuickReplySearch(e.target.value)}
+                            placeholder="Search canned replies & templates..."
+                            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-600 font-medium"
+                          />
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        </div>
+
+                        <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 pr-1">
+                          {STANDARD_QUICK_REPLIES.filter((qr) =>
+                            qr.title.toLowerCase().includes(quickReplySearch.toLowerCase()) ||
+                            qr.text.toLowerCase().includes(quickReplySearch.toLowerCase()) ||
+                            qr.category.toLowerCase().includes(quickReplySearch.toLowerCase())
+                          ).map((qr) => (
+                            <div
+                              key={qr.id}
+                              onClick={() => handleInsertQuickReply(qr.text)}
+                              className="py-2 px-2 hover:bg-emerald-50/70 rounded-xl cursor-pointer transition-colors group"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-xs text-slate-800 group-hover:text-emerald-800">
+                                  {qr.title}
+                                </span>
+                                <span className="text-[10px] uppercase font-bold text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded">
+                                  {qr.category}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5 group-hover:text-slate-700">
+                                {qr.text}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Composer Form */}
+                    <form
+                      onSubmit={handleSendMessage}
+                      className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0 shadow-2xs"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => showToast('File attachment ready')}
+                        className="p-2.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                        title="Attach file"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsQuickReplyOpen(!isQuickReplyOpen)}
+                        className={`p-2.5 rounded-xl transition-colors cursor-pointer ${
+                          isQuickReplyOpen
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                        }`}
+                        title="Insert quick reply snippet or approved template"
+                      >
+                        <Smile className="w-4 h-4" />
+                      </button>
+
+                      <input
+                        type="text"
+                        value={messageInput}
+                        onChange={(e) => setMessageInput(e.target.value)}
+                        placeholder="Type a message or click smile for quick replies..."
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-medium"
+                      />
+
+                      <button
+                        type="submit"
+                        disabled={!messageInput.trim()}
+                        className={`p-2.5 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                          messageInput.trim()
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 hover:shadow-lg'
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        <Send className="w-4 h-4" />
+                        <span className="hidden sm:inline">Send</span>
+                      </button>
+                    </form>
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
+                  <div className="w-16 h-16 rounded-3xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center shadow-xs">
+                    <MessageSquare className="w-7 h-7 text-slate-400" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900">Select a conversation</h3>
+                  <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
+                    Choose a chat from the inbox to view messages, reply to customers, or initiate WhatsApp workflows.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Side-by-Side / Slide-out Contact Inspector Drawer */}
+            {selectedChat && isContactDrawerOpen && (
+              <div className="w-80 sm:w-96 bg-white border-l border-slate-200 flex flex-col h-full overflow-y-auto animate-in slide-in-from-right-4 duration-150 z-20 shrink-0 font-sans shadow-xl">
+                {/* Drawer Header */}
+                <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50/50">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-xs font-bold text-slate-900">Contact Details & Attributes</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsContactDrawerOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Drawer Body */}
+                <div className="p-5 space-y-5 flex-1 overflow-y-auto">
+                  {/* Hero Card */}
+                  <div className="flex items-center gap-3.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white font-bold text-base flex items-center justify-center shadow-xs">
+                      {inspectorName?.charAt(0) || selectedChat.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-bold text-sm text-slate-900 truncate">
+                        {inspectorName || selectedChat.name}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-mono truncate">
+                        {inspectorPhone || selectedChat.phone}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span
+                          className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            inspectorWhatsappOpted
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                          }`}
+                        >
+                          <WhatsAppIcon className="w-3 h-3" />
+                          {inspectorWhatsappOpted ? 'WhatsApp Opted' : 'Opted Out'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 1: Assignment & Status */}
+                  <div className="space-y-3.5">
+                    <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                      Assignment & Workflow
+                    </h5>
+
+                    {/* Assignee */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Assigned Agent
+                      </label>
+                      <select
+                        value={inspectorAssignee}
+                        onChange={(e) => handleUpdateAssignee(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-emerald-600 cursor-pointer"
+                      >
+                        <option value="Me">Me (Current User)</option>
+                        <option value="Shraddha">Shraddha (Admin)</option>
+                        <option value="Support Agent 1">Support Agent 1</option>
+                        <option value="Sales Representative">Sales Representative</option>
+                        <option value="Unassigned">Unassigned</option>
+                      </select>
+                    </div>
+
+                    {/* Chat Status Switch: Open vs Closed */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Chat Status
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateChatStatus('open')}
+                          className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            inspectorChatStatus === 'open'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Open</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateChatStatus('closed')}
+                          className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            inspectorChatStatus === 'closed'
+                              ? 'bg-slate-800 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Closed</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tag Selector */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Customer Tag
+                      </label>
+                      <select
+                        value={inspectorTag}
+                        onChange={(e) => handleUpdateTag(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-emerald-600 cursor-pointer"
+                      >
+                        {STANDARD_TAGS.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Custom Label */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Conversation Label
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={inspectorLabel}
+                          onChange={(e) => setInspectorLabel(e.target.value)}
+                          placeholder="e.g. VIP, Wholesale, Priority"
+                          className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:bg-white focus:outline-none focus:border-emerald-600"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveContactInspector()}
+                          disabled={inspectorSaving}
+                          className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Opt-In & Spam Flags */}
+                  <div className="space-y-3 pt-3 border-t border-slate-200">
+                    <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                      Compliance & Flags
+                    </h5>
+
+                    <div className="space-y-2">
+                      <label className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 cursor-pointer hover:bg-slate-100/70 transition-colors">
+                        <span className="text-xs font-semibold text-slate-800">
+                          WhatsApp Opt-In (Subscribed)
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={inspectorWhatsappOpted}
+                          onChange={handleToggleOpted}
+                          className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                        />
+                      </label>
+
+                      <label className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 cursor-pointer hover:bg-slate-100/70 transition-colors">
+                        <span className="text-xs font-semibold text-red-700 flex items-center gap-1.5">
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          Mark as Spam
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={inspectorIsSpam}
+                          onChange={handleToggleSpam}
+                          className="w-4 h-4 text-red-600 rounded focus:ring-red-500 accent-red-600 cursor-pointer"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Section 3: CRM Details */}
+                  <div className="space-y-3 pt-3 border-t border-slate-200">
+                    <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                      CRM Attributes
+                    </h5>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={inspectorEmail}
+                        onChange={(e) => setInspectorEmail(e.target.value)}
+                        placeholder="e.g. customer@example.com"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:bg-white focus:outline-none focus:border-emerald-600"
+                      />
                     </div>
 
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold text-slate-900">{selectedChat.name}</h3>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          {selectedChat.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5">
-                        <span>{selectedChat.phone}</span>
-                        <span>•</span>
-                        <span className="capitalize">{selectedChat.channel}</span>
-                      </div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        User / Customer ID
+                      </label>
+                      <input
+                        type="text"
+                        value={inspectorUserId}
+                        onChange={(e) => setInspectorUserId(e.target.value)}
+                        placeholder="e.g. USR_1042"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:bg-white focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Potential Deal Value (₹)
+                      </label>
+                      <input
+                        type="number"
+                        value={inspectorDealValue}
+                        onChange={(e) => setInspectorDealValue(e.target.value)}
+                        placeholder="0"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-emerald-600"
+                      />
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  {/* Section 4: Internal Notes */}
+                  <div className="space-y-2 pt-3 border-t border-slate-200">
+                    <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                      Internal Agent Notes
+                    </h5>
+                    <textarea
+                      rows={3}
+                      value={inspectorNotes}
+                      onChange={(e) => setInspectorNotes(e.target.value)}
+                      placeholder="Add private discussion notes, follow-up items, or customer preferences..."
+                      className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:bg-white focus:outline-none focus:border-emerald-600 leading-relaxed resize-none"
+                    />
                     <button
                       type="button"
-                      className="p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer"
-                      title="Contact details"
+                      onClick={() => handleSaveContactInspector()}
+                      disabled={inspectorSaving}
+                      className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <Info className="w-4 h-4" />
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{inspectorSaving ? 'Saving...' : 'Save All Attributes'}</span>
                     </button>
                   </div>
                 </div>
-
-                {/* 2. Chat Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-                  {selectedChat.messages.map((msg) => {
-                    const isMe = msg.sender === 'me';
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                      >
-                        <div
-                          className={`max-w-[85%] sm:max-w-md p-3.5 rounded-2xl text-xs leading-relaxed ${
-                            isMe
-                              ? 'bg-emerald-600 text-white rounded-tr-xs shadow-xs'
-                              : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs shadow-xs'
-                          }`}
-                        >
-                          <p className="whitespace-pre-wrap">{msg.text}</p>
-                        </div>
-                        <div className="flex items-center gap-1 mt-1 px-1 text-[10px] text-slate-400">
-                          <span>{msg.time}</span>
-                          {isMe && <CheckCheck className="w-3 h-3 text-emerald-600" />}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {/* 3. Message Composer */}
-                <form
-                  onSubmit={handleSendMessage}
-                  className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0 shadow-2xs"
-                >
-                  <button
-                    type="button"
-                    className="p-2.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                    title="Attach file"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    className="p-2.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                    title="Insert emoji / template"
-                  >
-                    <Smile className="w-4 h-4" />
-                  </button>
-
-                  <input
-                    type="text"
-                    value={messageInput}
-                    onChange={(e) => setMessageInput(e.target.value)}
-                    placeholder="Type a message..."
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-medium"
-                  />
-
-                  <button
-                    type="submit"
-                    disabled={!messageInput.trim()}
-                    className={`p-2.5 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                      messageInput.trim()
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 hover:shadow-lg'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    <Send className="w-4 h-4" />
-                    <span className="hidden sm:inline">Send</span>
-                  </button>
-                </form>
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
-                <div className="w-16 h-16 rounded-3xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center shadow-xs">
-                  <MessageSquare className="w-7 h-7 text-slate-400" />
-                </div>
-                <h3 className="text-base font-bold text-slate-900">Select a conversation</h3>
-                <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
-                  Choose a chat from the inbox to view messages, reply to customers, or initiate WhatsApp workflows.
-                </p>
               </div>
             )}
           </div>

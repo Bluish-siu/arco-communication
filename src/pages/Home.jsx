@@ -1,7 +1,8 @@
 import Hero from '../components/hero/Hero';
 import TrustedBy from '../components/trust/TrustedBy';
 import Features from '../components/features/Features';
-import MarketingSection from '../components/sections/MarketingSection';
+import PowerfulCapabilities from '../components/sections/PowerfulCapabilities';
+import ElevateCxSection from '../components/sections/ElevateCxSection';
 import SalesSection from '../components/sections/SalesSection';
 import AISection from '../components/sections/AISection';
 import TeamInboxSection from '../components/sections/TeamInboxSection';
@@ -16,7 +17,8 @@ export default function Home() {
       <Hero />
       <TrustedBy />
       <Features />
-      <MarketingSection />
+      <PowerfulCapabilities />
+      <ElevateCxSection />
       <SalesSection />
       <AISection />
       <TeamInboxSection />

@@ -12,6 +12,9 @@ import {
   AlertCircle,
   Phone,
   ArrowUpRight,
+  Image as ImageIcon,
+  Video as VideoIcon,
+  FileText,
 } from 'lucide-react';
 
 export default function TemplateCard({
@@ -85,12 +88,55 @@ export default function TemplateCard({
         </div>
 
         {/* Message Bubble (Interakt-style Light Green Preview) */}
-        <div className="bg-[#e7f7ec] border border-[#d2edd8] rounded-xl p-3 text-[11px] text-slate-800 space-y-2 shadow-2xs">
+        <div className="bg-[#e7f7ec] border border-[#d2edd8] rounded-xl p-3 text-[11px] text-slate-800 space-y-2 shadow-2xs overflow-hidden">
           
           {/* Header if present */}
           {template.header_type === 'TEXT' && template.header_text && (
             <div className="font-extrabold text-slate-900 text-xs border-b border-emerald-200/60 pb-1">
               {template.header_text}
+            </div>
+          )}
+
+          {template.header_type === 'IMAGE' && (
+            template.header_media_url ? (
+              <img
+                src={template.header_media_url}
+                alt="Header"
+                className="w-full h-28 object-cover rounded-lg border border-emerald-200/60"
+              />
+            ) : (
+              <div className="w-full h-20 bg-emerald-100/60 rounded-lg border border-dashed border-emerald-300 flex items-center justify-center gap-1.5 text-emerald-800 text-[10px] font-bold">
+                <ImageIcon className="w-4 h-4 text-emerald-600" />
+                <span>Image Header</span>
+              </div>
+            )
+          )}
+
+          {template.header_type === 'VIDEO' && (
+            template.header_media_url ? (
+              <div className="w-full h-28 rounded-lg overflow-hidden relative bg-black">
+                <video
+                  src={template.header_media_url}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-full bg-white/90 text-slate-900 flex items-center justify-center font-bold text-xs shadow-md">
+                    ▶
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full h-20 bg-emerald-100/60 rounded-lg border border-dashed border-emerald-300 flex items-center justify-center gap-1.5 text-emerald-800 text-[10px] font-bold">
+                <VideoIcon className="w-4 h-4 text-emerald-600" />
+                <span>Video Header</span>
+              </div>
+            )
+          )}
+
+          {template.header_type === 'DOCUMENT' && (
+            <div className="w-full p-2 bg-emerald-100/70 rounded-lg border border-emerald-200 flex items-center gap-2 text-slate-800 text-[10px] font-bold">
+              <FileText className="w-4 h-4 text-red-500 shrink-0" />
+              <span className="truncate">Sample Document (PDF)</span>
             </div>
           )}
 

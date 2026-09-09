@@ -21,6 +21,8 @@ import {
   ArrowUpRight,
   Edit3,
   Clock,
+  Image as ImageIcon,
+  Video as VideoIcon,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -955,10 +957,44 @@ export default function Templates() {
             </div>
 
             {/* Template Body Preview in WhatsApp bubble */}
-            <div className="bg-[#e7f7ec] border border-[#d2edd8] rounded p-3 text-xs text-gray-800 space-y-1.5">
+            <div className="bg-[#e7f7ec] border border-[#d2edd8] rounded-xl p-3 text-xs text-gray-800 space-y-2 overflow-hidden">
               {previewTemplate.header_type === 'TEXT' && previewTemplate.header_text && (
                 <div className="font-bold text-gray-900 border-b border-emerald-200/60 pb-1">
                   {previewTemplate.header_text}
+                </div>
+              )}
+              {previewTemplate.header_type === 'IMAGE' && (
+                previewTemplate.header_media_url ? (
+                  <img
+                    src={previewTemplate.header_media_url}
+                    alt="Header Media"
+                    className="w-full h-36 object-cover rounded-lg border border-emerald-200"
+                  />
+                ) : (
+                  <div className="w-full h-24 bg-emerald-100/60 rounded-lg border border-dashed border-emerald-300 flex items-center justify-center gap-1.5 text-emerald-800 font-bold text-xs">
+                    <ImageIcon className="w-4 h-4 text-emerald-600" />
+                    <span>Image Header</span>
+                  </div>
+                )
+              )}
+              {previewTemplate.header_type === 'VIDEO' && (
+                previewTemplate.header_media_url ? (
+                  <video
+                    src={previewTemplate.header_media_url}
+                    controls
+                    className="w-full h-36 object-cover rounded-lg bg-black"
+                  />
+                ) : (
+                  <div className="w-full h-24 bg-emerald-100/60 rounded-lg border border-dashed border-emerald-300 flex items-center justify-center gap-1.5 text-emerald-800 font-bold text-xs">
+                    <VideoIcon className="w-4 h-4 text-emerald-600" />
+                    <span>Video Header</span>
+                  </div>
+                )
+              )}
+              {previewTemplate.header_type === 'DOCUMENT' && (
+                <div className="w-full p-2.5 bg-emerald-100/70 rounded-lg border border-emerald-200 flex items-center gap-2 text-slate-800 text-xs font-bold">
+                  <FileText className="w-4 h-4 text-red-500 shrink-0" />
+                  <span className="truncate">Sample Document (PDF)</span>
                 </div>
               )}
               <div className="whitespace-pre-line leading-relaxed">

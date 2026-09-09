@@ -147,6 +147,7 @@ export default function AppRoutes() {
       <Route path="/automation/custom-reply" element={<CustomAutoReply />} />
       <Route path="/automation/custom-replies" element={<Navigate to="/automation/custom-reply" replace />} />
       <Route path="/automation/workflows" element={<Workflows />} />
+      <Route path="/automation/workflows/:id" element={<Workflows />} />
       <Route path="/automation/ai-intent-matching" element={<AiIntentMatching />} />
       <Route path="/automation/ai-intent" element={<Navigate to="/automation/ai-intent-matching" replace />} />
       <Route path="/automation/whatsapp-ai-agent" element={<WhatsAppAiAgent />} />
@@ -155,6 +156,7 @@ export default function AppRoutes() {
       <Route path="/automation/my-call-genie" element={<VoiceAiCallGenie />} />
       <Route path="/automation/voice-ai" element={<Navigate to="/automation/my-call-genie" replace />} />
       <Route path="/automation/whatsapp-forms/view" element={<WhatsAppForms />} />
+      <Route path="/automation/whatsapp-forms/create" element={<WhatsAppForms initialTab="create" />} />
       <Route path="/automation/whatsapp-forms" element={<Navigate to="/automation/whatsapp-forms/view" replace />} />
       <Route path="/automation/interactive-list" element={<InteractiveLists />} />
       <Route path="/automation/interaktive-list" element={<Navigate to="/automation/interactive-list" replace />} />

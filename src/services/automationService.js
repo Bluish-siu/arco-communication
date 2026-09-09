@@ -226,7 +226,19 @@ export const automationService = {
       body: JSON.stringify(formData),
     });
   },
+  createWhatsAppForm: async (formData) => {
+    return apiRequest('/automation/forms', {
+      method: 'POST',
+      body: JSON.stringify(formData),
+    });
+  },
   updateForm: async (id, formData) => {
+    return apiRequest(`/automation/forms/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(formData),
+    });
+  },
+  updateWhatsAppForm: async (id, formData) => {
     return apiRequest(`/automation/forms/${id}`, {
       method: 'PUT',
       body: JSON.stringify(formData),

@@ -293,4 +293,260 @@ export const inboxController = {
       next(error);
     }
   },
+
+  // GET /api/inbox/conversations/:id
+  getConversationById: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const conv = await db.findOne('conversations', 'id = $1', [id]);
+      if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+
+      // Fetch messages
+      const msgsResult = await query(
+        'SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC',
+        [id]
+      );
+
+      // Match contact details if present
+      let contact = null;
+      if (conv.phone) {
+        const cleanPhone = conv.phone.replace(/[^0-9+]/g, '');
+        const contactRes = await query(
+          'SELECT * FROM contacts WHERE phone = $1 OR phone = $2 OR name = $3 LIMIT 1',
+          [conv.phone, cleanPhone, conv.name]
+        );
+        if (contactRes.rows.length > 0) {
+          contact = contactRes.rows[0];
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          id: conv.id,
+          name: conv.name,
+          channel: conv.channel || 'whatsapp',
+          status: conv.status || 'Online',
+          phone: conv.phone,
+          unreadCount: conv.unread_count || 0,
+          lastMessageTime: conv.last_message_time || 'Just now',
+          tag: conv.tag || contact?.tag || 'Lead',
+          label: conv.label || null,
+          statusFilter: conv.status_filter || 'open',
+          assignee: conv.assignee || contact?.owner || 'Me',
+          replyStatus: conv.reply_status || 'replied_manually',
+          responseWindow: conv.response_window || 'active',
+          isSpam: conv.is_spam || false,
+          updatedAt: conv.updated_at,
+          createdAt: conv.created_at,
+          contact: contact
+            ? {
+                id: contact.id,
+                name: contact.name,
+                phone: contact.phone,
+                email: contact.email || '',
+                userId: contact.user_id || '',
+                whatsappOpted: contact.whatsapp_opted !== false,
+                dealValue: parseFloat(contact.value || 0),
+                notes: contact.notes || '',
+                tag: contact.tag || 'Lead',
+                status: contact.status || 'Open Lead',
+                owner: contact.owner || 'Me',
+                segment: contact.segment || 'Default',
+              }
+            : {
+                id: null,
+                name: conv.name,
+                phone: conv.phone,
+                email: '',
+                userId: '',
+                whatsappOpted: true,
+                dealValue: 0,
+                notes: '',
+                tag: conv.tag || 'Lead',
+                status: 'Open Lead',
+                owner: conv.assignee || 'Me',
+                segment: 'Default',
+              },
+          messages: msgsResult.rows.map((m) => ({
+            id: m.id,
+            sender: m.sender,
+            text: m.text,
+            time: m.time,
+            timestamp: m.timestamp,
+          })),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // PUT /api/inbox/conversations/:id
+  updateConversation: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const {
+        name,
+        phone,
+        assignee,
+        tag,
+        label,
+        statusFilter,
+        chatStatus,
+        isSpam,
+        replyStatus,
+        notes,
+        whatsappOpted,
+        dealValue,
+        email,
+        userId,
+      } = req.body;
+
+      const conv = await db.findOne('conversations', 'id = $1', [id]);
+      if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+
+      // Build conversation update fields
+      const convUpdates = {};
+      if (name !== undefined) convUpdates.name = name.trim();
+      if (phone !== undefined) convUpdates.phone = phone.trim();
+      if (assignee !== undefined) convUpdates.assignee = assignee;
+      if (tag !== undefined) convUpdates.tag = tag;
+      if (label !== undefined) convUpdates.label = label;
+      
+      const newStatusFilter = statusFilter || chatStatus;
+      if (newStatusFilter !== undefined) convUpdates.status_filter = newStatusFilter;
+
+      if (isSpam !== undefined) convUpdates.is_spam = Boolean(isSpam);
+      if (replyStatus !== undefined) convUpdates.reply_status = replyStatus;
+
+      let updatedConv = conv;
+      if (Object.keys(convUpdates).length > 0) {
+        updatedConv = await db.update('conversations', id, convUpdates);
+      }
+
+      // Sync with contacts table if contact exists or can be matched
+      const targetPhone = convUpdates.phone || conv.phone;
+      const targetName = convUpdates.name || conv.name;
+      let matchedContact = null;
+
+      if (targetPhone) {
+        const cleanPhone = targetPhone.replace(/[^0-9+]/g, '');
+        const contactRes = await query(
+          'SELECT * FROM contacts WHERE phone = $1 OR phone = $2 OR name = $3 LIMIT 1',
+          [targetPhone, cleanPhone, targetName]
+        );
+        if (contactRes.rows.length > 0) {
+          matchedContact = contactRes.rows[0];
+        }
+      }
+
+      if (matchedContact) {
+        const contactUpdates = [];
+        const contactParams = [];
+
+        if (name !== undefined) {
+          contactParams.push(name.trim());
+          contactUpdates.push(`name = $${contactParams.length}`);
+        }
+        if (email !== undefined) {
+          contactParams.push(email.trim());
+          contactUpdates.push(`email = $${contactParams.length}`);
+        }
+        if (userId !== undefined) {
+          contactParams.push(userId.trim());
+          contactUpdates.push(`user_id = $${contactParams.length}`);
+        }
+        if (tag !== undefined) {
+          contactParams.push(tag);
+          contactUpdates.push(`tag = $${contactParams.length}`);
+        }
+        if (assignee !== undefined) {
+          contactParams.push(assignee);
+          contactUpdates.push(`owner = $${contactParams.length}`);
+        }
+        if (whatsappOpted !== undefined) {
+          contactParams.push(Boolean(whatsappOpted));
+          contactUpdates.push(`whatsapp_opted = $${contactParams.length}`);
+        }
+        if (dealValue !== undefined) {
+          contactParams.push(parseFloat(dealValue) || 0);
+          contactUpdates.push(`value = $${contactParams.length}`);
+        }
+        if (notes !== undefined) {
+          contactParams.push(notes);
+          contactUpdates.push(`notes = $${contactParams.length}`);
+        }
+
+        if (contactUpdates.length > 0) {
+          contactUpdates.push(`updated_at = CURRENT_TIMESTAMP`);
+          contactParams.push(matchedContact.id);
+          const updateSql = `UPDATE contacts SET ${contactUpdates.join(', ')} WHERE id = $${contactParams.length} RETURNING *`;
+          const updatedContactRes = await query(updateSql, contactParams);
+          matchedContact = updatedContactRes.rows[0];
+        }
+      } else if (email || userId || dealValue || notes || whatsappOpted !== undefined) {
+        // Create new contact entry linked to this conversation
+        const newContactId = `cnt_${Date.now()}`;
+        const newContact = await db.insert('contacts', {
+          id: newContactId,
+          name: targetName || 'WhatsApp User',
+          phone: targetPhone || '+91 90000 00000',
+          email: email || '',
+          user_id: userId || '',
+          tag: tag || conv.tag || 'Lead',
+          status: 'Open Lead',
+          owner: assignee || conv.assignee || 'Me',
+          channel: conv.channel || 'whatsapp',
+          whatsapp_opted: whatsappOpted !== undefined ? Boolean(whatsappOpted) : true,
+          value: parseFloat(dealValue) || 0,
+          notes: notes || '',
+        });
+        matchedContact = newContact;
+      }
+
+      res.json({
+        success: true,
+        message: 'Conversation updated successfully',
+        data: {
+          id: updatedConv.id,
+          name: updatedConv.name,
+          channel: updatedConv.channel,
+          status: updatedConv.status,
+          phone: updatedConv.phone,
+          unreadCount: updatedConv.unread_count,
+          lastMessageTime: updatedConv.last_message_time,
+          tag: updatedConv.tag,
+          label: updatedConv.label,
+          statusFilter: updatedConv.status_filter,
+          assignee: updatedConv.assignee,
+          replyStatus: updatedConv.reply_status,
+          responseWindow: updatedConv.response_window,
+          isSpam: updatedConv.is_spam,
+          updatedAt: updatedConv.updated_at,
+          contact: matchedContact
+            ? {
+                id: matchedContact.id,
+                name: matchedContact.name,
+                phone: matchedContact.phone,
+                email: matchedContact.email || '',
+                userId: matchedContact.user_id || '',
+                whatsappOpted: matchedContact.whatsapp_opted !== false,
+                dealValue: parseFloat(matchedContact.value || 0),
+                notes: matchedContact.notes || '',
+                tag: matchedContact.tag || 'Lead',
+                status: matchedContact.status || 'Open Lead',
+                owner: matchedContact.owner || 'Me',
+              }
+            : null,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

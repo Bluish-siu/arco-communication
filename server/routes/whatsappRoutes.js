@@ -10,6 +10,7 @@ router.post('/webhook', whatsappController.handleWebhook);
 
 // Protected WhatsApp API Endpoints
 router.get('/status', authenticateToken, whatsappController.getStatus);
+router.get('/message-status/:wamid', authenticateToken, whatsappController.getMessageStatus);
 router.post('/send-template', authenticateToken, whatsappController.sendTemplate);
 
 export default router;

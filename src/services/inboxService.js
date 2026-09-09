@@ -55,4 +55,25 @@ export const inboxService = {
       return null;
     }
   },
+
+  getConversation: async (conversationId) => {
+    try {
+      const res = await apiRequest(`/inbox/conversations/${conversationId}`);
+      return res.data;
+    } catch {
+      return null;
+    }
+  },
+
+  updateConversation: async (conversationId, updateData) => {
+    try {
+      const res = await apiRequest(`/inbox/conversations/${conversationId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updateData),
+      });
+      return res.data;
+    } catch {
+      return null;
+    }
+  },
 };

@@ -141,4 +141,15 @@ export const campaignsService = {
       return { success: false, data: [], approved: [], error: err.message };
     }
   },
+
+  // GET /api/campaigns/message-status/:wamid
+  getMessageStatus: async (wamid) => {
+    try {
+      const res = await apiRequest(`/campaigns/message-status/${wamid}`);
+      return res;
+    } catch (err) {
+      console.warn('[Campaigns Service] getMessageStatus failed:', err);
+      return { success: false, error: err.message };
+    }
+  },
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -522,11 +522,65 @@ export default function CreateCampaign() {
   const [testPhone, setTestPhone] = useState('+91 ');
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [isPollingStatus, setIsPollingStatus] = useState(false);
+  const statusPollRef = useRef(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
+
+  // Poll for webhook status changes (accepted -> sent -> delivered -> read | failed)
+  const startPollingMessageStatus = (wamid) => {
+    if (!wamid) return;
+    if (statusPollRef.current) clearInterval(statusPollRef.current);
+
+    setIsPollingStatus(true);
+    let attempts = 0;
+    const maxAttempts = 15; // Poll every 1.5s for ~22 seconds
+
+    statusPollRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await campaignsService.getMessageStatus(wamid);
+        if (res?.success && res.data) {
+          const log = res.data;
+          setTestResult((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              status: log.status || prev.status,
+              deliveredAt: log.delivered_at,
+              sentAt: log.sent_at,
+              readAt: log.read_at,
+              failedAt: log.failed_at,
+              errorCode: log.error_code || prev.errorCode,
+              errorMessage: log.error_message || prev.errorMessage,
+            };
+          });
+
+          // If reached terminal status (delivered, read, failed), stop polling
+          if (['delivered', 'read', 'failed'].includes(log.status)) {
+            clearInterval(statusPollRef.current);
+            setIsPollingStatus(false);
+          }
+        }
+      } catch (e) {
+        // Ignore polling error
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(statusPollRef.current);
+        setIsPollingStatus(false);
+      }
+    }, 1500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (statusPollRef.current) clearInterval(statusPollRef.current);
+    };
+  }, []);
 
   const handleSendTestMessage = async () => {
     const rawPhone = testPhone ? testPhone.trim() : '';
@@ -539,6 +593,7 @@ export default function CreateCampaign() {
       return;
     }
 
+    if (statusPollRef.current) clearInterval(statusPollRef.current);
     setSendingTest(true);
     setTestResult(null);
 
@@ -554,14 +609,22 @@ export default function CreateCampaign() {
 
       const res = await campaignsService.sendTestMessage(payload);
       if (res?.success) {
+        const wamid = res.data?.wamid || res.data?.metaMessageId;
         setTestResult({
           success: true,
-          wamid: res.data?.wamid || res.data?.metaMessageId,
+          status: 'accepted',
+          wamid,
           recipientPhone: res.data?.recipientPhone || rawPhone,
           templateName: res.data?.templateName || selectedTemplate.name,
-          message: 'Test message delivered to Meta WhatsApp Cloud API!',
+          templateLanguage: res.data?.templateLanguage || selectedTemplate.language,
+          message: 'Message accepted by Meta WhatsApp Cloud API',
         });
-        showToast('Test message sent successfully via Meta Cloud API!');
+        showToast('Test message submitted to Meta Cloud API!');
+
+        // Start live delivery status listener
+        if (wamid) {
+          startPollingMessageStatus(wamid);
+        }
       } else {
         const errorText = res?.errorCode === 132001
           ? 'WhatsApp template not found for the selected language. Please select an approved template from your connected Meta WhatsApp Business account.'
@@ -569,6 +632,7 @@ export default function CreateCampaign() {
 
         setTestResult({
           success: false,
+          status: 'failed',
           error: errorText,
           errorCode: res?.errorCode,
           errorSubcode: res?.errorSubcode,
@@ -579,6 +643,7 @@ export default function CreateCampaign() {
     } catch (err) {
       setTestResult({
         success: false,
+        status: 'failed',
         error: err.message || 'Failed to connect to Meta WhatsApp Cloud API endpoint',
       });
       showToast(err.message || 'Failed to send test message', 'error');
@@ -2414,40 +2479,151 @@ export default function CreateCampaign() {
                 </p>
               </div>
 
-              {/* Live Test Result */}
+              {/* Live Multi-Stage WhatsApp Delivery Result */}
               {testResult && (
-                <div
-                  className={`p-3 rounded-lg text-xs space-y-1.5 ${
-                    testResult.success
-                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
-                      : 'bg-red-50 border border-red-200 text-red-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold">
-                    {testResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                    )}
-                    <span>{testResult.success ? 'Meta API Accepted & Dispatched' : 'Meta API Rejection'}</span>
-                  </div>
-                  {testResult.wamid && (
-                    <div className="text-[10px] font-mono break-all bg-white/80 p-2 rounded border border-emerald-200 text-emerald-800">
-                      <span className="font-bold">WhatsApp Message ID (wamid):</span>
-                      <br />
-                      {testResult.wamid}
-                    </div>
-                  )}
-                  {testResult.error && (
-                    <div className="text-[11px] leading-relaxed">
-                      {testResult.error}
-                      {testResult.missingFields?.length > 0 && (
-                        <div className="mt-1 font-semibold text-[10px] text-red-700">
-                          Missing credentials: {testResult.missingFields.join(', ')}
-                        </div>
+                <div className="space-y-3 pt-2">
+                  {/* Status Progression Bar */}
+                  <div className="p-3.5 rounded-xl border bg-white shadow-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">
+                        Delivery Flow Status
+                      </span>
+                      {isPollingStatus && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full animate-pulse border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Listening for WhatsApp Receipt...
+                        </span>
                       )}
                     </div>
-                  )}
+
+                    {/* 4 Status Badges */}
+                    <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                      {/* 1. API Accepted */}
+                      <div
+                        className={`p-1.5 rounded-lg border font-bold ${
+                          ['accepted', 'sent', 'delivered', 'read'].includes(testResult.status)
+                            ? 'bg-amber-50 border-amber-300 text-amber-900'
+                            : testResult.status === 'failed'
+                            ? 'bg-gray-50 border-gray-200 text-gray-400'
+                            : 'bg-gray-50 border-gray-200 text-gray-400'
+                        }`}
+                      >
+                        <div className="text-[9px] text-gray-500 font-normal">Stage 1</div>
+                        <div>API Accepted ✓</div>
+                      </div>
+
+                      {/* 2. Sent */}
+                      <div
+                        className={`p-1.5 rounded-lg border font-bold ${
+                          ['sent', 'delivered', 'read'].includes(testResult.status)
+                            ? 'bg-blue-50 border-blue-300 text-blue-900'
+                            : 'bg-gray-50 border-gray-200 text-gray-400'
+                        }`}
+                      >
+                        <div className="text-[9px] text-gray-500 font-normal">Stage 2</div>
+                        <div>Sent 📤</div>
+                      </div>
+
+                      {/* 3. Delivered */}
+                      <div
+                        className={`p-1.5 rounded-lg border font-bold ${
+                          ['delivered', 'read'].includes(testResult.status)
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : 'bg-gray-50 border-gray-200 text-gray-400'
+                        }`}
+                      >
+                        <div className="text-[9px] text-gray-500 font-normal">Stage 3</div>
+                        <div>Delivered 📦</div>
+                      </div>
+
+                      {/* 4. Read */}
+                      <div
+                        className={`p-1.5 rounded-lg border font-bold ${
+                          testResult.status === 'read'
+                            ? 'bg-purple-50 border-purple-300 text-purple-900'
+                            : 'bg-gray-50 border-gray-200 text-gray-400'
+                        }`}
+                      >
+                        <div className="text-[9px] text-gray-500 font-normal">Stage 4</div>
+                        <div>Read 👁️</div>
+                      </div>
+                    </div>
+
+                    {/* Current Stage Status Summary */}
+                    {testResult.status === 'accepted' && (
+                      <div className="p-2.5 rounded-lg bg-amber-50/80 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Meta API Accepted:</span> The message was validated and placed into Meta's Cloud API dispatch queue. Waiting for Meta server delivery receipt...
+                        </div>
+                      </div>
+                    )}
+
+                    {testResult.status === 'sent' && (
+                      <div className="p-2.5 rounded-lg bg-blue-50/80 border border-blue-200 text-[11px] text-blue-900 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Sent by Meta:</span> Message dispatched from Meta's WhatsApp network to recipient carrier.
+                        </div>
+                      </div>
+                    )}
+
+                    {testResult.status === 'delivered' && (
+                      <div className="p-2.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-[11px] text-emerald-900 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Delivered to WhatsApp:</span> Message successfully delivered to recipient's WhatsApp device!
+                        </div>
+                      </div>
+                    )}
+
+                    {testResult.status === 'read' && (
+                      <div className="p-2.5 rounded-lg bg-purple-50/80 border border-purple-200 text-[11px] text-purple-900 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Read by Customer:</span> Recipient opened and viewed the WhatsApp message.
+                        </div>
+                      </div>
+                    )}
+
+                    {testResult.status === 'failed' && (
+                      <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-900 space-y-1.5">
+                        <div className="flex items-center gap-1.5 font-bold text-red-700">
+                          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                          <span>Delivery Failed on Meta Network</span>
+                        </div>
+                        <div className="text-[11px] leading-relaxed pl-5 space-y-1">
+                          <div>
+                            <span className="font-bold">Error:</span> {testResult.errorMessage || testResult.error}
+                          </div>
+                          {testResult.errorCode && (
+                            <div className="font-mono text-[10px] text-red-800">
+                              Meta Error Code: #{testResult.errorCode}
+                            </div>
+                          )}
+                          {testResult.errorCode === '131030' && (
+                            <p className="text-[10px] bg-white/80 p-2 rounded border border-red-200 text-red-800 font-medium">
+                              💡 <strong>Why this happened:</strong> In Meta WhatsApp Development/Sandbox mode, messages can only be delivered to phone numbers that have been added as verified test numbers in your Meta App Dashboard under <em>WhatsApp &gt; API Setup &gt; To phone number</em> list.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* WAMID & Target Summary */}
+                    {testResult.wamid && (
+                      <div className="text-[10px] font-mono break-all bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700 space-y-1">
+                        <div className="flex items-center justify-between text-gray-500 font-sans">
+                          <span>Recipient: <strong className="text-gray-900 font-mono">+{testResult.recipientPhone}</strong></span>
+                          <span>Template: <strong className="text-gray-900 font-mono">{testResult.templateName}</strong></span>
+                        </div>
+                        <div className="pt-1 border-t border-slate-200/80">
+                          <span className="text-gray-400">WAMID: </span>
+                          <span className="text-emerald-700 font-bold">{testResult.wamid}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

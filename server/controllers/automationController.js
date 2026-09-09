@@ -83,90 +83,110 @@ export const automationController = {
       const userId = req.user?.id || 'usr_1';
       const { channel, search } = req.query;
 
-      // Seed standard custom replies if empty
-      const countRes = await query('SELECT COUNT(*) as count FROM custom_auto_replies WHERE user_id = $1', [userId]);
-      if (parseInt(countRes.rows[0]?.count || '0', 10) === 0) {
-        const defaultReplies = [
-          {
-            id: `car_wa_1`,
-            user_id: userId,
-            channel: 'whatsapp',
-            trigger_keyword: 'What digital solutions do you offer?',
-            additional_triggers: JSON.stringify([
-              'digital solutions', 'what services do you provide', 'software development',
-              'web development', 'mobile apps', 'ai integration',
-              'solutions list', 'digital offerings', 'tech stack'
-            ]),
-            match_type: 'contains',
-            action_type: 'auto_reply',
-            response_message: 'We offer custom websites, mobile apps, enterprise cloud infrastructure, AI autonomous agents, and WhatsApp marketing automation workflows tailored to your scale.',
-            status: 'active',
-            conversations_sent: 0,
-          },
-          {
-            id: `car_wa_2`,
-            user_id: userId,
-            channel: 'whatsapp',
-            trigger_keyword: 'What industries do you work with?',
-            additional_triggers: JSON.stringify([
-              'industries', 'sectors', 'clients', 'healthcare',
-              'ecommerce', 'retail', 'real estate', 'fintech', 'education'
-            ]),
-            match_type: 'contains',
-            action_type: 'auto_reply',
-            response_message: 'We work with growing SMEs, healthcare, e-commerce & D2C retailers, real estate developers, educational institutes, and fintech startups.',
-            status: 'active',
-            conversations_sent: 0,
-          },
-          {
-            id: `car_wa_3`,
-            user_id: userId,
-            channel: 'whatsapp',
-            trigger_keyword: 'Why should we choose ARCO?',
-            additional_triggers: JSON.stringify([
-              'why choose us', 'benefits', 'features', 'advantage',
-              'why arco', 'support', 'reliability', 'pricing comparison', 'reviews'
-            ]),
-            match_type: 'contains',
-            action_type: 'auto_reply',
-            response_message: 'We prioritize understanding your business objectives with dedicated 24/7 technical support, official Meta Cloud API infrastructure, 99.9% delivery uptime, and built-in AI conversational agents.',
-            status: 'active',
-            conversations_sent: 0,
-          },
-          {
-            id: `car_ig_1`,
-            user_id: userId,
-            channel: 'instagram',
-            trigger_keyword: 'Price please',
-            additional_triggers: JSON.stringify(['price', 'cost', 'how much', 'pricing']),
-            match_type: 'contains',
-            action_type: 'auto_reply',
-            response_message: 'Hey there! 👋 Thanks for reaching out! Our plans start at ₹999/mo with unlimited agent accounts. Check out https://arco.ai/pricing',
-            status: 'active',
-            conversations_sent: 0,
-          },
-          {
-            id: `car_ig_2`,
-            user_id: userId,
-            channel: 'instagram',
-            trigger_keyword: 'Collaboration inquiry',
-            additional_triggers: JSON.stringify(['collab', 'partnership', 'influencer', 'sponsor']),
-            match_type: 'contains',
-            action_type: 'auto_reply',
-            response_message: "Hi! We'd love to explore creator partnerships. Please DM your media kit or email us at partners@arco.ai.",
-            status: 'active',
-            conversations_sent: 0,
-          },
-        ];
+      const defaultReplies = [
+        {
+          id: `car_wa_1`,
+          user_id: userId,
+          channel: 'whatsapp',
+          trigger_keyword: 'What digital solutions do you offer?',
+          additional_triggers: JSON.stringify([
+            'What services does your company provide?',
+            'Can you list the digital solutions available?',
+            'What types of technology solutions do you offer?',
+            'Do you provide marketing and content services?',
+            'What are your main business solutions?',
+            'What kinds of apps and websites do you create?',
+            'How do you enhance customer experience?',
+            'Can I get a summary of your service offerings?',
+            'What is included in your business solutions?'
+          ]),
+          match_type: 'exact',
+          action_type: 'auto_reply',
+          response_message: 'We offer custom websites, mobile apps, CRM systems, AI integration, marketing strategies, and content creation.',
+          status: 'active',
+          conversations_sent: 0,
+        },
+        {
+          id: `car_wa_2`,
+          user_id: userId,
+          channel: 'whatsapp',
+          trigger_keyword: 'What industries do you serve?',
+          additional_triggers: JSON.stringify([
+            'Which industries do you specialize in?',
+            'What sectors does your company focus on?',
+            'Who are your typical clients?',
+            'Do you work with healthcare and renewable energy?',
+            'What types of businesses do you support?',
+            'Can you name the industries you serve?',
+            'Do you have experience in working with startups?',
+            'What is your focus industry?',
+            'Are there specific sectors you cater to?'
+          ]),
+          match_type: 'exact',
+          action_type: 'auto_reply',
+          response_message: 'We work with growing SMEs, healthcare, renewable energy, startups, and professional services.',
+          status: 'active',
+          conversations_sent: 0,
+        },
+        {
+          id: `car_wa_3`,
+          user_id: userId,
+          channel: 'whatsapp',
+          trigger_keyword: 'Why should we choose ARCO?',
+          additional_triggers: JSON.stringify([
+            'What makes ARCO different?',
+            'Why is ARCO better than competitors?',
+            'What are the key advantages of ARCO?',
+            'Why should I trust ARCO for WhatsApp automation?',
+            'What features make ARCO stand out?',
+            'Can you tell me about your support and reliability?',
+            'What is your delivery uptime and SLA guarantee?',
+            'How does ARCO help scale our customer communication?',
+            'What are the main benefits of using ARCO?'
+          ]),
+          match_type: 'exact',
+          action_type: 'auto_reply',
+          response_message: 'We prioritize understanding your business objectives with dedicated 24/7 technical support, official Meta Cloud API infrastructure, 99.9% delivery uptime, and built-in AI conversational agents.',
+          status: 'active',
+          conversations_sent: 0,
+        },
+        {
+          id: `car_ig_1`,
+          user_id: userId,
+          channel: 'instagram',
+          trigger_keyword: 'Price please',
+          additional_triggers: JSON.stringify(['price', 'cost', 'how much', 'pricing']),
+          match_type: 'contains',
+          action_type: 'auto_reply',
+          response_message: 'Hey there! 👋 Thanks for reaching out! Our plans start at ₹999/mo with unlimited agent accounts. Check out https://arco.ai/pricing',
+          status: 'active',
+          conversations_sent: 0,
+        },
+        {
+          id: `car_ig_2`,
+          user_id: userId,
+          channel: 'instagram',
+          trigger_keyword: 'Collaboration inquiry',
+          additional_triggers: JSON.stringify(['collab', 'partnership', 'influencer', 'sponsor']),
+          match_type: 'contains',
+          action_type: 'auto_reply',
+          response_message: "Hi! We'd love to explore creator partnerships. Please DM your media kit or email us at partners@arco.ai.",
+          status: 'active',
+          conversations_sent: 0,
+        },
+      ];
 
-        for (const dr of defaultReplies) {
-          await query(
-            `INSERT INTO custom_auto_replies (id, user_id, channel, trigger_keyword, additional_triggers, match_type, action_type, response_message, status, conversations_sent, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT (id) DO NOTHING`,
-            [dr.id, dr.user_id, dr.channel, dr.trigger_keyword, dr.additional_triggers, dr.match_type, dr.action_type, dr.response_message, dr.status, dr.conversations_sent]
-          );
-        }
+      for (const dr of defaultReplies) {
+        await query(
+          `INSERT INTO custom_auto_replies (id, user_id, channel, trigger_keyword, additional_triggers, match_type, action_type, response_message, status, conversations_sent, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) DO UPDATE SET 
+             trigger_keyword = EXCLUDED.trigger_keyword,
+             additional_triggers = EXCLUDED.additional_triggers,
+             match_type = EXCLUDED.match_type,
+             response_message = EXCLUDED.response_message`,
+          [dr.id, dr.user_id, dr.channel, dr.trigger_keyword, dr.additional_triggers, dr.match_type, dr.action_type, dr.response_message, dr.status, dr.conversations_sent]
+        );
       }
 
       let sql = 'SELECT * FROM custom_auto_replies WHERE user_id = $1';
@@ -313,18 +333,146 @@ export const automationController = {
       const userId = req.user?.id || 'usr_1';
       const { search, status } = req.query;
 
-      // Ensure standard Interakt workflows exist
+      // Ensure standard Interakt workflows exist with rich starter templates
       const standardWorkflows = [
-        { id: 'wf_analytics_1', name: 'ai_performance_analytics_dashboard_vf', trigger: 'Customer reaches out', action: 'Route to analytics workflow', user_id: userId },
-        { id: 'wf_support_2', name: 'ai_ai-powered_customer_support_tg', trigger: 'Customer asks question', action: 'AI support resolution triage', user_id: userId },
-        { id: 'wf_onboarding_3', name: 'ai_automated_client_onboarding_cw', trigger: 'First inbound conversation', action: 'Client discovery & onboarding sequence', user_id: userId },
+        {
+          id: 'wf_ai_proj_1',
+          name: 'ai_project_progress_notifications_7i',
+          trigger: 'User sends a WhatsApp message',
+          action: 'Workflow',
+          user_id: userId,
+          executions: 0,
+          description: 'Automated project progress notifications, sprint status updates and client check-ins',
+          trigger_config: { keywords: ['progress', 'project status', 'milestone', 'update'], triggerX: 60, triggerY: 100 },
+          nodes: [
+            {
+              id: 'node_1',
+              type: 'plain_message',
+              label: 'Plain Message',
+              x: 480,
+              y: 100,
+              data: { text: 'Hello! 🚀 Here is the current progress update on your active project sprint. All milestones are currently on schedule.' }
+            },
+            {
+              id: 'node_2',
+              type: 'message_buttons',
+              label: 'Message + Buttons',
+              x: 880,
+              y: 100,
+              data: { text: 'Would you like to view detailed milestone reports or schedule a sync with your team lead?', buttons: ['View Milestone Report', 'Book Sprint Review', 'Contact Project Lead'] }
+            },
+            {
+              id: 'node_3',
+              type: 'assign_agent',
+              label: 'Assign Chat to Agent',
+              x: 1280,
+              y: 100,
+              data: { agent: 'Engineering Project Manager', queue: 'High Priority' }
+            }
+          ],
+          edges: [
+            { id: 'edge_trigger_node_1', source: 'trigger', target: 'node_1' },
+            { id: 'edge_node_1_node_2', source: 'node_1', target: 'node_2' },
+            { id: 'edge_node_2_node_3', source: 'node_2', target: 'node_3' }
+          ]
+        },
+        {
+          id: 'wf_ai_tech_2',
+          name: 'ai_technical_support_ticketing_ja',
+          trigger: 'User sends a WhatsApp message',
+          action: 'Workflow',
+          user_id: userId,
+          executions: 0,
+          description: 'Technical issue reporting, auto-ticket creation, priority classification, and engineer assignment',
+          trigger_config: { keywords: ['support', 'bug', 'issue', 'ticket', 'help'], triggerX: 60, triggerY: 100 },
+          nodes: [
+            {
+              id: 'node_1',
+              type: 'plain_message',
+              label: 'Plain Message',
+              x: 480,
+              y: 100,
+              data: { text: 'Welcome to ARCO Technical Support 🛠️. We are here to help resolve any technical or API inquiries.' }
+            },
+            {
+              id: 'node_2',
+              type: 'message_buttons',
+              label: 'Message + Buttons',
+              x: 880,
+              y: 100,
+              data: { text: 'Please select the category that best describes your inquiry:', buttons: ['Cloud API Integration', 'Webhook & Webhooks', 'Billing & Tokens', 'Speak to Engineer'] }
+            },
+            {
+              id: 'node_3',
+              type: 'update_tag',
+              label: 'Update Field / Tag',
+              x: 1280,
+              y: 100,
+              data: { tag: 'Technical Support Ticket' }
+            }
+          ],
+          edges: [
+            { id: 'edge_trigger_node_1', source: 'trigger', target: 'node_1' },
+            { id: 'edge_node_1_node_2', source: 'node_1', target: 'node_2' },
+            { id: 'edge_node_2_node_3', source: 'node_2', target: 'node_3' }
+          ]
+        },
+        {
+          id: 'wf_ai_onb_3',
+          name: 'ai_automated_client_onboarding_je',
+          trigger: 'User sends a WhatsApp message',
+          action: 'Workflow',
+          user_id: userId,
+          executions: 0,
+          description: 'Interactive step-by-step customer onboarding with documentation and live support handover',
+          trigger_config: { keywords: ['onboard', 'welcome', 'new client', 'get started'], triggerX: 60, triggerY: 100 },
+          nodes: [
+            {
+              id: 'node_1',
+              type: 'plain_message',
+              label: 'Plain Message',
+              x: 480,
+              y: 100,
+              data: { text: "Welcome aboard! 🎉 We are excited to partner with you. Let's guide you through your account onboarding in 3 quick steps." }
+            },
+            {
+              id: 'node_2',
+              type: 'message_buttons',
+              label: 'Message + Buttons',
+              x: 880,
+              y: 100,
+              data: { text: 'Ready to configure your WhatsApp Cloud API channel and connect your brand catalog?', buttons: ['Start Step 1: Connect Phone', 'Explore Documentation', 'Request Assisted Setup'] }
+            }
+          ],
+          edges: [
+            { id: 'edge_trigger_node_1', source: 'trigger', target: 'node_1' },
+            { id: 'edge_node_1_node_2', source: 'node_1', target: 'node_2' }
+          ]
+        },
       ];
       for (const wf of standardWorkflows) {
         await query(
-          `INSERT INTO workflows (id, user_id, name, trigger, action, status, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-           ON CONFLICT (id) DO NOTHING`,
-          [wf.id, wf.user_id, wf.name, wf.trigger, wf.action]
+          `INSERT INTO workflows (id, user_id, name, "trigger", action, executions, status, description, trigger_config, nodes, edges, is_published, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, true, '2026-09-04T08:00:00.000Z', '2026-09-04T08:00:00.000Z')
+           ON CONFLICT (id) DO UPDATE SET 
+             name = EXCLUDED.name, 
+             "trigger" = CASE WHEN workflows.trigger = '--' THEN EXCLUDED."trigger" ELSE workflows.trigger END,
+             action = EXCLUDED.action,
+             nodes = CASE WHEN workflows.nodes IS NULL OR jsonb_array_length(workflows.nodes) = 0 THEN EXCLUDED.nodes ELSE workflows.nodes END,
+             edges = CASE WHEN workflows.edges IS NULL OR jsonb_array_length(workflows.edges) = 0 THEN EXCLUDED.edges ELSE workflows.edges END,
+             trigger_config = CASE WHEN workflows.trigger_config IS NULL OR workflows.trigger_config = '{}'::jsonb THEN EXCLUDED.trigger_config ELSE workflows.trigger_config END`,
+          [
+            wf.id,
+            wf.user_id,
+            wf.name,
+            wf.trigger,
+            wf.action,
+            wf.executions,
+            wf.description,
+            JSON.stringify(wf.trigger_config),
+            JSON.stringify(wf.nodes),
+            JSON.stringify(wf.edges)
+          ]
         );
       }
 
@@ -367,25 +515,25 @@ export const automationController = {
   createWorkflow: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
-      const { name, description, trigger, trigger_config, action, nodes, edges, is_published } = req.body;
+      const { id, name, description, trigger, trigger_config, action, nodes, edges, is_published } = req.body;
 
       if (!name) {
         return res.status(400).json({ success: false, error: 'Workflow name is required' });
       }
 
-      const defaultNodes = nodes && nodes.length > 0 ? nodes : [
+      const defaultNodes = Array.isArray(nodes) ? nodes : [
         { id: 'node_1', type: 'trigger', data: { label: trigger || 'Inbound Message' } },
         { id: 'node_2', type: 'send_message', data: { text: 'Hello! How can we help you today?' } },
         { id: 'node_3', type: 'end_workflow', data: { message: 'End of automated flow.' } },
       ];
 
-      const defaultEdges = edges && edges.length > 0 ? edges : [
+      const defaultEdges = Array.isArray(edges) ? edges : [
         { source: 'node_1', target: 'node_2' },
         { source: 'node_2', target: 'node_3' },
       ];
 
       const newWf = await db.insert('workflows', {
-        id: `wf_${Date.now()}`,
+        id: id || `wf_${Date.now()}`,
         user_id: userId,
         name,
         description: description || 'Multi-step automated chatbot flow',
@@ -510,13 +658,19 @@ export const automationController = {
       // Increment execution count
       await db.update('workflows', id, { executions: (wf.executions || 0) + 1 });
 
+      const firstMsgNode = nodes.find(n => n.data?.text || n.data?.bodyText);
+      let finalResponse = firstMsgNode?.data?.text || firstMsgNode?.data?.bodyText || 'Workflow executed successfully';
+      if (firstMsgNode?.data?.buttons && Array.isArray(firstMsgNode.data.buttons) && firstMsgNode.data.buttons.length > 0) {
+        finalResponse += ` [Buttons: ${firstMsgNode.data.buttons.join(', ')}]`;
+      }
+
       res.json({
         success: true,
         workflowId: wf.id,
         workflowName: wf.name,
         simulatedMessage: message,
         executionSteps,
-        finalResponse: nodes.find(n => n.type === 'send_message')?.data?.text || 'Workflow executed successfully',
+        finalResponse,
       });
     } catch (error) {
       next(error);
@@ -1151,7 +1305,30 @@ export const automationController = {
       sql += ' ORDER BY created_at DESC';
 
       const result = await query(sql, params);
-      res.json({ success: true, count: result.rows.length, data: result.rows });
+      const formatted = result.rows.map((row) => {
+        let ws = row.welcome_screen;
+        if (typeof ws === 'string') {
+          try { ws = JSON.parse(ws); } catch (_) {}
+        }
+        return {
+          ...row,
+          name: row.title,
+          screens: ws?.screens || (Array.isArray(row.fields) ? [{
+            id: 'screen_1',
+            screenTitle: row.title || 'Form Screen',
+            headerTitle: row.title || '',
+            headerSubtitle: row.description || '',
+            buttonText: 'Submit',
+            fields: row.fields,
+          }] : []),
+          categories: ws?.categories || (ws?.category ? [ws.category] : []),
+          category: ws?.category || (ws?.categories ? ws.categories.join(', ') : 'General'),
+          template: ws?.template || 'Custom',
+          submissions_count: row.response_count || 0,
+        };
+      });
+
+      res.json({ success: true, count: formatted.length, data: formatted });
     } catch (error) {
       next(error);
     }
@@ -1164,7 +1341,28 @@ export const automationController = {
       const form = await db.findOne('whatsapp_forms', '(id = $1 OR form_id = $1) AND user_id = $2', [id, userId]);
       if (!form) return res.status(404).json({ success: false, error: 'Form not found' });
 
-      res.json({ success: true, data: form });
+      let ws = form.welcome_screen;
+      if (typeof ws === 'string') {
+        try { ws = JSON.parse(ws); } catch (_) {}
+      }
+      const formatted = {
+        ...form,
+        name: form.title,
+        screens: ws?.screens || (Array.isArray(form.fields) ? [{
+          id: 'screen_1',
+          screenTitle: form.title || 'Form Screen',
+          headerTitle: form.title || '',
+          headerSubtitle: form.description || '',
+          buttonText: 'Submit',
+          fields: form.fields,
+        }] : []),
+        categories: ws?.categories || (ws?.category ? [ws.category] : []),
+        category: ws?.category || (ws?.categories ? ws.categories.join(', ') : 'General'),
+        template: ws?.template || 'Custom',
+        submissions_count: form.response_count || 0,
+      };
+
+      res.json({ success: true, data: formatted });
     } catch (error) {
       next(error);
     }
@@ -1173,16 +1371,26 @@ export const automationController = {
   createForm: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
-      const { title, description, form_id, fields, welcome_screen, thank_you_screen, status } = req.body;
+      const { title, name, description, form_id, fields, welcome_screen, thank_you_screen, status, screens, category, categories, template } = req.body;
 
-      if (!title) return res.status(400).json({ success: false, error: 'Form title is required' });
+      const finalTitle = title || name;
+      if (!finalTitle) return res.status(400).json({ success: false, error: 'Form title is required' });
 
       const uniqueFormId = form_id || `wf_${Date.now()}`;
+
+      let ws = welcome_screen || { title: 'Welcome', description: 'Please complete this form.' };
+      if (typeof ws === 'string') {
+        try { ws = JSON.parse(ws); } catch (_) {}
+      }
+      if (screens) ws.screens = screens;
+      if (categories) ws.categories = categories;
+      if (category) ws.category = category;
+      if (template) ws.template = template;
 
       const newForm = await db.insert('whatsapp_forms', {
         id: `form_${Date.now()}`,
         user_id: userId,
-        title,
+        title: finalTitle,
         description: description || '',
         form_id: uniqueFormId,
         status: status || 'published',
@@ -1190,12 +1398,29 @@ export const automationController = {
           { id: 'f1', type: 'text', label: 'Full Name', placeholder: 'Enter your name', required: true },
           { id: 'f2', type: 'phone', label: 'Phone Number', placeholder: '+91 98765 43210', required: true },
         ],
-        welcome_screen: welcome_screen || { title: 'Welcome', description: 'Please complete this form.' },
+        welcome_screen: ws,
         thank_you_screen: thank_you_screen || { title: 'Thank You!', description: 'Your submission has been received.' },
         response_count: 0,
       });
 
-      res.status(201).json({ success: true, message: 'WhatsApp Form created', data: newForm });
+      const formatted = {
+        ...newForm,
+        name: newForm.title,
+        screens: ws?.screens || (Array.isArray(newForm.fields) ? [{
+          id: 'screen_1',
+          screenTitle: newForm.title,
+          headerTitle: newForm.title,
+          headerSubtitle: newForm.description,
+          buttonText: 'Submit',
+          fields: newForm.fields,
+        }] : []),
+        categories: ws?.categories || (ws?.category ? [ws.category] : []),
+        category: ws?.category || (ws?.categories ? ws.categories.join(', ') : 'General'),
+        template: ws?.template || 'Custom',
+        submissions_count: 0,
+      };
+
+      res.status(201).json({ success: true, message: 'WhatsApp Form created', data: formatted });
     } catch (error) {
       next(error);
     }
@@ -1208,8 +1433,46 @@ export const automationController = {
       const existing = await db.findOne('whatsapp_forms', 'id = $1 AND user_id = $2', [id, userId]);
       if (!existing) return res.status(404).json({ success: false, error: 'Form not found' });
 
-      const updated = await db.update('whatsapp_forms', id, req.body);
-      res.json({ success: true, message: 'Form updated', data: updated });
+      const { title, name, description, form_id, fields, welcome_screen, thank_you_screen, status, screens, category, categories, template } = req.body;
+
+      let ws = welcome_screen || existing.welcome_screen || {};
+      if (typeof ws === 'string') {
+        try { ws = JSON.parse(ws); } catch (_) {}
+      }
+      if (screens !== undefined) ws.screens = screens;
+      if (categories !== undefined) ws.categories = categories;
+      if (category !== undefined) ws.category = category;
+      if (template !== undefined) ws.template = template;
+
+      const updateData = {};
+      if (title !== undefined || name !== undefined) updateData.title = title || name;
+      if (description !== undefined) updateData.description = description;
+      if (form_id !== undefined) updateData.form_id = form_id;
+      if (status !== undefined) updateData.status = status;
+      if (fields !== undefined) updateData.fields = fields;
+      if (thank_you_screen !== undefined) updateData.thank_you_screen = thank_you_screen;
+      updateData.welcome_screen = ws;
+
+      const updated = await db.update('whatsapp_forms', id, updateData);
+
+      const formatted = {
+        ...updated,
+        name: updated.title,
+        screens: ws?.screens || (Array.isArray(updated.fields) ? [{
+          id: 'screen_1',
+          screenTitle: updated.title,
+          headerTitle: updated.title,
+          headerSubtitle: updated.description,
+          buttonText: 'Submit',
+          fields: updated.fields,
+        }] : []),
+        categories: ws?.categories || (ws?.category ? [ws.category] : []),
+        category: ws?.category || (ws?.categories ? ws.categories.join(', ') : 'General'),
+        template: ws?.template || 'Custom',
+        submissions_count: updated.response_count || 0,
+      };
+
+      res.json({ success: true, message: 'Form updated', data: formatted });
     } catch (error) {
       next(error);
     }
@@ -1222,6 +1485,7 @@ export const automationController = {
       const existing = await db.findOne('whatsapp_forms', 'id = $1 AND user_id = $2', [id, userId]);
       if (!existing) return res.status(404).json({ success: false, error: 'Form not found' });
 
+      await query('DELETE FROM whatsapp_form_responses WHERE form_id = $1 AND user_id = $2', [existing.form_id, userId]);
       await db.delete('whatsapp_forms', id);
       res.json({ success: true, message: 'Form deleted' });
     } catch (error) {
@@ -1236,20 +1500,45 @@ export const automationController = {
       const existing = await db.findOne('whatsapp_forms', 'id = $1 AND user_id = $2', [id, userId]);
       if (!existing) return res.status(404).json({ success: false, error: 'Form not found' });
 
+      const newId = `form_${Date.now()}`;
+      const newFormId = `wf_${Date.now()}`;
+
+      let ws = existing.welcome_screen;
+      if (typeof ws === 'string') {
+        try { ws = JSON.parse(ws); } catch (_) {}
+      }
+
       const duplicate = await db.insert('whatsapp_forms', {
-        id: `form_${Date.now()}`,
+        id: newId,
         user_id: userId,
         title: `${existing.title} (Copy)`,
         description: existing.description,
-        form_id: `wf_${Date.now()}`,
+        form_id: newFormId,
         status: 'published',
         fields: existing.fields,
-        welcome_screen: existing.welcome_screen,
+        welcome_screen: ws,
         thank_you_screen: existing.thank_you_screen,
         response_count: 0,
       });
 
-      res.status(201).json({ success: true, message: 'Form duplicated', data: duplicate });
+      const formatted = {
+        ...duplicate,
+        name: duplicate.title,
+        screens: ws?.screens || (Array.isArray(duplicate.fields) ? [{
+          id: 'screen_1',
+          screenTitle: duplicate.title,
+          headerTitle: duplicate.title,
+          headerSubtitle: duplicate.description,
+          buttonText: 'Submit',
+          fields: duplicate.fields,
+        }] : []),
+        categories: ws?.categories || (ws?.category ? [ws.category] : []),
+        category: ws?.category || (ws?.categories ? ws.categories.join(', ') : 'General'),
+        template: ws?.template || 'Custom',
+        submissions_count: 0,
+      };
+
+      res.status(201).json({ success: true, message: 'Form duplicated', data: formatted });
     } catch (error) {
       next(error);
     }
@@ -1424,14 +1713,19 @@ export const automationController = {
       // Priority 1: Check active Workflows
       const workflowsRes = await query('SELECT * FROM workflows WHERE (user_id = $1 OR user_id IS NULL) AND status = $2', [userId, 'active']);
       for (const wf of workflowsRes.rows) {
-        const keywords = wf.trigger_config?.keywords || [wf.trigger];
+        const keywords = (wf.trigger_config?.keywords || [wf.trigger])
+          .filter(k => k && typeof k === 'string' && k.trim() && k.trim() !== '--');
         const match = keywords.some(k => normalizedMsg.includes(k.toLowerCase().trim()));
         if (match) {
           logs.push({ step: '2. Priority 1 Matched: Workflow Trigger', details: `Workflow: "${wf.name}" (ID: ${wf.id})` });
           
           await query('UPDATE workflows SET executions = executions + 1 WHERE id = $1', [wf.id]);
 
-          const responseText = wf.nodes?.find(n => n.type === 'send_message')?.data?.text || 'Workflow executed.';
+          const messageNode = (wf.nodes || []).find(n => n.data?.text || n.data?.bodyText);
+          let responseText = messageNode?.data?.text || messageNode?.data?.bodyText || 'Workflow executed.';
+          if (messageNode?.data?.buttons && Array.isArray(messageNode.data.buttons) && messageNode.data.buttons.length > 0) {
+            responseText += '\n\nOptions:\n' + messageNode.data.buttons.map((b, idx) => `${idx + 1}. ${b}`).join('\n');
+          }
 
           await db.insert('automation_execution_logs', {
             id: `log_${Date.now()}`,
