@@ -20,5 +20,6 @@ export const config = {
   shopifyScopes: process.env.SHOPIFY_SCOPES || 'read_products,read_orders,read_customers',
   shopifyAppUrl: process.env.SHOPIFY_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173',
   shopifyRedirectUri: process.env.SHOPIFY_REDIRECT_URI || 'http://localhost:5000/api/integrations/shopify/callback',
+  shopifyWebhookBaseUrl: process.env.SHOPIFY_WEBHOOK_BASE_URL || 'https://arco-backend-ecbl.onrender.com',
   dbPath: path.join(__dirname, '../data/database.json'),
 };

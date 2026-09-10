@@ -471,6 +471,213 @@ async function main() {
     );
   });
 
+  // -------------------------------------------------------------
+  // Test 18: Webhook destination is Render backend URL and NOT Vercel
+  // -------------------------------------------------------------
+  await runAsyncTest('18. Webhook destination is Render backend URL and NOT Vercel frontend URL', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { config: serverConfig } = await import('../config/index.js');
+
+    // 1. Verify config.shopifyWebhookBaseUrl is defined and points to Render
+    assert.ok(serverConfig.shopifyWebhookBaseUrl, 'config.shopifyWebhookBaseUrl must be defined');
+    assert.strictEqual(
+      serverConfig.shopifyWebhookBaseUrl,
+      'https://arco-backend-ecbl.onrender.com',
+      'shopifyWebhookBaseUrl must default to https://arco-backend-ecbl.onrender.com'
+    );
+
+    // 2. Verify webhook URL construction
+    const webhookDestination = `${serverConfig.shopifyWebhookBaseUrl.replace(/\/+$/, '')}/api/shopify/webhooks`;
+    assert.strictEqual(
+      webhookDestination,
+      'https://arco-backend-ecbl.onrender.com/api/shopify/webhooks',
+      'Constructed webhook destination must be exactly https://arco-backend-ecbl.onrender.com/api/shopify/webhooks'
+    );
+
+    // 3. Verify it is NOT the Vercel frontend URL
+    const wrongVercelUrl = 'https://arco-communication.vercel.app/api/shopify/webhooks';
+    assert.notStrictEqual(
+      webhookDestination,
+      wrongVercelUrl,
+      'Webhook destination must NOT be the Vercel URL'
+    );
+
+    // 4. Verify SHOPIFY_APP_URL remains Vercel (conceptual separation)
+    assert.strictEqual(
+      serverConfig.shopifyAppUrl,
+      'https://arco-communication.vercel.app',
+      'shopifyAppUrl must remain the frontend Vercel URL'
+    );
+    assert.notStrictEqual(
+      serverConfig.shopifyWebhookBaseUrl,
+      serverConfig.shopifyAppUrl,
+      'shopifyWebhookBaseUrl and shopifyAppUrl must be separate configuration values'
+    );
+
+    // 5. Verify source code in integrationController never uses shopifyAppUrl for webhooks
+    const controllerPath = path.resolve(process.cwd(), 'server/controllers/integrationController.js');
+    const controllerContent = fs.readFileSync(controllerPath, 'utf8');
+    assert.ok(
+      !controllerContent.includes('const webhookBase = config.shopifyAppUrl'),
+      'integrationController must not derive webhookBase from shopifyAppUrl'
+    );
+    assert.ok(
+      controllerContent.includes('config.shopifyWebhookBaseUrl'),
+      'integrationController must use config.shopifyWebhookBaseUrl for webhooks'
+    );
+  });
+
+  // -------------------------------------------------------------
+  // Test 19: Webhook reconciliation deletes obsolete Vercel subscriptions and prevents duplicates
+  // -------------------------------------------------------------
+  await runAsyncTest('19. Webhook reconciliation deletes obsolete Vercel subscriptions and avoids duplicates', async () => {
+    const { shopifyGraphService } = await import('../services/shopifyGraphService.js');
+
+    const originalRequest = shopifyGraphService.shopifyGraphRequest;
+
+    const deletedIds = [];
+    const createdTopics = [];
+
+    // Mock GraphQL requests for isolated unit testing
+    shopifyGraphService.shopifyGraphRequest = async ({ query, variables }) => {
+      // Handle query for existing webhook subscriptions
+      if (query.includes('GetWebhookSubscriptions')) {
+        return {
+          webhookSubscriptions: {
+            edges: [
+              // 1. Obsolete subscription pointing to old Vercel URL
+              {
+                node: {
+                  id: 'gid://shopify/WebhookSubscription/101',
+                  topic: 'PRODUCTS_CREATE',
+                  endpoint: {
+                    __typename: 'WebhookHttpEndpoint',
+                    callbackUrl: 'https://arco-communication.vercel.app/api/shopify/webhooks',
+                  },
+                },
+              },
+              // 2. Already valid subscription pointing to Render URL
+              {
+                node: {
+                  id: 'gid://shopify/WebhookSubscription/102',
+                  topic: 'CUSTOMERS_CREATE',
+                  endpoint: {
+                    __typename: 'WebhookHttpEndpoint',
+                    callbackUrl: 'https://arco-backend-ecbl.onrender.com/api/shopify/webhooks',
+                  },
+                },
+              },
+              // 3. Duplicate subscription also pointing to Render URL
+              {
+                node: {
+                  id: 'gid://shopify/WebhookSubscription/103',
+                  topic: 'CUSTOMERS_CREATE',
+                  endpoint: {
+                    __typename: 'WebhookHttpEndpoint',
+                    callbackUrl: 'https://arco-backend-ecbl.onrender.com/api/shopify/webhooks',
+                  },
+                },
+              },
+              // 4. Subscription for an unrelated topic outside Phase 1 (must NOT be touched)
+              {
+                node: {
+                  id: 'gid://shopify/WebhookSubscription/999',
+                  topic: 'THEMES_PUBLISH',
+                  endpoint: {
+                    __typename: 'WebhookHttpEndpoint',
+                    callbackUrl: 'https://other-service.com/webhook',
+                  },
+                },
+              },
+            ],
+          },
+        };
+      }
+
+      // Handle WebhookSubscriptionDelete
+      if (query.includes('WebhookSubscriptionDelete')) {
+        deletedIds.push(variables.id);
+        return {
+          webhookSubscriptionDelete: {
+            userErrors: [],
+            deletedWebhookSubscriptionId: variables.id,
+          },
+        };
+      }
+
+      // Handle WebhookSubscriptionCreate
+      if (query.includes('webhookSubscriptionCreate')) {
+        createdTopics.push({ topic: variables.topic, callbackUrl: variables.webhookSubscription.callbackUrl });
+        return {
+          webhookSubscriptionCreate: {
+            userErrors: [],
+            webhookSubscription: {
+              id: `gid://shopify/WebhookSubscription/new_${variables.topic}`,
+              topic: variables.topic,
+              endpoint: {
+                __typename: 'WebhookHttpEndpoint',
+                callbackUrl: variables.webhookSubscription.callbackUrl,
+              },
+            },
+          },
+        };
+      }
+
+      return {};
+    };
+
+    try {
+      const renderWebhookUrl = 'https://arco-backend-ecbl.onrender.com/api/shopify/webhooks';
+      const results = await shopifyGraphService.registerPhase1Webhooks({
+        shopDomain: TEST_SHOP,
+        accessToken: 'mock_access_token',
+        webhookUrl: renderWebhookUrl,
+      });
+
+      // 1. Verify obsolete Vercel subscription was deleted
+      assert.ok(
+        deletedIds.includes('gid://shopify/WebhookSubscription/101'),
+        'Obsolete Vercel subscription (ID 101) must be deleted'
+      );
+
+      // 2. Verify duplicate Render subscription was deleted
+      assert.ok(
+        deletedIds.includes('gid://shopify/WebhookSubscription/103'),
+        'Redundant duplicate subscription (ID 103) must be deleted'
+      );
+
+      // 3. Verify unrelated topic was NEVER touched
+      assert.ok(
+        !deletedIds.includes('gid://shopify/WebhookSubscription/999'),
+        'Unrelated topic (ID 999) must NOT be deleted'
+      );
+
+      // 4. Verify existing valid subscription was kept without duplicate creation
+      const customersCreateCreations = createdTopics.filter((c) => c.topic === 'CUSTOMERS_CREATE');
+      assert.strictEqual(
+        customersCreateCreations.length,
+        0,
+        'CUSTOMERS_CREATE already had a valid Render subscription, so it should not be re-created'
+      );
+
+      const customerCreateResult = results.find((r) => r.topic === 'CUSTOMERS_CREATE');
+      assert.ok(customerCreateResult.reconciled, 'CUSTOMERS_CREATE must be flagged as reconciled');
+
+      // 5. Verify PRODUCTS_CREATE was created pointing to Render
+      const productCreateCreations = createdTopics.filter((c) => c.topic === 'PRODUCTS_CREATE');
+      assert.strictEqual(productCreateCreations.length, 1, 'PRODUCTS_CREATE must be created once');
+      assert.strictEqual(productCreateCreations[0].callbackUrl, renderWebhookUrl);
+
+      // 6. Verify all 7 Phase 1 topics are accounted for and successful
+      assert.strictEqual(results.length, 7, 'All 7 Phase 1 topics must be processed');
+      assert.ok(results.every((r) => r.success), 'All 7 topics must succeed');
+    } finally {
+      // Restore original implementation
+      shopifyGraphService.shopifyGraphRequest = originalRequest;
+    }
+  });
+
   console.log('\n-------------------------------------------------------------');
   console.log(` RESULTS: ${passedTests}/${totalTests} Tests Passed`);
   console.log('-------------------------------------------------------------\n');

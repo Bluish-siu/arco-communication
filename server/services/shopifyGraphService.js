@@ -89,6 +89,79 @@ export const shopifyGraphService = {
   },
 
   /**
+   * Queries existing webhook subscriptions registered by this app
+   */
+  getWebhookSubscriptions: async ({ shopDomain, accessToken }) => {
+    const query = `
+      query GetWebhookSubscriptions {
+        webhookSubscriptions(first: 50) {
+          edges {
+            node {
+              id
+              topic
+              endpoint {
+                __typename
+                ... on WebhookHttpEndpoint {
+                  callbackUrl
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const data = await shopifyGraphService.shopifyGraphRequest({
+      shopDomain,
+      accessToken,
+      query,
+    });
+
+    const edges = data?.webhookSubscriptions?.edges || [];
+    return edges.map((edge) => ({
+      id: edge.node?.id,
+      topic: edge.node?.topic,
+      callbackUrl: edge.node?.endpoint?.callbackUrl || '',
+    }));
+  },
+
+  /**
+   * Deletes a specific webhook subscription by Shopify GraphQL ID
+   */
+  deleteWebhookSubscription: async ({ shopDomain, accessToken, id }) => {
+    const mutation = `
+      mutation WebhookSubscriptionDelete($id: ID!) {
+        webhookSubscriptionDelete(id: $id) {
+          userErrors {
+            field
+            message
+          }
+          deletedWebhookSubscriptionId
+        }
+      }
+    `;
+
+    const data = await shopifyGraphService.shopifyGraphRequest({
+      shopDomain,
+      accessToken,
+      query: mutation,
+      variables: { id },
+    });
+
+    const userErrors = data?.webhookSubscriptionDelete?.userErrors;
+    if (userErrors && userErrors.length > 0) {
+      const msg = userErrors.map((e) => `${e.field?.join('.') || 'error'}: ${e.message}`).join(', ');
+      console.warn(`[Shopify Webhook Deletion Warning (${id}) for ${shopDomain}]:`, msg);
+      return { success: false, errors: msg };
+    }
+
+    return {
+      success: true,
+      deletedId: data?.webhookSubscriptionDelete?.deletedWebhookSubscriptionId,
+    };
+  },
+
+  /**
    * Registers a single webhook subscription via GraphQL
    */
   registerWebhookSubscription: async ({ shopDomain, accessToken, topic, callbackUrl }) => {
@@ -142,7 +215,10 @@ export const shopifyGraphService = {
   },
 
   /**
-   * Registers Phase 1 webhooks for an installed shop
+   * Registers and reconciles Phase 1 webhooks for an installed shop.
+   * Ensures every Phase 1 topic has exactly one active subscription pointing to webhookUrl.
+   * Automatically detects and removes obsolete subscriptions (e.g. old Vercel URL)
+   * and prevents duplicate subscriptions for the same topic.
    */
   registerPhase1Webhooks: async ({ shopDomain, accessToken, webhookUrl }) => {
     const topics = [
@@ -155,16 +231,61 @@ export const shopifyGraphService = {
       'ORDERS_UPDATED',
     ];
 
+    // 1. Query existing webhook subscriptions for this app
+    let existingSubscriptions = [];
+    try {
+      existingSubscriptions = await shopifyGraphService.getWebhookSubscriptions({
+        shopDomain,
+        accessToken,
+      });
+    } catch (err) {
+      console.warn(`[Shopify Query Existing Webhooks Warning for ${shopDomain}]:`, err.message);
+    }
+
     const results = [];
+
     for (const topic of topics) {
       try {
-        const res = await shopifyGraphService.registerWebhookSubscription({
-          shopDomain,
-          accessToken,
-          topic,
-          callbackUrl: webhookUrl,
-        });
-        results.push({ topic, ...res });
+        // Find existing subscriptions belonging to this Phase 1 topic
+        const topicSubs = existingSubscriptions.filter((sub) => sub.topic === topic);
+
+        let activeValidSub = null;
+
+        for (const sub of topicSubs) {
+          // If already pointing to the target webhookUrl and no active one assigned yet, keep it
+          if (sub.callbackUrl === webhookUrl && !activeValidSub) {
+            activeValidSub = sub;
+          } else {
+            // Delete obsolete subscription (e.g. old Vercel destination) or redundant duplicate
+            console.log(
+              `[Shopify Webhook Reconcile] Removing obsolete/duplicate subscription ${sub.id} for topic "${topic}" (old destination: ${sub.callbackUrl})`
+            );
+            await shopifyGraphService.deleteWebhookSubscription({
+              shopDomain,
+              accessToken,
+              id: sub.id,
+            });
+          }
+        }
+
+        // If a valid subscription already exists pointing to webhookUrl, avoid re-registering
+        if (activeValidSub) {
+          results.push({
+            topic,
+            success: true,
+            reconciled: true,
+            subscription: activeValidSub,
+          });
+        } else {
+          // Create new subscription pointing to target webhookUrl
+          const res = await shopifyGraphService.registerWebhookSubscription({
+            shopDomain,
+            accessToken,
+            topic,
+            callbackUrl: webhookUrl,
+          });
+          results.push({ topic, ...res });
+        }
       } catch (err) {
         results.push({ topic, success: false, error: err.message });
       }

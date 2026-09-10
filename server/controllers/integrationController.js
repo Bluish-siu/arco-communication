@@ -164,8 +164,8 @@ export const integrationController = {
 
         // 5. Register Phase 1 Webhooks
         try {
-          const webhookBase = config.shopifyAppUrl || config.frontendUrl;
-          const webhookUrl = `${webhookBase.replace(/\/$/, '')}/api/shopify/webhooks`;
+          const webhookBase = config.shopifyWebhookBaseUrl || 'https://arco-backend-ecbl.onrender.com';
+          const webhookUrl = `${webhookBase.replace(/\/+$/, '')}/api/shopify/webhooks`;
           await shopifyGraphService.registerPhase1Webhooks({
             shopDomain,
             accessToken: exchange.accessToken,
@@ -225,6 +225,19 @@ export const integrationController = {
           }
         } catch (syncErr) {
           console.warn('[Shopify Integration] Sync warning:', syncErr.message);
+        }
+      } else if (record?.access_token && (req.query?.reconcile === 'true' || req.query?.sync_webhooks === 'true')) {
+        // Explicit on-demand webhook reconciliation for already-connected store
+        try {
+          const webhookBase = config.shopifyWebhookBaseUrl || 'https://arco-backend-ecbl.onrender.com';
+          const webhookUrl = `${webhookBase.replace(/\/+$/, '')}/api/shopify/webhooks`;
+          await shopifyGraphService.registerPhase1Webhooks({
+            shopDomain,
+            accessToken: record.access_token,
+            webhookUrl,
+          });
+        } catch (whErr) {
+          console.warn(`[Shopify Webhook Session Reconcile Warning]:`, whErr.message);
         }
       }
 
@@ -499,5 +512,55 @@ export const integrationController = {
       next(error);
     }
   },
+
+  // POST /api/integrations/shopify/reconcile-webhooks
+  reconcileShopifyWebhooks: async (req, res, next) => {
+    try {
+      const userId = req.user?.id || 'usr_1';
+      const shopDomainQuery = req.body?.shop || req.query?.shop;
+
+      let integRes;
+      if (shopDomainQuery) {
+        const cleanShop = normalizeShopDomain(shopDomainQuery);
+        integRes = await query(
+          'SELECT id, shop_domain, access_token, status FROM shopify_integrations WHERE shop_domain = $1 AND status = $2 LIMIT 1',
+          [cleanShop, 'connected']
+        );
+      } else {
+        integRes = await query(
+          'SELECT id, shop_domain, access_token, status FROM shopify_integrations WHERE user_id = $1 AND status = $2 ORDER BY updated_at DESC LIMIT 1',
+          [userId, 'connected']
+        );
+      }
+
+      const conn = integRes.rows[0];
+      if (!conn || !conn.access_token) {
+        return res.status(404).json({
+          success: false,
+          error: 'No active connected Shopify integration found to reconcile webhooks.',
+        });
+      }
+
+      const webhookBase = config.shopifyWebhookBaseUrl || 'https://arco-backend-ecbl.onrender.com';
+      const webhookUrl = `${webhookBase.replace(/\/+$/, '')}/api/shopify/webhooks`;
+
+      const results = await shopifyGraphService.registerPhase1Webhooks({
+        shopDomain: conn.shop_domain,
+        accessToken: conn.access_token,
+        webhookUrl,
+      });
+
+      res.json({
+        success: true,
+        message: 'Shopify Phase 1 webhooks reconciled successfully against Render.',
+        shopDomain: conn.shop_domain,
+        webhookUrl,
+        results,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
+
 

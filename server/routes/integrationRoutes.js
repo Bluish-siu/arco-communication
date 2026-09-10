@@ -17,5 +17,6 @@ router.get('/shopify/status', authenticateToken, integrationController.getShopif
 router.get('/shopify/oauth-url', authenticateToken, integrationController.getShopifyOAuthUrl);
 router.post('/shopify/connect', authenticateToken, integrationController.connectShopify);
 router.post('/shopify/disconnect', authenticateToken, integrationController.disconnectShopify);
+router.post('/shopify/reconcile-webhooks', authenticateToken, integrationController.reconcileShopifyWebhooks);
 
 export default router;
