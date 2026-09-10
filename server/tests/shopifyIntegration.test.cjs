@@ -678,6 +678,407 @@ async function main() {
     }
   });
 
+  // -------------------------------------------------------------
+  // Test 20: Shopify Customer Consent Mapping
+  // -------------------------------------------------------------
+  await runAsyncTest('20. Shopify customer consent mapping accurately maps opt-in/opt-out and never defaults unknown to true', async () => {
+    const { pool } = await import('../config/db.js');
+    const { handleCustomerSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [{ user_id: 'usr_test_1' }] };
+      }
+      if (text.includes("SELECT id, whatsapp_opted FROM contacts WHERE custom_attributes->>'shopify_customer_id'")) {
+        const custId = params[0];
+        if (custId === 'cust_existing_opted_in') {
+          return { rows: [{ id: 'cnt_shp_cust_existing_opted_in', whatsapp_opted: true }] };
+        }
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO contacts')) {
+        return { rows: [{ id: params[0] }] };
+      }
+      if (text.includes('UPDATE contacts')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      // 20A: Subscribed customer -> whatsapp_opted = true
+      executedQueries.length = 0;
+      await handleCustomerSync(TEST_SHOP, {
+        id: 'cust_sub_01',
+        first_name: 'Aarav',
+        last_name: 'Sharma',
+        email: 'aarav@example.com',
+        phone: '+919876543210',
+        sms_marketing_consent: { state: 'subscribed' },
+      });
+      const insertSub = executedQueries.find((q) => q.text.includes('INSERT INTO contacts'));
+      assert.ok(insertSub, 'Must insert contact for subscribed customer');
+      assert.strictEqual(insertSub.params[7], true, 'whatsapp_opted must be true for subscribed customer');
+
+      // 20B: Unsubscribed customer -> whatsapp_opted = false
+      executedQueries.length = 0;
+      await handleCustomerSync(TEST_SHOP, {
+        id: 'cust_unsub_02',
+        first_name: 'Priya',
+        email: 'priya@example.com',
+        sms_marketing_consent: { state: 'unsubscribed' },
+      });
+      const insertUnsub = executedQueries.find((q) => q.text.includes('INSERT INTO contacts'));
+      assert.strictEqual(insertUnsub.params[7], false, 'whatsapp_opted must be false for unsubscribed customer');
+
+      // 20C: Unknown consent on new contact -> whatsapp_opted = false (never defaulted to true)
+      executedQueries.length = 0;
+      await handleCustomerSync(TEST_SHOP, {
+        id: 'cust_unknown_03',
+        first_name: 'Vikram',
+        email: 'vikram@example.com',
+      });
+      const insertUnknown = executedQueries.find((q) => q.text.includes('INSERT INTO contacts'));
+      assert.strictEqual(insertUnknown.params[7], false, 'whatsapp_opted must NOT default to true when consent is unknown');
+
+      // 20D: Unknown consent on existing contact with whatsapp_opted = true -> preserves true
+      executedQueries.length = 0;
+      await handleCustomerSync(TEST_SHOP, {
+        id: 'cust_existing_opted_in',
+        first_name: 'Rohan',
+      });
+      const updateExisting = executedQueries.find((q) => q.text.includes('UPDATE contacts'));
+      assert.strictEqual(updateExisting.params[5], true, 'Existing contact whatsapp_opted must be preserved when payload consent is unknown');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 21: Order to Contact Linking
+  // -------------------------------------------------------------
+  await runAsyncTest('21. Order-to-contact linking matches contact and associates contact_id in checkout_orders', async () => {
+    const { pool } = await import('../config/db.js');
+    const { handleOrderSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [{ user_id: 'usr_test_1' }] };
+      }
+      if (text.includes("SELECT id FROM contacts WHERE custom_attributes->>'shopify_customer_id'")) {
+        return { rows: [{ id: 'cnt_shp_98765' }] };
+      }
+      if (text.includes('SELECT id, workflow_id, contact_id FROM checkout_orders')) {
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO checkout_orders')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      await handleOrderSync(TEST_SHOP, {
+        id: 7771,
+        order_number: '1001',
+        customer: { id: 98765, first_name: 'John', last_name: 'Doe' },
+        total_price: '1999.00',
+        financial_status: 'paid',
+        fulfillment_status: 'unfulfilled',
+      }, { isNewOrder: false });
+
+      const insertOrder = executedQueries.find((q) => q.text.includes('INSERT INTO checkout_orders'));
+      assert.ok(insertOrder, 'Must insert into checkout_orders');
+      assert.strictEqual(insertOrder.params[0], 'ord_shp_7771', 'Order ID must match convention');
+      assert.strictEqual(insertOrder.params[3], 'cnt_shp_98765', 'contact_id must be populated with matching contact');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 22: Order Status Mapping (Matching OrderPanel.jsx Conventions)
+  // -------------------------------------------------------------
+  await runAsyncTest('22. Order and fulfillment statuses map cleanly to ARCO OrderPanel conventions', async () => {
+    const { pool } = await import('../config/db.js');
+    const { handleOrderSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [{ user_id: 'usr_test_1' }] };
+      }
+      if (text.includes('SELECT id, workflow_id, contact_id FROM checkout_orders')) {
+        return { rows: [] };
+      }
+      if (text.includes('SELECT id FROM contacts')) {
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO contacts')) {
+        return { rows: [{ id: params[0] }] };
+      }
+      if (text.includes('INSERT INTO checkout_orders')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      // 22A: Paid & Fulfilled
+      executedQueries.length = 0;
+      await handleOrderSync(TEST_SHOP, {
+        id: 8001,
+        order_number: '1002',
+        financial_status: 'paid',
+        fulfillment_status: 'fulfilled',
+        total_price: '2500.00',
+      }, { isNewOrder: false });
+
+      const insert1 = executedQueries.find((q) => q.text.includes('INSERT INTO checkout_orders'));
+      assert.strictEqual(insert1.params[12], 'Paid', 'Payment status must be Paid');
+      assert.strictEqual(insert1.params[13], 'Shipped', 'Order status must be Shipped for fulfilled order');
+      assert.strictEqual(insert1.params[14], 'Shipped', 'Fulfillment status must be Shipped for fulfilled order');
+
+      // 22B: Cancelled
+      executedQueries.length = 0;
+      await handleOrderSync(TEST_SHOP, {
+        id: 8002,
+        order_number: '1003',
+        financial_status: 'refunded',
+        cancelled_at: '2026-09-10T12:00:00Z',
+        total_price: '1200.00',
+      }, { isNewOrder: false });
+
+      const insert2 = executedQueries.find((q) => q.text.includes('INSERT INTO checkout_orders'));
+      assert.strictEqual(insert2.params[12], 'Refunded', 'Payment status must be Refunded');
+      assert.strictEqual(insert2.params[13], 'Cancelled', 'Order status must be Cancelled');
+      assert.strictEqual(insert2.params[14], 'Cancelled', 'Fulfillment status must be Cancelled');
+
+      // 22C: Cash on Delivery (COD)
+      executedQueries.length = 0;
+      await handleOrderSync(TEST_SHOP, {
+        id: 8003,
+        order_number: '1004',
+        financial_status: 'pending',
+        gateway: 'cash_on_delivery',
+        fulfillment_status: 'partial',
+        total_price: '899.00',
+      }, { isNewOrder: false });
+
+      const insert3 = executedQueries.find((q) => q.text.includes('INSERT INTO checkout_orders'));
+      assert.strictEqual(insert3.params[12], 'COD', 'Payment status must be COD');
+      assert.strictEqual(insert3.params[13], 'Processing', 'Order status must be Processing for partial fulfillment');
+      assert.strictEqual(insert3.params[14], 'Processing', 'Fulfillment status must be Processing');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 23: Duplicate Webhook Protection on orders/create
+  // -------------------------------------------------------------
+  await runAsyncTest('23. Repeated orders/create webhook sends exactly ONE WhatsApp notification', async () => {
+    const { pool } = await import('../config/db.js');
+    const { metaWhatsAppService } = await import('../services/metaWhatsAppService.js');
+    const { handleOrderSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const originalGetCreds = metaWhatsAppService.getCredentials;
+    const originalGetTmpls = metaWhatsAppService.getWhatsAppTemplates;
+    const originalSend = metaWhatsAppService.sendTemplateMessage;
+
+    let dispatches = 0;
+    let orderWorkflowId = null;
+
+    metaWhatsAppService.getCredentials = async () => ({
+      isConfigured: true,
+      phoneNumberId: '123456789',
+      wabaId: '987654321',
+      accessToken: 'mock_token',
+    });
+
+    metaWhatsAppService.getWhatsAppTemplates = async () => ({
+      success: true,
+      approved: [
+        {
+          id: 'tmpl_1',
+          name: 'transactional_confirmation_02',
+          status: 'APPROVED',
+          language: 'en_US',
+        },
+      ],
+    });
+
+    metaWhatsAppService.sendTemplateMessage = async () => {
+      dispatches++;
+      return { success: true, wamid: 'wamid_test_dup_protection_123' };
+    };
+
+    pool.query = async (text, params) => {
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [{ user_id: 'usr_test_1' }] };
+      }
+      if (text.includes("SELECT id FROM contacts WHERE custom_attributes->>'shopify_customer_id'")) {
+        return { rows: [{ id: 'cnt_shp_cust_opted_in' }] };
+      }
+      if (text.includes('SELECT id, phone, whatsapp_opted FROM contacts WHERE id = $1')) {
+        return { rows: [{ id: 'cnt_shp_cust_opted_in', phone: '+919876543210', whatsapp_opted: true }] };
+      }
+      if (text.includes('SELECT workflow_id FROM checkout_orders WHERE id = $1 OR order_number = $2')) {
+        return { rows: orderWorkflowId ? [{ workflow_id: orderWorkflowId }] : [] };
+      }
+      if (text.includes('SELECT id, workflow_id, contact_id FROM checkout_orders')) {
+        return { rows: orderWorkflowId ? [{ id: 'ord_shp_9901', workflow_id: orderWorkflowId, contact_id: 'cnt_shp_cust_opted_in' }] : [] };
+      }
+      if (text.includes('INSERT INTO checkout_orders')) {
+        return { rows: [] };
+      }
+      if (text.includes('UPDATE checkout_orders SET workflow_id = $1')) {
+        orderWorkflowId = params[0];
+        return { rows: [] };
+      }
+      if (text.includes('UPDATE checkout_orders')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      const sampleOrder = {
+        id: 9901,
+        order_number: '1005',
+        customer: { id: 'cust_opted_in', first_name: 'Ananya' },
+        phone: '+919876543210',
+        total_price: '3499.00',
+        financial_status: 'paid',
+        fulfillment_status: 'unfulfilled',
+      };
+
+      // Call 1: First orders/create webhook
+      await handleOrderSync(TEST_SHOP, sampleOrder, { isNewOrder: true });
+      assert.strictEqual(dispatches, 1, 'First orders/create must trigger exactly 1 WhatsApp dispatch');
+      assert.ok(orderWorkflowId?.startsWith('shopify_notified:'), 'workflow_id must record shopify_notified flag');
+
+      // Call 2: Duplicate orders/create webhook for the same order
+      await handleOrderSync(TEST_SHOP, sampleOrder, { isNewOrder: true });
+      assert.strictEqual(dispatches, 1, 'Second orders/create MUST NOT trigger duplicate WhatsApp dispatch');
+    } finally {
+      pool.query = originalQuery;
+      metaWhatsAppService.getCredentials = originalGetCreds;
+      metaWhatsAppService.getWhatsAppTemplates = originalGetTmpls;
+      metaWhatsAppService.sendTemplateMessage = originalSend;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 24: Template and Meta Failure Isolation
+  // -------------------------------------------------------------
+  await runAsyncTest('24. Incompatible template or Meta failure skips dispatch without crashing order persistence', async () => {
+    const { pool } = await import('../config/db.js');
+    const { metaWhatsAppService } = await import('../services/metaWhatsAppService.js');
+    const { handleOrderSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const originalGetCreds = metaWhatsAppService.getCredentials;
+    const originalGetTmpls = metaWhatsAppService.getWhatsAppTemplates;
+    const originalSend = metaWhatsAppService.sendTemplateMessage;
+
+    let dispatches = 0;
+    let orderPersisted = false;
+
+    metaWhatsAppService.getCredentials = async () => ({
+      isConfigured: true,
+      phoneNumberId: '123456789',
+      wabaId: '987654321',
+      accessToken: 'mock_token',
+    });
+
+    // Case A: No compatible approved template available
+    metaWhatsAppService.getWhatsAppTemplates = async () => ({
+      success: true,
+      approved: [], // Zero approved templates
+    });
+
+    metaWhatsAppService.sendTemplateMessage = async () => {
+      dispatches++;
+      return { success: true };
+    };
+
+    pool.query = async (text, params) => {
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [{ user_id: 'usr_test_1' }] };
+      }
+      if (text.includes('SELECT id FROM contacts')) {
+        return { rows: [{ id: 'cnt_test_1' }] };
+      }
+      if (text.includes('SELECT id, phone, whatsapp_opted FROM contacts')) {
+        return { rows: [{ id: 'cnt_test_1', phone: '+919876543210', whatsapp_opted: true }] };
+      }
+      if (text.includes('SELECT workflow_id FROM checkout_orders')) {
+        return { rows: [] };
+      }
+      if (text.includes('SELECT id, workflow_id, contact_id FROM checkout_orders')) {
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO checkout_orders')) {
+        orderPersisted = true;
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      const sampleOrder = {
+        id: 9902,
+        order_number: '1006',
+        customer: { id: 'cust_test_2', first_name: 'Karan' },
+        phone: '+919876543210',
+        total_price: '1500.00',
+        financial_status: 'paid',
+        fulfillment_status: 'unfulfilled',
+      };
+
+      await handleOrderSync(TEST_SHOP, sampleOrder, { isNewOrder: true });
+      assert.strictEqual(orderPersisted, true, 'Order must still be persisted when no template is available');
+      assert.strictEqual(dispatches, 0, 'Zero WhatsApp dispatches should occur when template is missing');
+
+      // Case B: Opt-out customer (whatsapp_opted === false)
+      orderPersisted = false;
+      pool.query = async (text, params) => {
+        if (text.includes('SELECT user_id FROM shopify_integrations')) return { rows: [{ user_id: 'usr_test_1' }] };
+        if (text.includes('SELECT id FROM contacts')) return { rows: [{ id: 'cnt_test_optout' }] };
+        if (text.includes('SELECT id, phone, whatsapp_opted FROM contacts')) {
+          return { rows: [{ id: 'cnt_test_optout', phone: '+919876543210', whatsapp_opted: false }] };
+        }
+        if (text.includes('INSERT INTO checkout_orders')) {
+          orderPersisted = true;
+          return { rows: [] };
+        }
+        return { rows: [] };
+      };
+
+      await handleOrderSync(TEST_SHOP, { ...sampleOrder, id: 9903, order_number: '1007' }, { isNewOrder: true });
+      assert.strictEqual(orderPersisted, true, 'Order must be persisted for opted-out customer');
+      assert.strictEqual(dispatches, 0, 'Zero dispatches must occur for opted-out customer');
+    } finally {
+      pool.query = originalQuery;
+      metaWhatsAppService.getCredentials = originalGetCreds;
+      metaWhatsAppService.getWhatsAppTemplates = originalGetTmpls;
+      metaWhatsAppService.sendTemplateMessage = originalSend;
+    }
+  });
+
   console.log('\n-------------------------------------------------------------');
   console.log(` RESULTS: ${passedTests}/${totalTests} Tests Passed`);
   console.log('-------------------------------------------------------------\n');
