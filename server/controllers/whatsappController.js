@@ -1,5 +1,6 @@
 import { db, query } from '../config/db.js';
 import { evaluateAssignmentInternal } from './chatAssignmentController.js';
+import { campaignReplyFlowService } from '../services/campaignReplyFlowService.js';
 
 export const whatsappController = {
   // GET /api/whatsapp/status
@@ -249,7 +250,23 @@ export const whatsappController = {
               ]
             );
 
-            // E. Retain checkout bot session handling if active
+            // E. Post-Campaign Reply Flow Evaluation
+            try {
+              const flowResult = await campaignReplyFlowService.handleInboundInteraction({
+                message,
+                contact,
+                conv,
+                fromPhone,
+                clean10,
+              });
+              if (flowResult?.handled) {
+                console.log(`[WhatsApp Webhook] Post-Campaign reply flow executed successfully:`, flowResult);
+              }
+            } catch (flowErr) {
+              console.warn('[WhatsApp Webhook] Post-Campaign reply flow error:', flowErr.message);
+            }
+
+            // F. Retain checkout bot session handling if active
             try {
               const activeSessionRes = await query(
                 "SELECT * FROM checkout_sessions WHERE (phone_number = $1 OR phone_number LIKE '%' || $2) AND status = 'active' ORDER BY updated_at DESC LIMIT 1",

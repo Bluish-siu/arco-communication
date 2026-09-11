@@ -9,6 +9,7 @@ import apiRoutes from './routes/index.js';
 import { testDbConnection } from './config/db.js';
 import { initInboxTwoWaySchema } from './config/initInboxTwoWaySchema.js';
 import { initOrderCurrencySchema } from './config/initOrderPanelTables.js';
+import { initCampaignReplyFlowsSchema } from './config/initCampaignReplyFlowsSchema.js';
 import { startCampaignScheduler, recoverStaleProcessing } from './services/campaignDispatcher.js';
 
 const app = express();
@@ -102,6 +103,7 @@ const server = app.listen(PORT, HOST, async () => {
   try {
     await initInboxTwoWaySchema();
     await initOrderCurrencySchema();
+    await initCampaignReplyFlowsSchema();
     await recoverStaleProcessing();
     startCampaignScheduler(20000);
   } catch (schemaErr) {

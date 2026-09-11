@@ -40,6 +40,11 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
 import { segmentsService } from '../services/segmentsService';
 import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
+import OptOutSetupModal from '../components/campaigns/replyFlows/OptOutSetupModal';
+import ProductsSetupModal from '../components/campaigns/replyFlows/ProductsSetupModal';
+import InteractiveListSetupModal from '../components/campaigns/replyFlows/InteractiveListSetupModal';
+import CustomReplySetupModal from '../components/campaigns/replyFlows/CustomReplySetupModal';
+import WorkflowSetupModal from '../components/campaigns/replyFlows/WorkflowSetupModal';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -487,12 +492,67 @@ export default function CreateCampaign() {
   const [scheduleTimezone, setScheduleTimezone] = useState('Asia/Kolkata');
   const [recurringFrequency, setRecurringFrequency] = useState('Daily');
 
-  // Step 5: Advanced Reply Flows
-  const [replyFlowOptOut, setReplyFlowOptOut] = useState(false);
-  const [replyFlowProducts, setReplyFlowProducts] = useState(false);
-  const [replyFlowInteractive, setReplyFlowInteractive] = useState(false);
-  const [replyFlowCustom, setReplyFlowCustom] = useState(false);
-  const [replyFlowWorkflow, setReplyFlowWorkflow] = useState(false);
+  // Step 5: Advanced Reply Flows (Real 5 Interakt-compatible reply flow configurations)
+  const [replyFlowConfigs, setReplyFlowConfigs] = useState({
+    optOut: {
+      enabled: false,
+      triggerType: 'On Button Click',
+      triggerButton: 'STOP',
+      acknowledgementEnabled: true,
+      acknowledgementText: 'Sure, we will not message you further.',
+    },
+    sendProducts: {
+      enabled: false,
+      triggerType: 'On Button Click',
+      triggerButton: 'See our products',
+      productType: 'collection_list',
+      messageText: 'Check out our product collections',
+    },
+    sendInteractiveList: {
+      enabled: false,
+      triggerType: 'On Button Click',
+      triggerButton: 'Know more about us',
+      headerText: 'Help & Options',
+      bodyText: 'Select a topic to know more!',
+      footerText: 'Tap View Options to select',
+      buttonText: 'View Options',
+      options: [
+        {
+          id: 'opt_1',
+          title: 'Software Bug',
+          description: 'Report an application issue',
+          replyText: 'Thank you for reporting. Please describe the issue or share a screenshot and our team will investigate.',
+        },
+        {
+          id: 'opt_2',
+          title: 'Account/Login',
+          description: 'Help with logging into your account',
+          replyText: 'For login issues, please reset your password on our website or reply with your registered email.',
+        },
+        {
+          id: 'opt_3',
+          title: 'Payment/Billing',
+          description: 'Inquiries about invoices or charges',
+          replyText: 'Our billing team is reviewing your account. We will share your invoice breakdown shortly.',
+        },
+      ],
+    },
+    sendCustomReply: {
+      enabled: false,
+      triggerType: 'On Button Click',
+      triggerButton: 'Help',
+      messageText: 'Sure, someone from our team will get in touch shortly.',
+    },
+    sendWorkflow: {
+      enabled: false,
+      triggerType: 'On button click',
+      triggerButton: 'Start Flow',
+      workflowId: 'wf_ai_proj_1',
+      workflowName: 'ai_project_progress_notifications_7i',
+    },
+  });
+
+  const [activeReplyFlowModal, setActiveReplyFlowModal] = useState(null); // 'optOut' | 'products' | 'interactive' | 'custom' | 'workflow' | null
 
   // Step 6: Retries
   const [activateRetries, setActivateRetries] = useState(true);
@@ -874,13 +934,8 @@ export default function CreateCampaign() {
       templatePayload: selectedTemplate,
       variableMapping: variableValues,
       recurringConfig: campaignType === 'ongoing' ? { frequency: recurringFrequency, time: scheduleTime, timezone: scheduleTimezone } : {},
-      replyFlows: {
-        optOut: replyFlowOptOut,
-        products: replyFlowProducts,
-        interactive: replyFlowInteractive,
-        custom: replyFlowCustom,
-        workflow: replyFlowWorkflow,
-      },
+      replyFlows: replyFlowConfigs,
+      postCampaignReplyFlows: replyFlowConfigs,
       retries: activateRetries,
       conversionTracking: {
         utm: trackUtm,
@@ -1974,30 +2029,76 @@ export default function CreateCampaign() {
                   {activeStep === 5 && (
                     <div className="p-4 border-t border-gray-100 space-y-3">
                       {[
-                        { title: 'Opt-out the customer', desc: "Auto-update the WhatsApp Opted-in trait to false.", state: replyFlowOptOut, setter: setReplyFlowOptOut },
-                        { title: 'Send your Products', desc: 'Auto-send your collection list / catalog.', state: replyFlowProducts, setter: setReplyFlowProducts },
-                        { title: 'Send Interactive List Message', desc: 'Auto-send the list of FAQs set up here.', state: replyFlowInteractive, setter: setReplyFlowInteractive },
-                        { title: 'Send Custom Reply', desc: 'Auto-send a custom message.', state: replyFlowCustom, setter: setReplyFlowCustom },
-                        { title: 'Send a Workflow', desc: 'Auto-send an automated WhatsApp flow.', state: replyFlowWorkflow, setter: setReplyFlowWorkflow },
-                      ].map((flow, i) => (
-                        <div key={i} className="p-3 rounded-lg border border-gray-100 hover:border-gray-200 flex items-center justify-between bg-gray-50/40">
-                          <div>
-                            <div className="font-semibold text-xs text-gray-900">{flow.title}</div>
-                            <div className="text-[11px] text-gray-500 mt-0.5">{flow.desc}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => flow.setter(!flow.state)}
-                            className={`h-7 px-3 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
-                              flow.state
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                            }`}
+                        {
+                          key: 'optOut',
+                          title: 'Opt-out the customer',
+                          desc: 'Auto-update the WhatsApp Opted-in trait to false.',
+                          config: replyFlowConfigs.optOut,
+                        },
+                        {
+                          key: 'sendProducts',
+                          title: 'Send your Products',
+                          desc: 'Auto-send your collection list / catalog.',
+                          config: replyFlowConfigs.sendProducts,
+                        },
+                        {
+                          key: 'sendInteractiveList',
+                          title: 'Send Interactive List Message',
+                          desc: 'Auto-send the list of FAQs set up here.',
+                          config: replyFlowConfigs.sendInteractiveList,
+                        },
+                        {
+                          key: 'sendCustomReply',
+                          title: 'Send Custom Reply',
+                          desc: 'Auto-send a custom message.',
+                          config: replyFlowConfigs.sendCustomReply,
+                        },
+                        {
+                          key: 'sendWorkflow',
+                          title: 'Send a Workflow',
+                          desc: 'Auto-send an automated WhatsApp flow.',
+                          config: replyFlowConfigs.sendWorkflow,
+                        },
+                      ].map((flow) => {
+                        const isConfigured = Boolean(flow.config?.enabled);
+                        return (
+                          <div
+                            key={flow.key}
+                            className="p-3 rounded-lg border border-gray-100 hover:border-gray-200 flex items-center justify-between bg-gray-50/40"
                           >
-                            {flow.state ? 'Configured' : 'Setup'}
-                          </button>
-                        </div>
-                      ))}
+                            <div>
+                              <div className="font-semibold text-xs text-gray-900 flex items-center gap-2">
+                                <span>{flow.title}</span>
+                                {isConfigured && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-1.5 py-0.5 rounded font-bold">
+                                    <Check className="w-2.5 h-2.5 text-emerald-700" />
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-gray-500 mt-0.5">{flow.desc}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveReplyFlowModal(flow.key)}
+                              className={`h-7 px-3 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                isConfigured
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200/70'
+                                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {isConfigured ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-700" />
+                                  Configured
+                                </>
+                              ) : (
+                                '+ Setup'
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
 
                       <div className="flex justify-end pt-1">
                         <button
@@ -2926,6 +3027,74 @@ export default function CreateCampaign() {
           logic="AND"
           whatsappOpted="all"
           totalMatchingCount={audienceReach}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* POST-CAMPAIGN REPLY FLOW SETUP MODALS                                     */}
+      {/* ========================================================================= */}
+      {activeReplyFlowModal === 'optOut' && (
+        <OptOutSetupModal
+          isOpen={true}
+          onClose={() => setActiveReplyFlowModal(null)}
+          templateButtons={selectedTemplate?.buttons || []}
+          currentConfig={replyFlowConfigs.optOut}
+          onSave={(cfg) => {
+            setReplyFlowConfigs((prev) => ({ ...prev, optOut: cfg }));
+            showToast(cfg.enabled ? 'Opt-out reply flow configured!' : 'Opt-out reply flow disabled');
+          }}
+        />
+      )}
+
+      {activeReplyFlowModal === 'sendProducts' && (
+        <ProductsSetupModal
+          isOpen={true}
+          onClose={() => setActiveReplyFlowModal(null)}
+          templateButtons={selectedTemplate?.buttons || []}
+          currentConfig={replyFlowConfigs.sendProducts}
+          onSave={(cfg) => {
+            setReplyFlowConfigs((prev) => ({ ...prev, sendProducts: cfg }));
+            showToast(cfg.enabled ? 'Products reply flow configured!' : 'Products reply flow disabled');
+          }}
+        />
+      )}
+
+      {activeReplyFlowModal === 'sendInteractiveList' && (
+        <InteractiveListSetupModal
+          isOpen={true}
+          onClose={() => setActiveReplyFlowModal(null)}
+          templateButtons={selectedTemplate?.buttons || []}
+          currentConfig={replyFlowConfigs.sendInteractiveList}
+          onSave={(cfg) => {
+            setReplyFlowConfigs((prev) => ({ ...prev, sendInteractiveList: cfg }));
+            showToast(cfg.enabled ? 'Interactive list flow configured!' : 'Interactive list flow disabled');
+          }}
+        />
+      )}
+
+      {activeReplyFlowModal === 'sendCustomReply' && (
+        <CustomReplySetupModal
+          isOpen={true}
+          onClose={() => setActiveReplyFlowModal(null)}
+          templateButtons={selectedTemplate?.buttons || []}
+          currentConfig={replyFlowConfigs.sendCustomReply}
+          onSave={(cfg) => {
+            setReplyFlowConfigs((prev) => ({ ...prev, sendCustomReply: cfg }));
+            showToast(cfg.enabled ? 'Custom reply flow configured!' : 'Custom reply flow disabled');
+          }}
+        />
+      )}
+
+      {activeReplyFlowModal === 'sendWorkflow' && (
+        <WorkflowSetupModal
+          isOpen={true}
+          onClose={() => setActiveReplyFlowModal(null)}
+          templateButtons={selectedTemplate?.buttons || []}
+          currentConfig={replyFlowConfigs.sendWorkflow}
+          onSave={(cfg) => {
+            setReplyFlowConfigs((prev) => ({ ...prev, sendWorkflow: cfg }));
+            showToast(cfg.enabled ? 'Workflow reply flow configured!' : 'Workflow reply flow disabled');
+          }}
         />
       )}
 

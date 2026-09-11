@@ -265,6 +265,7 @@ export const campaignController = {
           templatePayload: c.template_payload || {},
           variableMapping: c.variable_mapping || {},
           recurringConfig: c.recurring_config || {},
+          postCampaignReplyFlows: c.post_campaign_reply_flows || {},
           createdBy: c.created_by || 'Shraddha',
           createdAt: c.created_at,
           updatedAt: c.updated_at,
@@ -296,6 +297,8 @@ export const campaignController = {
         templatePayload,
         variableMapping,
         recurringConfig,
+        replyFlows,
+        postCampaignReplyFlows,
         status,
         csvContacts,
       } = req.body;
@@ -422,15 +425,17 @@ export const campaignController = {
       const campaignId = `cmp_${Date.now()}`;
       const campaignStatus = status || 'Scheduled';
 
+      const resolvedReplyFlows = replyFlows || postCampaignReplyFlows || {};
+
       // 3. Insert campaign master record
       const result = await query(
         `INSERT INTO campaigns (
            id, name, description, channel, type, category, status, recipients, delivered, read, replied,
            scheduled_for, schedule_timezone, audience_type, audience_filter, template_id, template_name,
            template_language, template_category, template_payload, variable_mapping, recurring_config,
-           created_by, created_at, updated_at
+           post_campaign_reply_flows, created_by, created_at, updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          RETURNING *`,
         [
           campaignId,
@@ -452,6 +457,7 @@ export const campaignController = {
           JSON.stringify(templatePayload || {}),
           JSON.stringify(variableMapping || {}),
           JSON.stringify(recurringConfig || {}),
+          JSON.stringify(resolvedReplyFlows),
           req.user?.name || 'Shraddha',
         ]
       );
@@ -510,6 +516,7 @@ export const campaignController = {
           recipients: parseInt(newCampaign.recipients, 10),
           scheduledFor: newCampaign.scheduled_for,
           templateName: newCampaign.template_name,
+          postCampaignReplyFlows: newCampaign.post_campaign_reply_flows || {},
           createdBy: newCampaign.created_by,
           createdAt: newCampaign.created_at,
         },
@@ -789,6 +796,8 @@ export const campaignController = {
         status,
         recurringConfig,
         variableMapping,
+        replyFlows,
+        postCampaignReplyFlows,
       } = req.body;
 
       const existing = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
@@ -826,6 +835,10 @@ export const campaignController = {
       if (variableMapping !== undefined) {
         updates.push(`variable_mapping = $${updates.length + 1}`);
         values.push(JSON.stringify(variableMapping));
+      }
+      if (replyFlows !== undefined || postCampaignReplyFlows !== undefined) {
+        updates.push(`post_campaign_reply_flows = $${updates.length + 1}`);
+        values.push(JSON.stringify(replyFlows !== undefined ? replyFlows : postCampaignReplyFlows));
       }
 
       updates.push('updated_at = CURRENT_TIMESTAMP');
