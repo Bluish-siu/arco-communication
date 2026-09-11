@@ -413,7 +413,7 @@ export const whatsappController = {
                 const statsRes = await query(
                   `SELECT
                      COUNT(*) as total,
-                     COUNT(*) FILTER (WHERE status = 'pending') as pending,
+                     COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
                      COUNT(*) FILTER (WHERE status = 'sent') as sent,
                      COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
                      COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,

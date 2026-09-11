@@ -4,6 +4,13 @@ import {
   normalizeRecipientPhone,
   isWhatsAppOpted,
 } from '../services/metaWhatsAppService.js';
+import {
+  claimNextRecipientBatch,
+  dispatchBatch,
+  recalculateCampaignStats,
+  processCampaign,
+  activeCampaignRuns,
+} from '../services/campaignDispatcher.js';
 
 export const campaignController = {
   // POST /api/campaigns/send-test (Real Meta WhatsApp Cloud API Test Message Sender)
@@ -197,7 +204,7 @@ export const campaignController = {
       const recipientStatsRes = await query(
         `SELECT 
            COUNT(*) as total,
-           COUNT(*) FILTER (WHERE status = 'pending') as pending,
+           COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
            COUNT(*) FILTER (WHERE status = 'sent') as sent,
            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
            COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
@@ -528,194 +535,95 @@ export const campaignController = {
         });
       }
 
-      // 2. Fetch Campaign
-      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
-      if (campRes.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      // 2. Concurrency guard: Check if already actively running in memory
+      if (activeCampaignRuns.has(id)) {
+        return res.status(409).json({
+          success: false,
+          error: 'CAMPAIGN_ALREADY_SENDING',
+          message: 'Campaign dispatch is already in progress.',
+          data: { campaignId: id, status: 'Sending' },
+        });
       }
 
-      const campaign = campRes.rows[0];
-
-      // 3. Fetch Pending Recipients
-      const pendingRes = await query(
-        `SELECT id, name, phone, email, country_code, whatsapp_opted, csv_data, batch_number
-         FROM campaign_recipients
-         WHERE campaign_id = $1 AND status = 'pending'
-         ORDER BY batch_number ASC, id ASC`,
+      // 3. Atomically transition campaign into 'Sending' ONLY IF it is currently in 'Scheduled', 'Draft', or 'Paused'
+      const updateRes = await query(
+        `UPDATE campaigns
+         SET status = 'Sending', sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND status IN ('Scheduled', 'Draft', 'Paused')
+         RETURNING *`,
         [id]
       );
 
-      const pendingRecipients = pendingRes.rows;
-      if (pendingRecipients.length === 0) {
+      if (updateRes.rows.length === 0) {
+        const currentCampRes = await query('SELECT status FROM campaigns WHERE id = $1', [id]);
+        if (currentCampRes.rows.length === 0) {
+          return res.status(404).json({ success: false, error: 'Campaign not found' });
+        }
+        const currentStatus = currentCampRes.rows[0].status;
+
+        if (currentStatus === 'Sending' || activeCampaignRuns.has(id)) {
+          return res.status(409).json({
+            success: false,
+            error: 'CAMPAIGN_ALREADY_SENDING',
+            message: 'Campaign dispatch is already in progress.',
+            data: { campaignId: id, status: 'Sending' },
+          });
+        }
+
+        return res.status(400).json({
+          success: false,
+          error: 'CAMPAIGN_CANNOT_BE_SENT',
+          message: `Campaign cannot be sent because it is in status: ${currentStatus}.`,
+          data: { campaignId: id, status: currentStatus },
+        });
+      }
+
+      const campaign = updateRes.rows[0];
+      // Mark in-process active run immediately to protect concurrent async requests
+      activeCampaignRuns.add(id);
+
+      // 4. Fetch Pending Recipients Count
+      const pendingRes = await query(
+        `SELECT COUNT(*) as pending_count
+         FROM campaign_recipients
+         WHERE campaign_id = $1 AND status = 'pending'`,
+        [id]
+      );
+
+      const pendingCount = parseInt(pendingRes.rows[0]?.pending_count || '0', 10);
+      if (pendingCount === 0) {
+        activeCampaignRuns.delete(id);
+        await query(
+          `UPDATE campaigns SET status = 'Completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [id]
+        );
         return res.json({
           success: true,
-          message: 'All recipients for this campaign have already been processed.',
+          message: 'No pending recipients found for this campaign. Marked as Completed.',
           data: {
             campaignId: id,
-            status: campaign.status,
+            status: 'Completed',
             remainingPending: 0,
           },
         });
       }
 
-      // 4. Update status to 'Sending'
-      await query(
-        `UPDATE campaigns 
-         SET status = 'Sending', sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $1`,
-        [id]
-      );
-
-      const variableMapping = typeof campaign.variable_mapping === 'string'
-        ? JSON.parse(campaign.variable_mapping || '{}')
-        : (campaign.variable_mapping || {});
-
-      let successCount = 0;
-      let failureCount = 0;
-
-      // 5. Batch Process Recipients (Chunk size 10)
-      const batchSize = 10;
-      for (let i = 0; i < pendingRecipients.length; i += batchSize) {
-        const chunk = pendingRecipients.slice(i, i + batchSize);
-
-        await Promise.all(
-          chunk.map(async (recipient) => {
-            const rawCsv = typeof recipient.csv_data === 'string'
-              ? JSON.parse(recipient.csv_data || '{}')
-              : (recipient.csv_data || {});
-
-            // Dynamic Variable Interpolation
-            const resolvedVariables = {};
-            Object.entries(variableMapping).forEach(([varKey, mappingTarget]) => {
-              const targetStr = String(mappingTarget).trim();
-              // Lookup in CSV attributes, recipient fields, or static
-              let resolvedVal = null;
-
-              // Case-insensitive lookup in csvData
-              if (rawCsv && typeof rawCsv === 'object') {
-                const matchKey = Object.keys(rawCsv).find(
-                  (k) => k.toLowerCase() === targetStr.toLowerCase() || `{{${k.toLowerCase()}}}` === targetStr.toLowerCase()
-                );
-                if (matchKey && rawCsv[matchKey] !== undefined && rawCsv[matchKey] !== null) {
-                  resolvedVal = rawCsv[matchKey];
-                }
-              }
-
-              if (resolvedVal === null) {
-                if (targetStr.toLowerCase() === 'name' || targetStr.toLowerCase() === '{{name}}') {
-                  resolvedVal = recipient.name;
-                } else if (targetStr.toLowerCase() === 'email' || targetStr.toLowerCase() === '{{email}}') {
-                  resolvedVal = recipient.email;
-                } else if (targetStr.toLowerCase() === 'phone' || targetStr.toLowerCase() === '{{phone}}') {
-                  resolvedVal = recipient.phone;
-                } else {
-                  resolvedVal = targetStr; // Static value
-                }
-              }
-
-              resolvedVariables[varKey] = resolvedVal || '';
-            });
-
-            // Dispatch via Meta WhatsApp Cloud API
-            const metaResult = await metaWhatsAppService.sendTemplateMessage({
-              to: recipient.phone,
-              templateName: campaign.template_name,
-              languageCode: campaign.template_language || 'en_US',
-              variables: resolvedVariables,
-            });
-
-            if (metaResult.success) {
-              successCount++;
-              await query(
-                `UPDATE campaign_recipients 
-                 SET status = 'sent',
-                     sent_at = CURRENT_TIMESTAMP,
-                     meta_message_id = $1,
-                     error_message = NULL,
-                     error_code = NULL,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $2`,
-                [metaResult.wamid, recipient.id]
-              );
-            } else {
-              failureCount++;
-              await query(
-                `UPDATE campaign_recipients 
-                 SET status = 'failed',
-                     failed_at = CURRENT_TIMESTAMP,
-                     error_message = $1,
-                     error_code = $2,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $3`,
-                [metaResult.error || 'Meta dispatch error', String(metaResult.errorCode || 'META_API_ERROR'), recipient.id]
-              );
-            }
-          })
+      // 5. Asynchronously process the campaign in background
+      setImmediate(() => {
+        processCampaign(id).catch((err) =>
+          console.error(`[Campaign Dispatcher] Background process error for campaign ${id}:`, err.message)
         );
-      }
+      });
 
-      // 6. Recalculate Master Campaign Statistics from Database
-      const statsRes = await query(
-        `SELECT 
-           COUNT(*) as total,
-           COUNT(*) FILTER (WHERE status = 'pending') as pending,
-           COUNT(*) FILTER (WHERE status = 'sent') as sent,
-           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
-           COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
-           COUNT(*) FILTER (WHERE status = 'replied') as replied,
-           COUNT(*) FILTER (WHERE status = 'failed') as failed
-         FROM campaign_recipients WHERE campaign_id = $1`,
-        [id]
-      );
-
-      const stats = statsRes.rows[0];
-      const remainingPending = parseInt(stats.pending, 10);
-      const totalRecipients = parseInt(stats.total, 10);
-      const failedTotal = parseInt(stats.failed, 10);
-
-      const finalStatus = remainingPending === 0
-        ? (failedTotal === totalRecipients ? 'Failed' : (failedTotal > 0 ? 'Partially Completed' : 'Completed'))
-        : 'Sending';
-
-      await query(
-        `UPDATE campaigns 
-         SET delivered = $1,
-             read = $2,
-             replied = $3,
-             failure_count = $4,
-             status = $5,
-             completed_at = CASE WHEN $6 = 'Completed' OR $6 = 'Partially Completed' THEN CURRENT_TIMESTAMP ELSE completed_at END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7`,
-        [
-          parseInt(stats.delivered, 10),
-          parseInt(stats.read, 10),
-          parseInt(stats.replied, 10),
-          failedTotal,
-          finalStatus,
-          finalStatus,
-          id,
-        ]
-      );
-
-      res.json({
+      return res.json({
         success: true,
-        message: 'Campaign processed via Meta WhatsApp Cloud API',
+        message: 'Campaign dispatch started',
+        campaignId: id,
         data: {
           campaignId: id,
-          status: finalStatus,
-          total: totalRecipients,
-          processed: pendingRecipients.length,
-          sent: successCount,
-          failed: failureCount,
-          stats: {
-            total: totalRecipients,
-            sent: parseInt(stats.sent, 10),
-            delivered: parseInt(stats.delivered, 10),
-            read: parseInt(stats.read, 10),
-            failed: failedTotal,
-            pending: remainingPending,
-          },
+          status: 'Sending',
+          total: parseInt(campaign.recipients || 0, 10),
+          remainingPending: pendingCount,
         },
       });
     } catch (error) {
@@ -736,8 +644,12 @@ export const campaignController = {
       const params = [id];
 
       if (status && status !== 'all') {
-        params.push(status.toLowerCase());
-        sql += ` AND LOWER(status) = $${params.length}`;
+        if (status.toLowerCase() === 'pending') {
+          sql += ` AND status IN ('pending', 'processing')`;
+        } else {
+          params.push(status.toLowerCase());
+          sql += ` AND LOWER(status) = $${params.length}`;
+        }
       }
 
       if (search && search.trim()) {
@@ -760,7 +672,7 @@ export const campaignController = {
       const statusCountsRes = await query(
         `SELECT 
            COUNT(*) as total,
-           COUNT(*) FILTER (WHERE status = 'pending') as pending,
+           COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
            COUNT(*) FILTER (WHERE status = 'sent') as sent,
            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
            COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
@@ -808,165 +720,56 @@ export const campaignController = {
       const { id } = req.params;
       const batchSize = Math.min(50, Math.max(1, parseInt(req.body.batchSize || '10', 10)));
 
-      // 1. Fetch next batch of pending recipients
-      const pendingRes = await query(
-        `SELECT id, name, phone, email, country_code, whatsapp_opted, csv_data, batch_number
-         FROM campaign_recipients 
-         WHERE campaign_id = $1 AND status = 'pending' 
-         ORDER BY batch_number ASC, id ASC 
-         LIMIT $2`,
-        [id, batchSize]
-      );
+      // 1. Fetch Campaign
+      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      if (campRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      }
+      const campaign = campRes.rows[0];
 
-      const pendingRows = pendingRes.rows;
-      if (pendingRows.length === 0) {
-        // Recalculate and mark completed
-        const statsRes = await query(
-          `SELECT 
-             COUNT(*) as total,
-             COUNT(*) FILTER (WHERE status = 'pending') as pending,
-             COUNT(*) FILTER (WHERE status = 'failed') as failed
-           FROM campaign_recipients WHERE campaign_id = $1`,
-          [id]
-        );
-        const stats = statsRes.rows[0];
-        const finalStatus = parseInt(stats.failed, 10) === parseInt(stats.total, 10)
-          ? 'Failed'
-          : (parseInt(stats.failed, 10) > 0 ? 'Partially Completed' : 'Completed');
+      // 2. Atomically claim next batch of pending recipients using FOR UPDATE SKIP LOCKED
+      const claimedRecipients = await claimNextRecipientBatch(id, batchSize);
 
-        await query(
-          `UPDATE campaigns SET status = $1, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-          [finalStatus, id]
-        );
-
+      if (claimedRecipients.length === 0) {
+        const { isCompleted, stats } = await recalculateCampaignStats(id);
         return res.json({
           success: true,
-          message: 'All recipients processed. Campaign is Completed.',
+          message: isCompleted ? 'All recipients processed. Campaign is Completed.' : 'No pending recipients currently claimable.',
           processedCount: 0,
-          remainingPending: 0,
-          isCompleted: true,
+          remainingPending: stats.remainingWork,
+          isCompleted,
+          stats: {
+            total: stats.total,
+            sent: stats.sent,
+            delivered: stats.delivered,
+            read: stats.read,
+            replied: stats.replied,
+            failed: stats.failed,
+            pending: stats.pending + stats.processing,
+          },
         });
       }
 
-      // 2. Fetch Campaign details
-      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
-      const campaign = campRes.rows[0] || {};
-      const variableMapping = typeof campaign.variable_mapping === 'string'
-        ? JSON.parse(campaign.variable_mapping || '{}')
-        : (campaign.variable_mapping || {});
-
-      // 3. Process Batch
-      for (const recipient of pendingRows) {
-        const rawCsv = typeof recipient.csv_data === 'string'
-          ? JSON.parse(recipient.csv_data || '{}')
-          : (recipient.csv_data || {});
-
-        const resolvedVariables = {};
-        Object.entries(variableMapping).forEach(([varKey, mappingTarget]) => {
-          const targetStr = String(mappingTarget).trim();
-          let resolvedVal = null;
-
-          if (rawCsv && typeof rawCsv === 'object') {
-            const matchKey = Object.keys(rawCsv).find(
-              (k) => k.toLowerCase() === targetStr.toLowerCase() || `{{${k.toLowerCase()}}}` === targetStr.toLowerCase()
-            );
-            if (matchKey && rawCsv[matchKey] !== undefined && rawCsv[matchKey] !== null) {
-              resolvedVal = rawCsv[matchKey];
-            }
-          }
-
-          if (resolvedVal === null) {
-            if (targetStr.toLowerCase() === 'name' || targetStr.toLowerCase() === '{{name}}') {
-              resolvedVal = recipient.name;
-            } else if (targetStr.toLowerCase() === 'email' || targetStr.toLowerCase() === '{{email}}') {
-              resolvedVal = recipient.email;
-            } else if (targetStr.toLowerCase() === 'phone' || targetStr.toLowerCase() === '{{phone}}') {
-              resolvedVal = recipient.phone;
-            } else {
-              resolvedVal = targetStr;
-            }
-          }
-
-          resolvedVariables[varKey] = resolvedVal || '';
-        });
-
-        const metaResult = await metaWhatsAppService.sendTemplateMessage({
-          to: recipient.phone,
-          templateName: campaign.template_name || 'promo_offer',
-          languageCode: campaign.template_language || 'en_US',
-          variables: resolvedVariables,
-        });
-
-        if (metaResult.success) {
-          await query(
-            `UPDATE campaign_recipients 
-             SET status = 'sent', sent_at = CURRENT_TIMESTAMP, meta_message_id = $1, error_message = NULL, error_code = NULL, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [metaResult.wamid, recipient.id]
-          );
-        } else {
-          await query(
-            `UPDATE campaign_recipients 
-             SET status = 'failed', failed_at = CURRENT_TIMESTAMP, error_message = $1, error_code = $2, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $3`,
-            [metaResult.error || 'Meta API delivery failed', String(metaResult.errorCode || 'META_API_ERROR'), recipient.id]
-          );
-        }
-      }
+      // 3. Dispatch the claimed batch
+      await dispatchBatch(campaign, claimedRecipients);
 
       // 4. Recalculate campaign master statistics
-      const statsRes = await query(
-        `SELECT 
-           COUNT(*) as total,
-           COUNT(*) FILTER (WHERE status = 'pending') as pending,
-           COUNT(*) FILTER (WHERE status = 'sent') as sent,
-           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
-           COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
-           COUNT(*) FILTER (WHERE status = 'replied') as replied,
-           COUNT(*) FILTER (WHERE status = 'failed') as failed
-         FROM campaign_recipients 
-         WHERE campaign_id = $1`,
-        [id]
-      );
-
-      const stats = statsRes.rows[0];
-      const remainingPending = parseInt(stats.pending, 10);
-      const isCompleted = remainingPending === 0;
-
-      await query(
-        `UPDATE campaigns 
-         SET delivered = $1, 
-             read = $2, 
-             replied = $3, 
-             failure_count = $4,
-             status = $5,
-             sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP),
-             completed_at = CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE completed_at END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7`,
-        [
-          parseInt(stats.delivered, 10),
-          parseInt(stats.read, 10),
-          parseInt(stats.replied, 10),
-          parseInt(stats.failed, 10),
-          isCompleted ? (parseInt(stats.failed, 10) === parseInt(stats.total, 10) ? 'Failed' : (parseInt(stats.failed, 10) > 0 ? 'Partially Completed' : 'Completed')) : 'Sending',
-          isCompleted,
-          id,
-        ]
-      );
+      const { isCompleted, stats } = await recalculateCampaignStats(id);
 
       res.json({
         success: true,
-        message: `Processed batch of ${pendingRows.length} recipients.`,
-        processedCount: pendingRows.length,
-        remainingPending,
+        message: `Processed batch of ${claimedRecipients.length} recipients.`,
+        processedCount: claimedRecipients.length,
+        remainingPending: stats.remainingWork,
         isCompleted,
         stats: {
-          delivered: parseInt(stats.delivered, 10),
-          read: parseInt(stats.read, 10),
-          replied: parseInt(stats.replied, 10),
-          failed: parseInt(stats.failed, 10),
-          pending: remainingPending,
+          total: stats.total,
+          sent: stats.sent,
+          delivered: stats.delivered,
+          read: stats.read,
+          replied: stats.replied,
+          failed: stats.failed,
+          pending: stats.pending + stats.processing,
         },
       });
     } catch (error) {
