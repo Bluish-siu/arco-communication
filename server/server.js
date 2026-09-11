@@ -7,6 +7,8 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { globalApiLimiter } from './middleware/rateLimiter.js';
 import apiRoutes from './routes/index.js';
 import { testDbConnection } from './config/db.js';
+import { initInboxTwoWaySchema } from './config/initInboxTwoWaySchema.js';
+import { initOrderCurrencySchema } from './config/initOrderPanelTables.js';
 
 const app = express();
 
@@ -94,8 +96,14 @@ const server = app.listen(PORT, HOST, async () => {
   console.log(`🩺 Health Check: http://${boundHost}:${boundPort}/api/health`);
   console.log(`=========================================`);
 
-  // Test PostgreSQL connection
+  // Test PostgreSQL connection & initialize Two-Way Inbox schema
   await testDbConnection();
+  try {
+    await initInboxTwoWaySchema();
+    await initOrderCurrencySchema();
+  } catch (schemaErr) {
+    console.warn('[Server Startup Schema Warning]:', schemaErr.message);
+  }
 });
 
 server.on('error', (err) => {

@@ -227,6 +227,7 @@ export const commerceOrderController = {
         'Cart Date',
         'Order Date',
         'Items Count',
+        'Currency',
         'Subtotal',
         'Shipping',
         'Discount',
@@ -243,7 +244,7 @@ export const commerceOrderController = {
 
       const rows = result.rows.map((o) => {
         const items = Array.isArray(o.items) ? o.items : JSON.parse(o.items || '[]');
-        const itemsCount = items.reduce((acc, i) => acc + (i.qty || 1), 0);
+        const itemsCount = items.reduce((acc, i) => acc + (i.qty || i.quantity || 1), 0);
         return [
           `"${o.order_number}"`,
           `"${o.customer_name || ''}"`,
@@ -252,6 +253,7 @@ export const commerceOrderController = {
           `"${new Date(o.cart_date || o.created_at).toISOString().split('T')[0]}"`,
           `"${new Date(o.created_at).toISOString().split('T')[0]}"`,
           itemsCount,
+          `"${o.currency || 'INR'}"`,
           parseFloat(o.subtotal || 0).toFixed(2),
           parseFloat(o.shipping_charge || 0).toFixed(2),
           parseFloat(o.discount || 0).toFixed(2),

@@ -1079,6 +1079,54 @@ async function main() {
     }
   });
 
+  // -------------------------------------------------------------
+  // Test 25: Shopify Order Currency Preservation (USD & International)
+  // -------------------------------------------------------------
+  await runAsyncTest('25. Shopify order currency (USD) is strictly preserved without conversion or defaulting to INR', async () => {
+    const { pool } = await import('../config/db.js');
+    const { handleOrderSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [{ user_id: 'usr_test_1' }] };
+      }
+      if (text.includes('SELECT id, workflow_id, contact_id FROM checkout_orders')) {
+        return { rows: [] };
+      }
+      if (text.includes('SELECT id FROM contacts')) {
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO checkout_orders')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      // Live-verified Order #1001 payload emulation: $10.00 USD
+      await handleOrderSync(TEST_SHOP, {
+        id: 1001,
+        order_number: '1001',
+        total_price: '10.00',
+        currency: 'USD',
+        financial_status: 'paid',
+        fulfillment_status: 'unfulfilled',
+      }, { isNewOrder: false });
+
+      const insertOrder = executedQueries.find((q) => q.text.includes('INSERT INTO checkout_orders'));
+      assert.ok(insertOrder, 'Order must be inserted into checkout_orders');
+      assert.strictEqual(insertOrder.params[11], 10, 'Total amount must remain 10 without conversion');
+      assert.strictEqual(insertOrder.params[20], 'USD', 'Currency must be preserved as USD and NOT INR');
+      assert.ok(insertOrder.text.includes('currency'), 'SQL statement must explicitly include currency column');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
   console.log('\n-------------------------------------------------------------');
   console.log(` RESULTS: ${passedTests}/${totalTests} Tests Passed`);
   console.log('-------------------------------------------------------------\n');

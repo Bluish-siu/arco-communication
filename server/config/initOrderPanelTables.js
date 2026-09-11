@@ -27,6 +27,10 @@ async function initOrderPanelTables() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'checkout_orders' AND column_name = 'shipping_country') THEN
           ALTER TABLE checkout_orders ADD COLUMN shipping_country VARCHAR(100) DEFAULT 'India';
         END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'checkout_orders' AND column_name = 'currency') THEN
+          ALTER TABLE checkout_orders ADD COLUMN currency VARCHAR(10) DEFAULT 'INR';
+        END IF;
       END $$;
     `);
 
@@ -219,9 +223,30 @@ async function initOrderPanelTables() {
     console.log('[PostgreSQL] Order Panel tables initialization complete!');
   } catch (err) {
     console.error('Error initializing order panel tables:', err);
-  } finally {
-    process.exit(0);
   }
 }
 
-initOrderPanelTables();
+export async function initOrderCurrencySchema() {
+  try {
+    await query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'checkout_orders' AND column_name = 'currency') THEN
+          ALTER TABLE checkout_orders ADD COLUMN currency VARCHAR(10) DEFAULT 'INR';
+        END IF;
+      END $$;
+    `);
+    return true;
+  } catch (err) {
+    console.warn('[Order Currency Schema Initialization Warning]:', err.message);
+    return false;
+  }
+}
+
+export { initOrderPanelTables };
+
+if (process.argv[1]?.endsWith('initOrderPanelTables.js')) {
+  initOrderPanelTables().then(() => {
+    process.exit(0);
+  });
+}

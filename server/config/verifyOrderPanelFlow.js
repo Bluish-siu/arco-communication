@@ -4,6 +4,14 @@ async function verifyOrderPanelFlow() {
 
   console.log('Testing ARCO WhatsApp Commerce -> Order Panel & PostgreSQL Flow...');
 
+  // Ensure server is reachable or start in-process
+  try {
+    await fetch(`${BASE_URL}/health`);
+  } catch (_) {
+    await import('../server.js');
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+
   // 1. Get Orders List (GET /api/commerce/orders)
   let orderList = [];
   try {
@@ -155,6 +163,7 @@ async function verifyOrderPanelFlow() {
   } else {
     console.error('[FAILURES DETECTED]');
   }
+  process.exit(allPassed ? 0 : 1);
 }
 
 verifyOrderPanelFlow();

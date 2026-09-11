@@ -1,4 +1,5 @@
 import { db, query } from '../config/db.js';
+import { metaWhatsAppService, isWithin24HourWindow } from '../services/metaWhatsAppService.js';
 
 export const inboxController = {
   // GET /api/inbox/conversations
@@ -156,7 +157,11 @@ export const inboxController = {
           statusFilter: conv.status_filter || 'open',
           assignee: conv.assignee || 'Unassigned',
           replyStatus: conv.reply_status || 'replied_manually',
-          responseWindow: conv.response_window || 'active',
+          responseWindow: conv.last_inbound_at
+            ? (isWithin24HourWindow(conv.last_inbound_at) ? 'active' : 'expired')
+            : (conv.response_window || 'active'),
+          lastInboundAt: conv.last_inbound_at,
+          isWithin24h: isWithin24HourWindow(conv.last_inbound_at),
           isSpam: conv.is_spam || false,
           updatedAt: conv.updated_at,
           createdAt: conv.created_at,
@@ -165,7 +170,11 @@ export const inboxController = {
             sender: m.sender,
             text: m.text,
             time: m.time,
-            timestamp: m.timestamp,
+            timestamp: m.timestamp || m.created_at,
+            metaMessageId: m.meta_message_id || null,
+            status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
+            errorMessage: m.error_message || null,
+            messageType: m.message_type || 'text',
           })),
         });
       }
@@ -208,6 +217,8 @@ export const inboxController = {
         sender: 'me',
         text: initialText,
         time: timeStr,
+        status: 'sent',
+        message_type: 'text',
       });
 
       res.status(201).json({
@@ -229,6 +240,8 @@ export const inboxController = {
               sender: newMsg.sender,
               text: newMsg.text,
               time: newMsg.time,
+              status: newMsg.status || 'sent',
+              messageType: newMsg.message_type || 'text',
             },
           ],
         },
@@ -244,7 +257,7 @@ export const inboxController = {
       const { id } = req.params;
       const { text, sender } = req.body;
 
-      if (!text) {
+      if (!text || !text.trim()) {
         return res.status(400).json({ success: false, error: 'Message text is required' });
       }
 
@@ -253,19 +266,51 @@ export const inboxController = {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
-      const msgId = `m_${Date.now()}`;
+      const msgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const cleanText = text.trim();
+
+      let metaMessageId = null;
+      let msgStatus = 'sent';
+      let errorMessage = null;
+
+      // If channel is whatsapp, dispatch through Meta Cloud API
+      if (conv.channel === 'whatsapp') {
+        try {
+          const sendResult = await metaWhatsAppService.sendTextMessage({
+            to: conv.phone,
+            text: cleanText,
+          });
+
+          if (sendResult?.success) {
+            metaMessageId = sendResult.messageId || null;
+            msgStatus = 'sent';
+          } else {
+            msgStatus = 'failed';
+            errorMessage = sendResult?.error || sendResult?.message || 'Meta WhatsApp dispatch failed';
+          }
+        } catch (apiErr) {
+          console.error('[Inbox Outbound WhatsApp Error]:', apiErr.message);
+          msgStatus = 'failed';
+          errorMessage = apiErr.message || 'WhatsApp dispatch error';
+        }
+      }
 
       const newMsg = await db.insert('messages', {
         id: msgId,
         conversation_id: id,
         sender: sender || 'me',
-        text: text.trim(),
+        text: cleanText,
         time: timeStr,
+        meta_message_id: metaMessageId,
+        status: msgStatus,
+        error_message: errorMessage,
+        message_type: 'text',
       });
 
       await db.update('conversations', id, {
         last_message_time: 'Just now',
+        reply_status: 'replied_manually',
       });
 
       res.json({
@@ -275,7 +320,11 @@ export const inboxController = {
           sender: newMsg.sender,
           text: newMsg.text,
           time: newMsg.time,
-          timestamp: newMsg.timestamp,
+          timestamp: newMsg.timestamp || newMsg.created_at,
+          metaMessageId: newMsg.meta_message_id,
+          status: newMsg.status,
+          errorMessage: newMsg.error_message,
+          messageType: newMsg.message_type,
         },
       });
     } catch (error) {
@@ -322,6 +371,11 @@ export const inboxController = {
         }
       }
 
+      const is24h = isWithin24HourWindow(conv.last_inbound_at);
+      const dynamicWindow = conv.last_inbound_at
+        ? (is24h ? 'active' : 'expired')
+        : (conv.response_window || 'active');
+
       res.json({
         success: true,
         data: {
@@ -337,7 +391,9 @@ export const inboxController = {
           statusFilter: conv.status_filter || 'open',
           assignee: conv.assignee || contact?.owner || 'Me',
           replyStatus: conv.reply_status || 'replied_manually',
-          responseWindow: conv.response_window || 'active',
+          responseWindow: dynamicWindow,
+          lastInboundAt: conv.last_inbound_at,
+          isWithin24h: is24h,
           isSpam: conv.is_spam || false,
           updatedAt: conv.updated_at,
           createdAt: conv.created_at,
@@ -375,7 +431,11 @@ export const inboxController = {
             sender: m.sender,
             text: m.text,
             time: m.time,
-            timestamp: m.timestamp,
+            timestamp: m.timestamp || m.created_at,
+            metaMessageId: m.meta_message_id || null,
+            status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
+            errorMessage: m.error_message || null,
+            messageType: m.message_type || 'text',
           })),
         },
       });

@@ -68,6 +68,7 @@ async function initCheckoutBotTables() {
         payment_status VARCHAR(50) DEFAULT 'COD',
         order_status VARCHAR(50) DEFAULT 'CONFIRMED',
         workflow_id VARCHAR(255),
+        currency VARCHAR(10) DEFAULT 'INR',
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       )

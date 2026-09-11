@@ -269,6 +269,39 @@ export default function OrderPanel() {
     }
   };
 
+  // Helper to resolve order currency strictly from persisted order record
+  const resolveOrderCurrency = (ord) => {
+    if (ord?.currency && String(ord.currency).trim()) {
+      return String(ord.currency).trim().toUpperCase();
+    }
+    return 'INR';
+  };
+
+  // Helper to format currency accurately preserving source currency without conversion
+  const formatOrderCurrency = (amount, currency = 'INR') => {
+    const num = parseFloat(amount || 0);
+    const curr = String(currency || 'INR').trim().toUpperCase();
+
+    const symbols = {
+      USD: '$',
+      EUR: '€',
+      GBP: '£',
+      CAD: '$',
+      AUD: '$',
+      SGD: '$',
+      AED: 'AED ',
+      INR: '₹',
+    };
+
+    if (curr === 'INR') {
+      return `₹${num.toLocaleString('en-IN', { minimumFractionDigits: num % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`;
+    }
+
+    const symbol = symbols[curr] || '';
+    const formattedNum = num.toFixed(2);
+    return `${curr} ${symbol}${formattedNum}`;
+  };
+
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col font-sans text-slate-800">
       
@@ -585,12 +618,13 @@ export default function OrderPanel() {
                     <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                       {orders.map((ord) => {
                         const items = Array.isArray(ord.items) ? ord.items : JSON.parse(ord.items || '[]');
-                        const totalQty = items.reduce((acc, i) => acc + (i.qty || 1), 0);
+                        const totalQty = items.reduce((acc, i) => acc + (i.qty || i.quantity || 1), 0);
                         const formattedCartDate = new Date(ord.cart_date || ord.created_at).toLocaleDateString('en-GB', {
                           day: '2-digit',
                           month: 'short',
                           year: 'numeric',
                         });
+                        const orderCurrency = resolveOrderCurrency(ord);
 
                         return (
                           <tr
@@ -628,7 +662,7 @@ export default function OrderPanel() {
                             {/* Order Details (Items count + Price) */}
                             <td className="py-3.5 px-4">
                               <div className="font-bold text-slate-900 text-xs">
-                                {totalQty} {totalQty === 1 ? 'item' : 'items'} • ₹{parseFloat(ord.total_amount || 0).toLocaleString('en-IN')}
+                                {totalQty} {totalQty === 1 ? 'item' : 'items'} • {formatOrderCurrency(ord.total_amount, orderCurrency)}
                               </div>
                             </td>
 
@@ -809,26 +843,30 @@ export default function OrderPanel() {
                   Products ({Array.isArray(selectedOrder.items) ? selectedOrder.items.length : JSON.parse(selectedOrder.items || '[]').length})
                 </div>
                 <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden">
-                  {(Array.isArray(selectedOrder.items) ? selectedOrder.items : JSON.parse(selectedOrder.items || '[]')).map((item, idx) => (
-                    <div key={idx} className="p-3 bg-white flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden shrink-0">
-                          <img
-                            src={item.image || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200'}
-                            alt={item.title}
-                            className="w-full h-full object-cover"
-                          />
+                  {(Array.isArray(selectedOrder.items) ? selectedOrder.items : JSON.parse(selectedOrder.items || '[]')).map((item, idx) => {
+                    const itemQty = item.qty || item.quantity || 1;
+                    const selectedCurrency = resolveOrderCurrency(selectedOrder);
+                    return (
+                      <div key={idx} className="p-3 bg-white flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden shrink-0">
+                            <img
+                              src={item.image || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200'}
+                              alt={item.title}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 text-xs">{item.title}</div>
+                            <div className="text-[10px] text-slate-400">Qty: {itemQty} × {formatOrderCurrency(item.price, selectedCurrency)}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-bold text-slate-900 text-xs">{item.title}</div>
-                          <div className="text-[10px] text-slate-400">Qty: {item.qty || 1} × ₹{parseFloat(item.price || 0).toLocaleString('en-IN')}</div>
+                        <div className="font-extrabold text-slate-900 text-xs">
+                          {formatOrderCurrency(parseFloat(item.price || 0) * itemQty, selectedCurrency)}
                         </div>
                       </div>
-                      <div className="font-extrabold text-slate-900 text-xs">
-                        ₹{(parseFloat(item.price || 0) * (item.qty || 1)).toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -836,21 +874,21 @@ export default function OrderPanel() {
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
                 <div className="flex justify-between text-slate-600">
                   <span>Subtotal</span>
-                  <span>₹{parseFloat(selectedOrder.subtotal || 0).toLocaleString('en-IN')}</span>
+                  <span>{formatOrderCurrency(selectedOrder.subtotal, resolveOrderCurrency(selectedOrder))}</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Shipping Fee</span>
-                  <span>₹{parseFloat(selectedOrder.shipping_charge || 0).toLocaleString('en-IN')}</span>
+                  <span>{formatOrderCurrency(selectedOrder.shipping_charge, resolveOrderCurrency(selectedOrder))}</span>
                 </div>
                 {parseFloat(selectedOrder.discount || 0) > 0 && (
                   <div className="flex justify-between text-emerald-700 font-bold">
                     <span>Discount</span>
-                    <span>-₹{parseFloat(selectedOrder.discount || 0).toLocaleString('en-IN')}</span>
+                    <span>-{formatOrderCurrency(selectedOrder.discount, resolveOrderCurrency(selectedOrder))}</span>
                   </div>
                 )}
                 <div className="pt-2 border-t border-slate-200 flex justify-between font-extrabold text-sm text-slate-900">
                   <span>Total Amount</span>
-                  <span className="text-emerald-700">₹{parseFloat(selectedOrder.total_amount || 0).toLocaleString('en-IN')}</span>
+                  <span className="text-emerald-700">{formatOrderCurrency(selectedOrder.total_amount, resolveOrderCurrency(selectedOrder))}</span>
                 </div>
               </div>
 
@@ -863,7 +901,7 @@ export default function OrderPanel() {
                   <div className="font-bold text-slate-900">{selectedOrder.customer_name}</div>
                   <div>{selectedOrder.address}</div>
                   <div>{selectedOrder.city}, {selectedOrder.state} — {selectedOrder.pincode}</div>
-                  <div className="text-[10px] text-slate-400 font-bold uppercase">India</div>
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">{selectedOrder.shipping_country || 'India'}</div>
                 </div>
               </div>
 

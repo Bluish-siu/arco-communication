@@ -131,6 +131,14 @@ export function isWhatsAppOpted(val) {
   return ['true', '1', 'yes', 'y', 'opted', 'opt-in', 'opted-in'].includes(str);
 }
 
+// 24-Hour WhatsApp Session Window Helper
+export function isWithin24HourWindow(lastInboundAt) {
+  if (!lastInboundAt) return false;
+  const inboundTime = new Date(lastInboundAt).getTime();
+  if (isNaN(inboundTime)) return false;
+  return Date.now() - inboundTime <= 24 * 60 * 60 * 1000;
+}
+
 export const metaWhatsAppService = {
   // 1. Resolve Meta WhatsApp Cloud API credentials
   getCredentials: async () => {
@@ -577,7 +585,127 @@ export const metaWhatsAppService = {
     }
   },
 
-  // 4. Fetch Real WhatsApp Message Templates from Meta Graph API
+  // 4. Send Free-Form WhatsApp Text Message via Meta Cloud API (during 24-hour service window)
+  sendTextMessage: async ({ to, text, previewUrl = false }) => {
+    if (!to) {
+      return { success: false, error: 'Recipient phone number is required' };
+    }
+    if (!text || !text.trim()) {
+      return { success: false, error: 'Message text cannot be empty' };
+    }
+
+    const cleanTo = formatPhoneNumber(to);
+    if (!cleanTo || cleanTo.length < 8) {
+      return {
+        success: false,
+        error: `Invalid phone number format: "${to}". Must be a valid phone number with country code.`,
+      };
+    }
+
+    const creds = await metaWhatsAppService.getCredentials();
+    if (!creds.isConfigured) {
+      return {
+        success: false,
+        error: 'META_CREDENTIALS_MISSING',
+        message: 'WhatsApp Business API is not connected. Please configure your Meta credentials in environment variables.',
+        missingFields: creds.missingFields,
+      };
+    }
+
+    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'text',
+      text: {
+        preview_url: Boolean(previewUrl),
+        body: text.trim(),
+      },
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        let customErrorMsg = data.error?.message || `Meta Cloud API error (HTTP ${response.status})`;
+        if (data.error?.code === 131047 || data.error?.code === 131051) {
+          customErrorMsg = 'The 24-hour WhatsApp customer service window has expired. A pre-approved template message is required to message this customer.';
+        } else if (data.error?.code === 131030) {
+          customErrorMsg = `Recipient phone (+${cleanTo}) is not in Meta Allowed Numbers list (Development mode).`;
+        } else if (data.error?.code === 190) {
+          customErrorMsg = 'Meta Access Token Session Expired (#190). Please verify META_ACCESS_TOKEN.';
+        }
+
+        console.warn(`[Meta Cloud API Send Text Failed]: ${customErrorMsg}`);
+        return {
+          success: false,
+          error: customErrorMsg,
+          rawError: data.error?.message,
+          errorCode: data.error?.code,
+          errorSubcode: data.error?.error_subcode,
+          payload,
+        };
+      }
+
+      const wamid = data.messages?.[0]?.id || `wamid_${Date.now()}`;
+      const messageStatus = data.messages?.[0]?.message_status || 'accepted';
+
+      console.log(
+        `[Meta Cloud API Text Message Dispatched] Phone ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | WAMID: ${wamid}`
+      );
+
+      // Persist outbound dispatch in whatsapp_message_logs
+      try {
+        await query(
+          `INSERT INTO whatsapp_message_logs (
+             wamid, recipient_phone, template_name, sender_phone_id,
+             status, raw_payload, raw_response, accepted_at, updated_at
+           ) VALUES ($1, $2, 'free_form_text', $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (wamid) DO UPDATE SET
+             status = EXCLUDED.status,
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            wamid,
+            cleanTo,
+            creds.phoneNumberId,
+            messageStatus,
+            JSON.stringify(payload),
+            JSON.stringify(data),
+          ]
+        );
+      } catch (logErr) {
+        console.warn('[metaWhatsAppService] Failed to record text message in whatsapp_message_logs:', logErr.message);
+      }
+
+      return {
+        success: true,
+        wamid,
+        metaMessageId: wamid,
+        recipientPhone: cleanTo,
+        status: 'sent',
+        timestamp: new Date().toISOString(),
+        metaResponse: data,
+      };
+    } catch (err) {
+      console.error('[Meta Cloud API Fetch Exception]:', err.message);
+      return {
+        success: false,
+        error: `Network connection failed: ${err.message}`,
+      };
+    }
+  },
+
+  // 5. Fetch Real WhatsApp Message Templates from Meta Graph API
   getWhatsAppTemplates: async () => {
     const creds = await metaWhatsAppService.getCredentials();
     if (!creds.isConfigured || !creds.wabaId) {

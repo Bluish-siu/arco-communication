@@ -314,6 +314,7 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
   const totalAmount = parseFloat(order.total_price || 0);
   const discount = parseFloat(order.total_discounts || 0);
   const tax = parseFloat(order.total_tax || 0);
+  const currency = String(order.currency || order.presentment_currency || 'INR').toUpperCase();
 
   // Status mapping strictly matching src/pages/OrderPanel.jsx conventions
   let paymentStatus = 'Pending';
@@ -451,27 +452,30 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
            fulfillment_status = $3,
            total_amount = $4,
            contact_id = COALESCE(contact_id, $5),
+           currency = $6,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6`,
-      [paymentStatus, orderStatus, fulfillmentStatus, totalAmount, resolvedContactId, existingRes.rows[0].id]
+       WHERE id = $7`,
+      [paymentStatus, orderStatus, fulfillmentStatus, totalAmount, resolvedContactId, currency, existingRes.rows[0].id]
     );
   } else {
     await query(
       `INSERT INTO checkout_orders (
          id, order_number, user_id, contact_id, customer_name, customer_email, phone_number,
          items, subtotal, discount, tax, total_amount, payment_status, order_status,
-         fulfillment_status, shipping_country, city, state, address, pincode, created_at, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         fulfillment_status, shipping_country, city, state, address, pincode, currency, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT (id) DO UPDATE 
        SET payment_status = EXCLUDED.payment_status,
            order_status = EXCLUDED.order_status,
            fulfillment_status = EXCLUDED.fulfillment_status,
+           total_amount = EXCLUDED.total_amount,
+           currency = EXCLUDED.currency,
            contact_id = COALESCE(checkout_orders.contact_id, EXCLUDED.contact_id),
            updated_at = CURRENT_TIMESTAMP`,
       [
         orderId, orderNumber, userId, resolvedContactId, customerName, customerEmail, phoneNumber,
         items, subtotal, discount, tax, totalAmount, paymentStatus, orderStatus,
-        fulfillmentStatus, shippingCountry, city, state, address, pincode,
+        fulfillmentStatus, shippingCountry, city, state, address, pincode, currency,
       ]
     );
   }
@@ -487,6 +491,7 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
       phoneNumber,
       customerName,
       totalAmount,
+      currency,
     });
   }
 }
@@ -504,6 +509,7 @@ export async function attemptOrderConfirmationNotification({
   phoneNumber,
   customerName,
   totalAmount,
+  currency = 'INR',
 }) {
   try {
     // 1. DUPLICATE PROTECTION: Check if this specific order was already notified
@@ -583,12 +589,18 @@ export async function attemptOrderConfirmationNotification({
 
     console.log(`[Shopify WhatsApp Dispatch] Sending confirmation for order ${orderNumber} via approved template "${matchedTemplate.name}" to +${cleanPhone}...`);
 
+    let displayAmount = `₹${totalAmount}`;
+    if (currency && currency !== 'INR') {
+      const sym = currency === 'USD' || currency === 'CAD' || currency === 'AUD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '';
+      displayAmount = `${currency} ${sym}${Number(totalAmount).toFixed(2)}`;
+    }
+
     // 5. DISPATCH VIA META CLOUD API
     const sendResult = await metaWhatsAppService.sendTemplateMessage({
       to: cleanPhone,
       templateName: matchedTemplate.name,
       languageCode: matchedTemplate.language || 'en_US',
-      variables: [orderNumber, 'Standard Delivery', `₹${totalAmount}`],
+      variables: [orderNumber, 'Standard Delivery', displayAmount],
     });
 
     if (sendResult.success) {
