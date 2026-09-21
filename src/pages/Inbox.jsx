@@ -464,6 +464,34 @@ export default function Inbox() {
 
   const selectedChat = conversations.find((c) => c.id === selectedChatId);
 
+  // Handle conversation selection with immediate read-state update & backend persistence
+  const handleSelectChat = (chatId) => {
+    setSelectedChatId(chatId);
+    const chat = conversations.find((c) => c.id === chatId);
+    if (chat && (chat.unreadCount || 0) > 0) {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c))
+      );
+      inboxService.markAsRead(chatId).catch((err) => {
+        console.warn('Failed to mark conversation as read:', err);
+      });
+    }
+  };
+
+  // Automatically mark currently open conversation as read if unread count > 0 (e.g. from background poll)
+  useEffect(() => {
+    if (!selectedChatId) return;
+    const currentChat = conversations.find((c) => c.id === selectedChatId);
+    if (currentChat && (currentChat.unreadCount || 0) > 0) {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === selectedChatId ? { ...c, unreadCount: 0 } : c))
+      );
+      inboxService.markAsRead(selectedChatId).catch((err) => {
+        console.warn('Failed to mark conversation as read:', err);
+      });
+    }
+  }, [selectedChatId, conversations]);
+
   // Auto scroll messages to bottom on new message or chat select
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1278,12 +1306,7 @@ export default function Inbox() {
                   return (
                     <div
                       key={chat.id}
-                      onClick={() => {
-                        setSelectedChatId(chat.id);
-                        setConversations((prev) =>
-                          prev.map((c) => (c.id === chat.id ? { ...c, unreadCount: 0 } : c))
-                        );
-                      }}
+                      onClick={() => handleSelectChat(chat.id)}
                       className={`p-3.5 flex items-start gap-3 cursor-pointer transition-all ${
                         isSelected
                           ? 'bg-emerald-50/80 border-l-4 border-emerald-600'

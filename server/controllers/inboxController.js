@@ -336,8 +336,37 @@ export const inboxController = {
   markAsRead: async (req, res, next) => {
     try {
       const { id } = req.params;
+      const conv = await db.findOne('conversations', 'id = $1', [id]);
+      if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+
+      // If already read, return early without unnecessary DB writes
+      if (Number(conv.unread_count || 0) === 0) {
+        return res.json({
+          success: true,
+          data: {
+            id: conv.id,
+            unreadCount: 0,
+            alreadyRead: true,
+          },
+        });
+      }
+
       const updated = await db.update('conversations', id, { unread_count: 0 });
-      res.json({ success: true, data: updated });
+      await query(
+        `UPDATE messages SET status = 'read' WHERE conversation_id = $1 AND sender = 'contact' AND (status IS NULL OR status != 'read')`,
+        [id]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          id: updated ? updated.id : conv.id,
+          unreadCount: 0,
+          updatedAt: updated?.updated_at,
+        },
+      });
     } catch (error) {
       next(error);
     }

@@ -1,6 +1,96 @@
 import { db, query } from '../config/db.js';
 import { evaluateAssignmentInternal } from './chatAssignmentController.js';
 import { campaignReplyFlowService } from '../services/campaignReplyFlowService.js';
+import { workflowExecutionEngine } from '../services/workflowExecutionEngine.js';
+/**
+ * Normalizes an incoming WhatsApp message payload to extract clean text,
+ * type, and interactive details (button_reply, list_reply, template buttons).
+ *
+ * @param {Object} message - Raw Meta WhatsApp message payload
+ * @returns {{ text: string, type: string, replyId: string|null }}
+ */
+export function normalizeWhatsAppInboundMessage(message) {
+  if (!message || typeof message !== 'object') {
+    return { text: '[Message]', type: 'text', replyId: null };
+  }
+
+  let messageText = '';
+  let messageType = message.type || 'text';
+  let replyId = null;
+
+  // 1. Text message
+  if (message.text?.body && typeof message.text.body === 'string' && message.text.body.trim()) {
+    messageText = message.text.body.trim();
+  }
+  // 2. Interactive message (button_reply, list_reply, nfm_reply)
+  else if (message.interactive) {
+    const inter = message.interactive;
+    if (inter.button_reply) {
+      messageText = (inter.button_reply.title || inter.button_reply.id || '').trim();
+      replyId = inter.button_reply.id || null;
+      messageType = 'button_reply';
+    } else if (inter.list_reply) {
+      messageText = (inter.list_reply.title || inter.list_reply.id || '').trim();
+      replyId = inter.list_reply.id || null;
+      messageType = 'list_reply';
+    } else if (inter.type === 'button_reply' && inter.button_reply?.title) {
+      messageText = inter.button_reply.title.trim();
+      replyId = inter.button_reply.id || null;
+      messageType = 'button_reply';
+    } else if (inter.type === 'list_reply' && inter.list_reply?.title) {
+      messageText = inter.list_reply.title.trim();
+      replyId = inter.list_reply.id || null;
+      messageType = 'list_reply';
+    } else if (inter.nfm_reply?.response_json) {
+      messageType = 'nfm_reply';
+      try {
+        const resp = typeof inter.nfm_reply.response_json === 'string'
+          ? JSON.parse(inter.nfm_reply.response_json)
+          : inter.nfm_reply.response_json;
+        messageText = resp?.title || resp?.name || (resp?.screen ? `[Flow: ${resp.screen}]` : '[Flow Response]');
+      } catch {
+        messageText = '[Flow Response]';
+      }
+    } else if (inter.title && typeof inter.title === 'string') {
+      messageText = inter.title.trim();
+    }
+  }
+  // 3. Quick Reply button from template (e.g. "Book A Demo")
+  else if (message.button) {
+    messageText = (message.button.text || message.button.payload || '').trim();
+    replyId = message.button.payload || null;
+    messageType = 'button_reply';
+  }
+  // 4. Media & other types
+  else if (message.image) {
+    messageText = message.image.caption || '[Image]';
+    messageType = 'image';
+  } else if (message.document) {
+    messageText = message.document.filename || message.document.caption || '[Document]';
+    messageType = 'document';
+  } else if (message.audio) {
+    messageText = '[Audio message]';
+    messageType = 'audio';
+  } else if (message.video) {
+    messageText = message.video.caption || '[Video]';
+    messageType = 'video';
+  } else if (message.location) {
+    messageText = `[Location: ${message.location.latitude}, ${message.location.longitude}]`;
+    messageType = 'location';
+  } else if (message.contacts && Array.isArray(message.contacts) && message.contacts.length > 0) {
+    const cName = message.contacts[0]?.name?.formatted_name || 'Contact Card';
+    messageText = `[Contact: ${cName}]`;
+    messageType = 'contacts';
+  } else {
+    messageText = '[Message]';
+  }
+
+  return {
+    text: messageText || '[Message]',
+    type: messageType,
+    replyId,
+  };
+}
 
 export const whatsappController = {
   // GET /api/whatsapp/status
@@ -206,28 +296,10 @@ export const whatsappController = {
               conv = newConvRes.rows[0];
             }
 
-            // C. Extract message text and type
-            let messageText = '';
-            let messageType = message.type || 'text';
-            if (message.text?.body) {
-              messageText = message.text.body;
-            } else if (message.interactive?.button_reply?.title) {
-              messageText = message.interactive.button_reply.title;
-            } else if (message.interactive?.list_reply?.title) {
-              messageText = message.interactive.list_reply.title;
-            } else if (message.image) {
-              messageText = message.image.caption || '[Image]';
-            } else if (message.document) {
-              messageText = message.document.filename || '[Document]';
-            } else if (message.audio) {
-              messageText = '[Audio message]';
-            } else if (message.video) {
-              messageText = message.video.caption || '[Video]';
-            } else if (message.location) {
-              messageText = `[Location: ${message.location.latitude}, ${message.location.longitude}]`;
-            } else {
-              messageText = '[Message]';
-            }
+            // C. Extract message text and type (supporting text, interactive button/list replies, quick replies)
+            const normalizedMsg = normalizeWhatsAppInboundMessage(message);
+            const messageText = normalizedMsg.text;
+            const messageType = normalizedMsg.type;
 
             // D. Persist into messages table
             const newMsgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -251,6 +323,7 @@ export const whatsappController = {
             );
 
             // E. Post-Campaign Reply Flow Evaluation
+            let postCampaignHandled = false;
             try {
               const flowResult = await campaignReplyFlowService.handleInboundInteraction({
                 message,
@@ -260,13 +333,33 @@ export const whatsappController = {
                 clean10,
               });
               if (flowResult?.handled) {
+                postCampaignHandled = true;
                 console.log(`[WhatsApp Webhook] Post-Campaign reply flow executed successfully:`, flowResult);
               }
             } catch (flowErr) {
               console.warn('[WhatsApp Webhook] Post-Campaign reply flow error:', flowErr.message);
             }
 
-            // F. Retain checkout bot session handling if active
+            // F. Inbound WhatsApp Workflow Engine Evaluation (if not handled by campaign reply flow)
+            if (!postCampaignHandled) {
+              try {
+                const wfResult = await workflowExecutionEngine.evaluateInboundWhatsAppMessage({
+                  message,
+                  contact,
+                  conv,
+                  fromPhone,
+                  clean10,
+                  text: messageText,
+                });
+                if (wfResult?.handled) {
+                  console.log(`[WhatsApp Webhook] Inbound workflow executed successfully:`, wfResult);
+                }
+              } catch (wfErr) {
+                console.warn('[WhatsApp Webhook] Inbound workflow evaluation error:', wfErr.message);
+              }
+            }
+
+            // G. Retain checkout bot session handling if active
             try {
               const activeSessionRes = await query(
                 "SELECT * FROM checkout_sessions WHERE (phone_number = $1 OR phone_number LIKE '%' || $2) AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
