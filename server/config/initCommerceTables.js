@@ -104,6 +104,13 @@ async function initCommerceTables() {
       )
     `);
 
+    // Ensure extended variant and product metadata columns exist
+    await query(`
+      ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS sku VARCHAR(255);
+      ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS product_url TEXT;
+    `);
+
     // 3. Ensure Default Setting Record exists
     const existingSettings = await query('SELECT * FROM commerce_settings WHERE id = $1', ['comm_settings_default']);
     if (existingSettings.rows.length === 0) {

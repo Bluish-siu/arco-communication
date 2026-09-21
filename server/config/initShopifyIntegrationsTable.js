@@ -24,6 +24,7 @@ export async function initShopifyIntegrationsTable() {
       CREATE INDEX IF NOT EXISTS idx_shopify_integrations_user_id ON shopify_integrations(user_id);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_shopify_integrations_shop_domain ON shopify_integrations(shop_domain);
       CREATE INDEX IF NOT EXISTS idx_shopify_integrations_shop_id ON shopify_integrations(shopify_shop_id);
+      ALTER TABLE shopify_integrations ADD COLUMN IF NOT EXISTS shopify_shop_id VARCHAR(100);
     `);
     console.log('[PostgreSQL] shopify_integrations table initialized successfully.');
   } catch (err) {

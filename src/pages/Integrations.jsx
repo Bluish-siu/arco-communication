@@ -87,6 +87,10 @@ export default function Integrations() {
     installedAt: null,
   });
 
+  // Historical Sync State
+  const [syncJob, setSyncJob] = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+
   // Connect Modal State
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [shopInput, setShopInput] = useState('');
@@ -125,6 +129,18 @@ export default function Integrations() {
     }
   };
 
+  // Fetch Shopify Historical Sync Progress from Backend
+  const loadSyncStatus = async () => {
+    try {
+      const res = await integrationService.getShopifySyncStatus();
+      if (res?.job) {
+        setSyncJob(res.job);
+      }
+    } catch (err) {
+      console.warn('[Integrations] Load sync status error:', err);
+    }
+  };
+
   useEffect(() => {
     loadStatus();
 
@@ -137,6 +153,39 @@ export default function Integrations() {
       showToast(`Shopify connection failed: ${searchParams.get('error')}`, 'error');
     }
   }, [searchParams]);
+
+  // Load sync status when store is connected
+  useEffect(() => {
+    if (shopifyStatus.connected) {
+      loadSyncStatus();
+    }
+  }, [shopifyStatus.connected]);
+
+  // Poll sync progress while job is running or queued
+  useEffect(() => {
+    if (syncJob?.status === 'running' || syncJob?.status === 'queued') {
+      const timer = setInterval(() => {
+        loadSyncStatus();
+      }, 2500);
+      return () => clearInterval(timer);
+    }
+  }, [syncJob?.status]);
+
+  // Trigger historical sync
+  const handleStartSync = async (syncType = 'full') => {
+    setSyncLoading(true);
+    try {
+      const res = await integrationService.startShopifySync(syncType);
+      if (res?.success && res?.job) {
+        setSyncJob(res.job);
+        showToast(`Shopify ${syncType} sync started!`, 'success');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to start sync', 'error');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
 
   // Handle Connect Submission
   const handleConnectSubmit = async (e) => {
@@ -436,15 +485,121 @@ export default function Integrations() {
                       Auto-sync Shopify products & collections to WhatsApp, automate abandoned cart recovery drips, and process real-time catalog orders.
                     </p>
 
-                    {/* Connected Store Metadata Box */}
+                    {/* Connected Store Metadata & Sync Box */}
                     {shopifyStatus.connected && (shopifyStatus.shopDomain || embeddedShop) && (
-                      <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-900">
-                          <Store className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="truncate">{shopifyStatus.shopDomain || embeddedShop}</span>
+                      <div className="mt-4 space-y-3">
+                        <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1">
+                          <div className="flex items-center justify-between gap-1.5 text-[11px] font-bold text-emerald-900">
+                            <div className="flex items-center gap-1.5 truncate">
+                              <Store className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="truncate">{shopifyStatus.shopDomain || embeddedShop}</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full shrink-0">
+                              Shopify Connected
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-emerald-700 font-medium">
+                            Status: Active Catalog & Order Webhooks
+                          </div>
                         </div>
-                        <div className="text-[10px] text-emerald-700 font-medium">
-                          Status: Active Catalog & Order Webhooks
+
+                        {/* Minimal Shopify Sync Progress Box */}
+                        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                            <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                              <span>Shopify Sync</span>
+                              {syncJob?.status === 'running' && (
+                                <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin" />
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleStartSync('full')}
+                              disabled={syncLoading || syncJob?.status === 'running'}
+                              className="px-2.5 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {syncLoading || syncJob?.status === 'running' ? 'Syncing...' : 'Sync Store'}
+                            </button>
+                          </div>
+
+                          {/* Stage Progress Rows */}
+                          <div className="space-y-1.5 text-[11px]">
+                            {/* Customers */}
+                            <div className="flex items-center justify-between text-slate-600">
+                              <span className="font-medium">Customers</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-slate-700">
+                                  {syncJob?.stage_progress?.customers?.processed ?? 0}
+                                  {syncJob?.stage_progress?.customers?.total ? ` / ${syncJob.stage_progress.customers.total}` : ''}
+                                </span>
+                                {syncJob?.current_stage === 'customers' && syncJob?.status === 'running' ? (
+                                  <span className="text-blue-600 font-semibold text-[10px]">Syncing...</span>
+                                ) : (syncJob?.stage_progress?.customers?.processed > 0 || syncJob?.status === 'completed') ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Products */}
+                            <div className="flex items-center justify-between text-slate-600">
+                              <span className="font-medium">Products</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-slate-700">
+                                  {syncJob?.stage_progress?.products?.processed ?? 0}
+                                  {syncJob?.stage_progress?.products?.total ? ` / ${syncJob.stage_progress.products.total}` : ''}
+                                </span>
+                                {syncJob?.current_stage === 'products' && syncJob?.status === 'running' ? (
+                                  <span className="text-blue-600 font-semibold text-[10px]">Syncing...</span>
+                                ) : (syncJob?.stage_progress?.products?.processed > 0 || syncJob?.status === 'completed') ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Orders */}
+                            <div className="flex items-center justify-between text-slate-600">
+                              <span className="font-medium">Orders</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-slate-700">
+                                  {syncJob?.stage_progress?.orders?.processed ?? 0}
+                                  {syncJob?.stage_progress?.orders?.total ? ` / ${syncJob.stage_progress.orders.total}` : ''}
+                                </span>
+                                {syncJob?.current_stage === 'orders' && syncJob?.status === 'running' ? (
+                                  <span className="text-blue-600 font-semibold text-[10px]">Syncing...</span>
+                                ) : (syncJob?.stage_progress?.orders?.processed > 0 || syncJob?.status === 'completed') ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Status footer line */}
+                          <div className="pt-2 border-t border-slate-200/80 text-[10px]">
+                            {syncJob?.status === 'running' ? (
+                              <span className="text-blue-700 font-medium">
+                                Status: Syncing {syncJob?.current_stage || 'data'}...
+                              </span>
+                            ) : syncJob?.status === 'completed' ? (
+                              <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Shopify sync completed
+                              </span>
+                            ) : syncJob?.status === 'failed' ? (
+                              <span className="text-red-600 font-medium truncate block">
+                                Failed: {syncJob?.error || 'Sync encountered an error'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 font-medium">
+                                Ready to import historical catalog & customer records
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}

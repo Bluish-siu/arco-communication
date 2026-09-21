@@ -19,4 +19,9 @@ router.post('/shopify/connect', authenticateToken, integrationController.connect
 router.post('/shopify/disconnect', authenticateToken, integrationController.disconnectShopify);
 router.post('/shopify/reconcile-webhooks', authenticateToken, integrationController.reconcileShopifyWebhooks);
 
+// Historical Bulk Synchronization Endpoints
+router.post('/shopify/sync', authenticateToken, integrationController.startShopifySync);
+router.get('/shopify/sync/status', authenticateToken, integrationController.getShopifySyncStatus);
+router.post('/shopify/sync/:jobId/cancel', authenticateToken, integrationController.cancelShopifySync);
+
 export default router;

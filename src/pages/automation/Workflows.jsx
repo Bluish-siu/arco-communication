@@ -65,6 +65,12 @@ const DEFAULT_USER_TRAITS = [
   'phone_number',
   'Email',
   'name',
+  'total_amount',
+  'order_number',
+  'currency',
+  'financial_status',
+  'fulfillment_status',
+  'deal_value',
   'created_at_utc',
   'country_code',
   'whatsapp_opted_in',
@@ -581,6 +587,7 @@ export default function Workflows() {
           if (match) {
             setActiveWorkflow({
               ...match,
+              is_active: match.is_active !== undefined ? match.is_active : (match.status !== 'paused' && match.is_published !== false),
               nodes: Array.isArray(match.nodes) ? match.nodes : [],
               edges: Array.isArray(match.edges) ? match.edges : [],
             });
@@ -781,6 +788,7 @@ export default function Workflows() {
   const handleOpenEdit = (wf) => {
     setActiveWorkflow({
       ...wf,
+      is_active: wf.is_active !== undefined ? wf.is_active : (wf.status !== 'paused' && wf.is_published !== false),
       triggerX: wf.trigger_config?.triggerX || wf.triggerX || 60,
       triggerY: wf.trigger_config?.triggerY || wf.triggerY || 100,
       nodes: Array.isArray(wf.nodes) ? wf.nodes : [],
@@ -805,6 +813,7 @@ export default function Workflows() {
   const handleSaveWorkflow = async () => {
     if (!activeWorkflow) return;
     try {
+      const isWorkflowActive = activeWorkflow.is_active !== false && activeWorkflow.status !== 'paused';
       const payload = {
         name: activeWorkflow.name,
         description: activeWorkflow.description || `Workflow ${activeWorkflow.name}`,
@@ -817,7 +826,8 @@ export default function Workflows() {
         },
         nodes: activeWorkflow.nodes || [],
         edges: activeWorkflow.edges || [],
-        is_active: activeWorkflow.is_active !== false,
+        status: isWorkflowActive ? 'active' : 'paused',
+        is_published: isWorkflowActive,
       };
 
       if (workflows.some((w) => w.id === activeWorkflow.id)) {
@@ -1010,6 +1020,14 @@ export default function Workflows() {
     if (portType && portType.startsWith('btn_')) {
       const btnIdx = parseInt(portType.replace('btn_', ''), 10) || 0;
       return { x: nx + 320, y: ny + 105 + btnIdx * 45 }; // Right port on button pill
+    }
+
+    if (portType === 'true') {
+      return { x: nx + 320, y: ny + 60 }; // Upper right port on condition card
+    }
+
+    if (portType === 'false') {
+      return { x: nx + 320, y: ny + 115 }; // Lower right port on condition card
     }
 
     return { x: nx + 320, y: ny + 80 }; // Right center of node card
@@ -1448,6 +1466,30 @@ export default function Workflows() {
                   >
                     <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#1677ff" />
                   </marker>
+                  {/* Green Arrow Marker for True Branches */}
+                  <marker
+                    id="flow-arrow-true"
+                    viewBox="0 0 10 10"
+                    refX="6"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#10b981" />
+                  </marker>
+                  {/* Red Arrow Marker for False Branches */}
+                  <marker
+                    id="flow-arrow-false"
+                    viewBox="0 0 10 10"
+                    refX="6"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#ef4444" />
+                  </marker>
                 </defs>
 
                 {/* Render established edges */}
@@ -1460,6 +1502,11 @@ export default function Workflows() {
                   const midX = (p1.x + p2.x) / 2;
                   const midY = (p1.y + p2.y) / 2;
 
+                  const isTrueBranch = edge.sourcePort === 'true';
+                  const isFalseBranch = edge.sourcePort === 'false';
+                  const strokeColor = isTrueBranch ? '#10b981' : isFalseBranch ? '#ef4444' : '#1677ff';
+                  const markerId = isTrueBranch ? 'url(#flow-arrow-true)' : isFalseBranch ? 'url(#flow-arrow-false)' : 'url(#flow-arrow)';
+
                   return (
                     <g key={edge.id} className="group pointer-events-auto">
                       {/* Outer hit area */}
@@ -1470,15 +1517,15 @@ export default function Workflows() {
                         strokeWidth="16"
                         className="cursor-pointer"
                       />
-                      {/* Actual blue line */}
+                      {/* Colored line */}
                       <path
                         d={pathD}
                         fill="none"
-                        stroke="#1677ff"
+                        stroke={strokeColor}
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        markerEnd="url(#flow-arrow)"
+                        markerEnd={markerId}
                         className="transition-all"
                       />
                       {/* Delete connection button on midpoint */}
@@ -1979,8 +2026,8 @@ export default function Workflows() {
 
                     </div>
 
-                    {/* Blue Output Connection Port Dot on Right Edge (Vertically centered, shown when no button branches) */}
-                    {!hasButtons && (
+                    {/* Blue Output Connection Port Dot on Right Edge (shown when not button and not condition) */}
+                    {!hasButtons && node.type !== 'condition' && (
                       <div
                         onMouseDown={(e) => {
                           e.stopPropagation();
@@ -1997,6 +2044,51 @@ export default function Workflows() {
                         }`}
                         title="Drag or click to connect to next node"
                       />
+                    )}
+
+                    {/* Condition Node: Dual True / False Connection Ports */}
+                    {node.type === 'condition' && (
+                      <>
+                        {/* TRUE PORT (Green) */}
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            handleStartConnection(node.id, 'true', e);
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartConnection(node.id, 'true', e);
+                          }}
+                          className={`w-4 h-4 rounded-full bg-[#10b981] border-2 border-white absolute -right-2 top-[34%] -translate-y-1/2 shadow-md cursor-crosshair hover:scale-150 hover:ring-4 hover:ring-emerald-300 transition-all z-30 flex items-center justify-center ${
+                            connectingSource?.nodeId === node.id && connectingSource?.portType === 'true'
+                              ? 'ring-4 ring-emerald-400 scale-125'
+                              : ''
+                          }`}
+                          title="TRUE Branch: Connect node when condition passes"
+                        >
+                          <span className="text-[7px] font-black text-white select-none pointer-events-none">T</span>
+                        </div>
+
+                        {/* FALSE PORT (Red) */}
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            handleStartConnection(node.id, 'false', e);
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartConnection(node.id, 'false', e);
+                          }}
+                          className={`w-4 h-4 rounded-full bg-[#ef4444] border-2 border-white absolute -right-2 top-[66%] -translate-y-1/2 shadow-md cursor-crosshair hover:scale-150 hover:ring-4 hover:ring-red-300 transition-all z-30 flex items-center justify-center ${
+                            connectingSource?.nodeId === node.id && connectingSource?.portType === 'false'
+                              ? 'ring-4 ring-red-400 scale-125'
+                              : ''
+                          }`}
+                          title="FALSE Branch: Connect node when condition fails"
+                        >
+                          <span className="text-[7px] font-black text-white select-none pointer-events-none">F</span>
+                        </div>
+                      </>
                     )}
 
                   </div>
@@ -4687,6 +4779,37 @@ export default function Workflows() {
                       <span className="text-xs text-slate-800 font-medium group-hover:text-emerald-950">
                         User replies to a WhatsApp campaign
                       </span>
+                    </div>
+                  </div>
+
+                  {/* Shopify Category */}
+                  <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                    <h4 className="text-xs font-bold text-slate-800">Shopify</h4>
+
+                    {/* Option: Order Created */}
+                    <div
+                      onClick={() => {
+                        setActiveWorkflow((prev) => ({
+                          ...prev,
+                          trigger: 'Order Created',
+                          trigger_config: { event: 'order.created', event_type: 'order.created' },
+                        }));
+                        setIsTriggerDrawerOpen(false);
+                        showToast('Trigger set: Shopify Order Created');
+                      }}
+                      className="p-3.5 border border-slate-200 hover:border-slate-400 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-slate-50/70 transition-all group"
+                    >
+                      <div className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
+                        <ShoppingBag className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-800 font-medium group-hover:text-emerald-950 block">
+                          Shopify: Order Created
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">
+                          Triggers automation when a new order is placed in your connected Shopify store
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>

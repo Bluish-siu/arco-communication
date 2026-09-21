@@ -11,6 +11,9 @@ import { initInboxTwoWaySchema } from './config/initInboxTwoWaySchema.js';
 import { initOrderCurrencySchema } from './config/initOrderPanelTables.js';
 import { initCampaignReplyFlowsSchema } from './config/initCampaignReplyFlowsSchema.js';
 import { startCampaignScheduler, recoverStaleProcessing } from './services/campaignDispatcher.js';
+import { migratePlaintextShopifyTokens } from './utils/crypto.js';
+import { initShopifyEventsTable } from './config/initShopifyEventsTable.js';
+import { initShopifySyncJobsTable } from './config/initShopifySyncJobsTable.js';
 
 const app = express();
 
@@ -104,6 +107,9 @@ const server = app.listen(PORT, HOST, async () => {
     await initInboxTwoWaySchema();
     await initOrderCurrencySchema();
     await initCampaignReplyFlowsSchema();
+    await initShopifyEventsTable();
+    await initShopifySyncJobsTable();
+    await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
     startCampaignScheduler(20000);
   } catch (schemaErr) {

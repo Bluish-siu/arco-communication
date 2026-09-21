@@ -79,4 +79,27 @@ export const integrationService = {
     });
     return res;
   },
+
+  // POST /api/integrations/shopify/sync
+  startShopifySync: async (syncType = 'full') => {
+    const res = await apiRequest('/integrations/shopify/sync', {
+      method: 'POST',
+      body: JSON.stringify({ syncType }),
+    });
+    return res;
+  },
+
+  // GET /api/integrations/shopify/sync/status
+  getShopifySyncStatus: async () => {
+    const res = await apiRequest('/integrations/shopify/sync/status');
+    return res;
+  },
+
+  // POST /api/integrations/shopify/sync/:jobId/cancel
+  cancelShopifySync: async (jobId) => {
+    const res = await apiRequest(`/integrations/shopify/sync/${jobId}/cancel`, {
+      method: 'POST',
+    });
+    return res;
+  },
 };

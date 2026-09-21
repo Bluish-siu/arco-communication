@@ -1,26 +1,66 @@
 import { query } from '../config/db.js';
 import { metaWhatsAppService, formatPhoneNumber } from '../services/metaWhatsAppService.js';
+import { shopifyEventService } from '../services/shopifyEventService.js';
 
 export const shopifyWebhookController = {
   /**
    * Main router/dispatcher for all verified Shopify webhooks
    */
   handleWebhook: async (req, res) => {
-    // Immediate 200 acknowledgment to avoid Shopify retry timeouts
     const { topic, shopDomain, webhookId } = req.shopifyWebhook || {};
     const payload = req.body;
 
     console.log(`[Shopify Webhook Received] Topic: "${topic}" | Shop: "${shopDomain}" | ID: ${webhookId}`);
 
-    // Shopify requires 200 within 5 seconds; acknowledge then process asynchronously or synchronously
-    res.status(200).json({ success: true, received: true });
-
     try {
-      switch (topic) {
-        case 'app/uninstalled':
-          await handleAppUninstalled(shopDomain);
-          break;
+      if (!shopDomain) {
+        console.warn('[Shopify Webhook] Dropping webhook: missing shopDomain');
+        return res.status(200).json({ success: true, dropped: true, reason: 'missing_shop_domain' });
+      }
 
+      // Handle app/uninstalled specifically
+      if (topic === 'app/uninstalled') {
+        await handleAppUninstalled(shopDomain);
+        return res.status(200).json({ success: true, received: true });
+      }
+
+      // 1. Verify store connection & resolve tenant userId
+      const integRes = await query(
+        "SELECT id, user_id, shop_domain, shopify_shop_id, status FROM shopify_integrations WHERE shop_domain = $1 AND status = 'connected' LIMIT 1",
+        [shopDomain]
+      );
+
+      if (!integRes.rows.length || !integRes.rows[0]?.user_id) {
+        console.warn(`[Shopify Webhook Sync] Dropping webhook for unmapped or inactive shop: ${shopDomain}`);
+        return res.status(200).json({ success: true, dropped: true, reason: 'unmapped_shop' });
+      }
+
+      const integration = integRes.rows[0];
+      const userId = integration.user_id;
+
+      // 2. Normalize Event
+      const normalizedEvent = shopifyEventService.normalizeShopifyEvent({
+        topic,
+        shopDomain,
+        webhookId,
+        payload,
+        userId,
+        integrationId: integration.id,
+        shopifyShopId: integration.shopify_shop_id,
+      });
+
+      // 3. Persist Event with Deduplication (DURABLE PERSISTENCE BEFORE ACK)
+      const persistResult = await shopifyEventService.persistShopifyEvent(normalizedEvent);
+      if (persistResult.isDuplicate) {
+        console.log(`[Shopify Webhook Deduplication] Webhook "${webhookId}" already received. Skipping duplicate processing.`);
+        return res.status(200).json({ success: true, duplicate: true });
+      }
+
+      // 4. Acknowledge with HTTP 200 AFTER persistent storage in shopify_events
+      res.status(200).json({ success: true, received: true, eventId: persistResult.event?.id });
+
+      // 5. Perform Existing Database Sync
+      switch (topic) {
         case 'customers/create':
         case 'customers/update':
           await handleCustomerSync(shopDomain, payload);
@@ -36,6 +76,9 @@ export const shopifyWebhookController = {
           break;
 
         case 'orders/updated':
+        case 'orders/paid':
+        case 'orders/fulfilled':
+        case 'orders/cancelled':
           await handleOrderSync(shopDomain, payload, { isNewOrder: false });
           break;
 
@@ -43,8 +86,18 @@ export const shopifyWebhookController = {
           console.log(`[Shopify Webhook Unhandled Topic]: "${topic}"`);
           break;
       }
+
+      // 5. Dispatch Normalized Event to Workflow Engine
+      await shopifyEventService.dispatchShopifyEventToWorkflows(normalizedEvent);
     } catch (err) {
       console.error(`[Shopify Webhook Handler Error] Topic: "${topic}" | Error:`, err.message);
+      if (res && typeof res.status === 'function' && !res.headersSent) {
+        try {
+          res.status(500).json({ success: false, error: err.message });
+        } catch {
+          // Response may already have been concluded
+        }
+      }
     }
   },
 
@@ -63,18 +116,27 @@ export const shopifyWebhookController = {
     console.log('[Shopify Compliance: customers/redact received]:', req.body?.customer?.id);
     try {
       const customerId = req.body?.customer?.id;
+      const shopDomain = req.body?.shop_domain || req.shopifyWebhook?.shopDomain;
       if (customerId) {
-        // Redact PII from matching contacts
-        await query(
-          `UPDATE contacts 
+        let redactQuery = `UPDATE contacts 
            SET name = 'Redacted Customer',
                phone = NULL,
                email = NULL,
                notes = 'Redacted per Shopify GDPR request',
                updated_at = CURRENT_TIMESTAMP 
-           WHERE custom_attributes->>'shopify_customer_id' = $1`,
-          [String(customerId)]
-        );
+           WHERE custom_attributes->>'shopify_customer_id' = $1`;
+        const redactParams = [String(customerId)];
+
+        if (shopDomain) {
+          const integRes = await query("SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 LIMIT 1", [shopDomain.toLowerCase()]);
+          const resolvedUserId = integRes.rows[0]?.user_id;
+          if (resolvedUserId) {
+            redactQuery += ' AND user_id = $2';
+            redactParams.push(resolvedUserId);
+          }
+        }
+
+        await query(redactQuery, redactParams);
       }
     } catch (err) {
       console.warn('[Shopify Customers Redact Error]:', err.message);
@@ -111,7 +173,7 @@ export const shopifyWebhookController = {
 /**
  * Handles app/uninstalled: revokes access tokens, updates status without deleting user or campaigns
  */
-async function handleAppUninstalled(shopDomain) {
+export async function handleAppUninstalled(shopDomain) {
   if (!shopDomain) return;
 
   console.log(`[Shopify Uninstall Processing]: Revoking integration for ${shopDomain}`);
@@ -126,24 +188,6 @@ async function handleAppUninstalled(shopDomain) {
      WHERE shop_domain = $1`,
     [shopDomain]
   );
-
-  // Sync with global integrations table if main config exists
-  try {
-    const integRes = await query("SELECT config FROM integrations WHERE id = 'main'");
-    if (integRes.rows.length > 0) {
-      const currentConfig = integRes.rows[0].config || {};
-      if (currentConfig.shopify) {
-        currentConfig.shopify.status = 'Uninstalled';
-        currentConfig.shopify.connected = false;
-        currentConfig.shopify.uninstalledAt = new Date().toISOString();
-        await query("UPDATE integrations SET config = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 'main'", [
-          JSON.stringify(currentConfig),
-        ]);
-      }
-    }
-  } catch (err) {
-    console.warn('[Shopify Uninstall Sync Warning]:', err.message);
-  }
 }
 
 /**
@@ -153,9 +197,13 @@ async function handleAppUninstalled(shopDomain) {
 export async function handleCustomerSync(shopDomain, customer) {
   if (!customer || !customer.id) return null;
 
-  // Retrieve user_id for this shop
-  const integRes = await query('SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 LIMIT 1', [shopDomain]);
-  const userId = integRes.rows[0]?.user_id || 'usr_1';
+  // Retrieve user_id for this shop with strict active connection check
+  const integRes = await query("SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 AND status = 'connected' LIMIT 1", [shopDomain]);
+  if (!integRes.rows.length || !integRes.rows[0]?.user_id) {
+    console.warn(`[Shopify Webhook Sync] Dropping customer sync for unmapped or inactive shop: ${shopDomain}`);
+    return null;
+  }
+  const userId = integRes.rows[0].user_id;
 
   const shopifyCustomerId = String(customer.id);
   const firstName = customer.first_name || '';
@@ -168,8 +216,8 @@ export async function handleCustomerSync(shopDomain, customer) {
   // Check if contact exists by shopify_customer_id or phone
   let existingContact = null;
   const checkRes = await query(
-    `SELECT id, whatsapp_opted FROM contacts WHERE custom_attributes->>'shopify_customer_id' = $1 LIMIT 1`,
-    [shopifyCustomerId]
+    `SELECT id, whatsapp_opted FROM contacts WHERE custom_attributes->>'shopify_customer_id' = $1 AND user_id = $2 LIMIT 1`,
+    [shopifyCustomerId, userId]
   );
 
   if (checkRes.rows.length > 0) {
@@ -222,12 +270,12 @@ export async function handleCustomerSync(shopDomain, customer) {
            custom_attributes = COALESCE(custom_attributes, '{}'::jsonb) || $5::jsonb,
            whatsapp_opted = $6,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7`,
-      [name, email, phone, JSON.stringify(tags), JSON.stringify(customAttributes), whatsappOpted, existingContact.id]
+       WHERE id = $7 AND user_id = $8`,
+      [name, email, phone, JSON.stringify(tags), JSON.stringify(customAttributes), whatsappOpted, existingContact.id, userId]
     );
     return existingContact.id;
   } else {
-    const contactId = `cnt_shp_${shopifyCustomerId}`;
+    const contactId = `cnt_shp_${userId}_${shopifyCustomerId}`;
     const insertRes = await query(
       `INSERT INTO contacts (
          id, user_id, name, email, phone, tags, channel, custom_attributes, whatsapp_opted, created_at, updated_at
@@ -250,20 +298,28 @@ export async function handleCustomerSync(shopDomain, customer) {
 /**
  * Idempotently syncs product data into ARCO catalog_products
  */
-async function handleProductSync(shopDomain, product) {
-  if (!product || !product.id) return;
+export async function handleProductSync(shopDomain, product) {
+  if (!product || !product.id) return null;
 
-  const integRes = await query('SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 LIMIT 1', [shopDomain]);
-  const userId = integRes.rows[0]?.user_id || 'usr_1';
+  const integRes = await query("SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 AND status = 'connected' LIMIT 1", [shopDomain]);
+  if (!integRes.rows.length || !integRes.rows[0]?.user_id) {
+    console.warn(`[Shopify Webhook Sync] Dropping product sync for unmapped or inactive shop: ${shopDomain}`);
+    return null;
+  }
+  const userId = integRes.rows[0].user_id;
 
   const externalId = String(product.id);
   const title = product.title || 'Untitled Product';
-  const description = (product.body_html || '').replace(/<[^>]*>?/gm, '').trim();
-  const price = parseFloat(product.variants?.[0]?.price || 0);
-  const availability = product.status === 'active' ? 'in_stock' : 'out_of_stock';
-  const imageLink = product.image?.src || product.images?.[0]?.src || null;
+  const description = (product.body_html || product.description || '').replace(/<[^>]*>?/gm, '').trim();
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const primaryVariant = variants[0] || {};
+  const price = parseFloat(primaryVariant.price || product.price || 0);
+  const availability = (product.status === 'active' || product.status === 'ACTIVE') ? 'in_stock' : 'out_of_stock';
+  const imageLink = product.image?.src || product.images?.[0]?.src || product.featuredImage?.url || null;
   const brand = product.vendor || 'Shopify';
-  const isActive = product.status === 'active';
+  const isActive = (product.status === 'active' || product.status === 'ACTIVE');
+  const sku = primaryVariant.sku || product.sku || null;
+  const productUrl = product.handle ? `https://${shopDomain}/products/${product.handle}` : (product.product_url || null);
 
   const existingRes = await query(
     'SELECT id FROM catalog_products WHERE external_product_id = $1 AND user_id = $2 LIMIT 1',
@@ -280,20 +336,26 @@ async function handleProductSync(shopDomain, product) {
            image_link = $5,
            brand = $6,
            is_active = $7,
+           variants = $8,
+           sku = $9,
+           product_url = $10,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8`,
-      [title, description, price, availability, imageLink, brand, isActive, existingRes.rows[0].id]
+       WHERE id = $11 AND user_id = $12`,
+      [title, description, price, availability, imageLink, brand, isActive, JSON.stringify(variants), sku, productUrl, existingRes.rows[0].id, userId]
     );
+    return existingRes.rows[0].id;
   } else {
-    const catalogProductId = `cat_${externalId}`;
-    await query(
+    const catalogProductId = `cat_${userId}_${externalId}`;
+    const insertRes = await query(
       `INSERT INTO catalog_products (
-         id, user_id, external_product_id, title, description, price, availability, image_link, brand, is_active, created_at, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         id, user_id, external_product_id, title, description, price, availability, image_link, brand, is_active, variants, sku, product_url, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT (id) DO UPDATE 
-       SET title = EXCLUDED.title, price = EXCLUDED.price, availability = EXCLUDED.availability, updated_at = CURRENT_TIMESTAMP`,
-      [catalogProductId, userId, externalId, title, description, price, availability, imageLink, brand, isActive]
+       SET title = EXCLUDED.title, price = EXCLUDED.price, availability = EXCLUDED.availability, variants = EXCLUDED.variants, sku = EXCLUDED.sku, product_url = EXCLUDED.product_url, updated_at = CURRENT_TIMESTAMP
+       RETURNING id`,
+      [catalogProductId, userId, externalId, title, description, price, availability, imageLink, brand, isActive, JSON.stringify(variants), sku, productUrl]
     );
+    return insertRes.rows[0]?.id || catalogProductId;
   }
 }
 
@@ -303,8 +365,12 @@ async function handleProductSync(shopDomain, product) {
 export async function handleOrderSync(shopDomain, order, options = {}) {
   if (!order || !order.id) return;
 
-  const integRes = await query('SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 LIMIT 1', [shopDomain]);
-  const userId = integRes.rows[0]?.user_id || 'usr_1';
+  const integRes = await query("SELECT user_id FROM shopify_integrations WHERE shop_domain = $1 AND status = 'connected' LIMIT 1", [shopDomain]);
+  if (!integRes.rows.length || !integRes.rows[0]?.user_id) {
+    console.warn(`[Shopify Webhook Sync] Dropping order sync for unmapped or inactive shop: ${shopDomain}`);
+    return;
+  }
+  const userId = integRes.rows[0].user_id;
 
   const orderNumber = String(order.order_number || order.name || order.id);
   const customerName = `${order.customer?.first_name || ''} ${order.customer?.last_name || ''}`.trim() || order.shipping_address?.name || 'Customer';
@@ -358,7 +424,7 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
   const pincode = order.shipping_address?.zip || null;
   const items = JSON.stringify(order.line_items || []);
 
-  // Resolve contact_id according to matching priority:
+  // Resolve contact_id according to matching priority scoped to THIS tenant:
   // 1. Shopify Customer ID stored in custom_attributes or cnt_shp_{id}
   // 2. Clean normalized phone match
   // 3. Clean email match
@@ -369,13 +435,22 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
   if (shopifyCustomerId) {
     const matchCustomer = await query(
       `SELECT id FROM contacts
-       WHERE custom_attributes->>'shopify_customer_id' = $1
-          OR id = $2
+       WHERE custom_attributes->>'shopify_customer_id' = $1 AND user_id = $2
        LIMIT 1`,
-      [shopifyCustomerId, `cnt_shp_${shopifyCustomerId}`]
+      [shopifyCustomerId, userId]
     );
     if (matchCustomer.rows.length > 0) {
       resolvedContactId = matchCustomer.rows[0].id;
+    } else {
+      const matchId = await query(
+        `SELECT id FROM contacts
+         WHERE (id = $1 OR id = $2) AND user_id = $3
+         LIMIT 1`,
+        [`cnt_shp_${userId}_${shopifyCustomerId}`, `cnt_shp_${shopifyCustomerId}`, userId]
+      );
+      if (matchId.rows.length > 0) {
+        resolvedContactId = matchId.rows[0].id;
+      }
     }
   }
 
@@ -383,10 +458,11 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
     const cleanPhone = phoneNumber.replace(/\D/g, '');
     const matchPhone = await query(
       `SELECT id FROM contacts
-       WHERE phone = $1
-          OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') = $2
+       WHERE (phone = $1
+          OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') = $2)
+         AND user_id = $3
        LIMIT 1`,
-      [phoneNumber, cleanPhone]
+      [phoneNumber, cleanPhone, userId]
     );
     if (matchPhone.rows.length > 0) {
       resolvedContactId = matchPhone.rows[0].id;
@@ -395,8 +471,8 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
 
   if (!resolvedContactId && customerEmail) {
     const matchEmail = await query(
-      `SELECT id FROM contacts WHERE LOWER(email) = LOWER($1) LIMIT 1`,
-      [customerEmail]
+      `SELECT id FROM contacts WHERE LOWER(email) = LOWER($1) AND user_id = $2 LIMIT 1`,
+      [customerEmail, userId]
     );
     if (matchEmail.rows.length > 0) {
       resolvedContactId = matchEmail.rows[0].id;
@@ -412,7 +488,7 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
       }
     } else if (customerName || phoneNumber || customerEmail) {
       // Guest checkout with no customer object: create contact with whatsapp_opted = false (unknown consent)
-      const guestContactId = `cnt_shp_ord_${order.id}`;
+      const guestContactId = `cnt_shp_ord_${userId}_${order.id}`;
       const guestTags = ['Shopify', 'Shopify Order'];
       const guestAttrs = {
         shopify_shop: shopDomain,
@@ -438,7 +514,7 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
   }
 
   // Persist order into checkout_orders with contact_id
-  const orderId = `ord_shp_${order.id}`;
+  const orderId = `ord_shp_${userId}_${order.id}`;
   const existingRes = await query(
     'SELECT id, workflow_id, contact_id FROM checkout_orders WHERE order_number = $1 AND user_id = $2 LIMIT 1',
     [orderNumber, userId]
@@ -454,8 +530,8 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
            contact_id = COALESCE(contact_id, $5),
            currency = $6,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7`,
-      [paymentStatus, orderStatus, fulfillmentStatus, totalAmount, resolvedContactId, currency, existingRes.rows[0].id]
+       WHERE id = $7 AND user_id = $8`,
+      [paymentStatus, orderStatus, fulfillmentStatus, totalAmount, resolvedContactId, currency, existingRes.rows[0].id, userId]
     );
   } else {
     await query(
@@ -492,6 +568,7 @@ export async function handleOrderSync(shopDomain, order, options = {}) {
       customerName,
       totalAmount,
       currency,
+      userId,
     });
   }
 }
@@ -510,12 +587,13 @@ export async function attemptOrderConfirmationNotification({
   customerName,
   totalAmount,
   currency = 'INR',
+  userId = null,
 }) {
   try {
     // 1. DUPLICATE PROTECTION: Check if this specific order was already notified
     const orderCheck = await query(
-      'SELECT workflow_id FROM checkout_orders WHERE id = $1 OR order_number = $2 LIMIT 1',
-      [orderId, orderNumber]
+      'SELECT workflow_id FROM checkout_orders WHERE (id = $1 OR order_number = $2) AND ($3::varchar IS NULL OR user_id = $3) LIMIT 1',
+      [orderId, orderNumber, userId]
     );
     const currentWorkflowId = orderCheck.rows[0]?.workflow_id || '';
     if (currentWorkflowId.startsWith('shopify_notified')) {
@@ -531,8 +609,8 @@ export async function attemptOrderConfirmationNotification({
     }
 
     const contactRes = await query(
-      'SELECT id, phone, whatsapp_opted FROM contacts WHERE id = $1 LIMIT 1',
-      [resolvedContactId]
+      'SELECT id, phone, whatsapp_opted FROM contacts WHERE id = $1 AND ($2::varchar IS NULL OR user_id = $2) LIMIT 1',
+      [resolvedContactId, userId]
     );
     const contactRow = contactRes.rows[0];
 
@@ -609,8 +687,8 @@ export async function attemptOrderConfirmationNotification({
 
       // Set order-level duplicate protection flag
       await query(
-        `UPDATE checkout_orders SET workflow_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-        [`shopify_notified:${wamid}`, orderId]
+        `UPDATE checkout_orders SET workflow_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND ($3::varchar IS NULL OR user_id = $3)`,
+        [`shopify_notified:${wamid}`, orderId, userId]
       );
     } else {
       // Safe error logging without token leakage

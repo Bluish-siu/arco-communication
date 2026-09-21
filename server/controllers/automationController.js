@@ -1,4 +1,5 @@
 import { db, query } from '../config/db.js';
+import { workflowExecutionEngine } from '../services/workflowExecutionEngine.js';
 
 export const automationController = {
   // =========================================================================
@@ -532,6 +533,9 @@ export const automationController = {
         { source: 'node_2', target: 'node_3' },
       ];
 
+      const status = req.body.status || (req.body.is_active === false ? 'paused' : 'active');
+      const isPublished = is_published !== undefined ? !!is_published : (req.body.is_active !== false);
+
       const newWf = await db.insert('workflows', {
         id: id || `wf_${Date.now()}`,
         user_id: userId,
@@ -542,9 +546,9 @@ export const automationController = {
         action: action || 'Interactive Chatbot Flow',
         nodes: defaultNodes,
         edges: defaultEdges,
-        status: 'active',
+        status,
         executions: 0,
-        is_published: is_published !== undefined ? is_published : true,
+        is_published: isPublished,
       });
 
       res.status(201).json({ success: true, message: 'Workflow created successfully', data: newWf });
@@ -557,12 +561,58 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { id } = req.params;
-      const existing = await db.findOne('workflows', 'id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId]);
+
+      // Check if workflow exists and check ownership
+      const existing = await db.findOne('workflows', 'id = $1', [id]);
       if (!existing) {
         return res.status(404).json({ success: false, error: 'Workflow not found' });
       }
 
-      const updated = await db.update('workflows', id, req.body);
+      // Shared/Default templates (user_id IS NULL) must never be modified directly by tenants
+      if (!existing.user_id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Default templates cannot be modified directly. Please duplicate the template to edit your own copy.',
+        });
+      }
+
+      // Enforce tenant scoping: User can only modify workflows they own
+      if (existing.user_id !== userId) {
+        return res.status(403).json({ success: false, error: 'Unauthorized to modify this workflow' });
+      }
+
+      // Whitelist valid columns to prevent arbitrary SQL generation and crashes
+      const allowedColumns = [
+        'name',
+        'description',
+        'trigger',
+        'trigger_config',
+        'action',
+        'nodes',
+        'edges',
+        'status',
+        'is_published',
+        'executions',
+      ];
+
+      const updatePayload = {};
+      for (const col of allowedColumns) {
+        if (req.body[col] !== undefined) {
+          updatePayload[col] = req.body[col];
+        }
+      }
+
+      // Normalize is_active if sent by client
+      if (req.body.is_active !== undefined) {
+        if (updatePayload.status === undefined) {
+          updatePayload.status = req.body.is_active ? 'active' : 'paused';
+        }
+        if (updatePayload.is_published === undefined) {
+          updatePayload.is_published = req.body.is_active !== false;
+        }
+      }
+
+      const updated = await db.update('workflows', id, updatePayload);
       res.json({ success: true, message: 'Workflow updated successfully', data: updated });
     } catch (error) {
       next(error);
@@ -573,9 +623,17 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { id } = req.params;
-      const existing = await db.findOne('workflows', 'id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId]);
+      const existing = await db.findOne('workflows', 'id = $1', [id]);
       if (!existing) {
         return res.status(404).json({ success: false, error: 'Workflow not found' });
+      }
+
+      if (!existing.user_id) {
+        return res.status(403).json({ success: false, error: 'Default templates cannot be deleted.' });
+      }
+
+      if (existing.user_id !== userId) {
+        return res.status(403).json({ success: false, error: 'Unauthorized to delete this workflow' });
       }
 
       await db.delete('workflows', id);
@@ -589,13 +647,22 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { id } = req.params;
-      const existing = await db.findOne('workflows', 'id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId]);
+      const existing = await db.findOne('workflows', 'id = $1', [id]);
       if (!existing) {
         return res.status(404).json({ success: false, error: 'Workflow not found' });
       }
 
+      if (!existing.user_id) {
+        return res.status(403).json({ success: false, error: 'Default templates cannot be toggled.' });
+      }
+
+      if (existing.user_id !== userId) {
+        return res.status(403).json({ success: false, error: 'Unauthorized to toggle this workflow' });
+      }
+
       const newStatus = existing.status === 'active' ? 'paused' : 'active';
-      const updated = await db.update('workflows', id, { status: newStatus });
+      const isPublished = newStatus === 'active';
+      const updated = await db.update('workflows', id, { status: newStatus, is_published: isPublished });
       res.json({ success: true, message: `Workflow is now ${newStatus}`, data: updated });
     } catch (error) {
       next(error);
@@ -641,36 +708,23 @@ export const automationController = {
       const wf = await db.findOne('workflows', 'id = $1', [id]);
       if (!wf) return res.status(404).json({ success: false, error: 'Workflow not found' });
 
-      // Traverse nodes to simulate execution
-      const nodes = Array.isArray(wf.nodes) ? wf.nodes : [];
-      const executionSteps = [];
-
-      nodes.forEach((node, index) => {
-        executionSteps.push({
-          step: index + 1,
-          nodeId: node.id,
-          type: node.type,
-          label: node.data?.label || node.data?.text || node.data?.prompt || node.type,
-          output: node.data?.text || node.data?.buttons || node.data?.question || 'Executed',
-        });
+      // Execute graph via unified workflow execution engine
+      const execResult = await workflowExecutionEngine.executeWorkflow(wf, {
+        userId,
+        channel: 'whatsapp',
+        triggerType: 'simulation',
+        message: { text: message || 'Test' },
+        variables: { last_message: message || '', ...(answers || {}) },
+        isSimulation: true,
       });
 
-      // Increment execution count
-      await db.update('workflows', id, { executions: (wf.executions || 0) + 1 });
-
-      const firstMsgNode = nodes.find(n => n.data?.text || n.data?.bodyText);
-      let finalResponse = firstMsgNode?.data?.text || firstMsgNode?.data?.bodyText || 'Workflow executed successfully';
-      if (firstMsgNode?.data?.buttons && Array.isArray(firstMsgNode.data.buttons) && firstMsgNode.data.buttons.length > 0) {
-        finalResponse += ` [Buttons: ${firstMsgNode.data.buttons.join(', ')}]`;
-      }
-
       res.json({
-        success: true,
+        success: execResult.success,
         workflowId: wf.id,
         workflowName: wf.name,
         simulatedMessage: message,
-        executionSteps,
-        finalResponse,
+        executionSteps: execResult.executionSteps,
+        finalResponse: execResult.finalResponse,
       });
     } catch (error) {
       next(error);
@@ -1718,37 +1772,24 @@ export const automationController = {
         const match = keywords.some(k => normalizedMsg.includes(k.toLowerCase().trim()));
         if (match) {
           logs.push({ step: '2. Priority 1 Matched: Workflow Trigger', details: `Workflow: "${wf.name}" (ID: ${wf.id})` });
-          
-          await query('UPDATE workflows SET executions = executions + 1 WHERE id = $1', [wf.id]);
 
-          const messageNode = (wf.nodes || []).find(n => n.data?.text || n.data?.bodyText);
-          let responseText = messageNode?.data?.text || messageNode?.data?.bodyText || 'Workflow executed.';
-          if (messageNode?.data?.buttons && Array.isArray(messageNode.data.buttons) && messageNode.data.buttons.length > 0) {
-            responseText += '\n\nOptions:\n' + messageNode.data.buttons.map((b, idx) => `${idx + 1}. ${b}`).join('\n');
-          }
-
-          await db.insert('automation_execution_logs', {
-            id: `log_${Date.now()}`,
-            user_id: userId,
+          const execResult = await workflowExecutionEngine.executeWorkflow(wf, {
+            userId,
             channel,
-            contact_name,
-            contact_phone,
-            incoming_message: message,
-            matched_automation_type: 'workflow',
-            matched_automation_id: wf.id,
-            matched_automation_name: wf.name,
-            executed_action: 'Triggered multi-step chatbot workflow',
-            response_payload: { text: responseText, nodesCount: wf.nodes?.length },
-            execution_mode: simulation ? 'simulation' : 'live',
+            triggerType: 'simulation',
+            contact: { name: contact_name, phone: contact_phone },
+            message: { text: message },
+            isSimulation: simulation,
           });
 
           return res.json({
-            success: true,
+            success: execResult.success,
             matched: true,
             type: 'workflow',
             name: wf.name,
-            response: responseText,
+            response: execResult.finalResponse,
             executionLogs: logs,
+            executionSteps: execResult.executionSteps,
             isSimulation: simulation,
           });
         }

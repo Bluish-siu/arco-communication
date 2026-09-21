@@ -55,7 +55,7 @@ async function main() {
   const { authController } = await import('../controllers/authController.js');
 
   // Helper mock factory
-  function createMocks({ headers = {}, body = {}, rawBody = null } = {}) {
+  function createMocks({ headers = {}, body = {}, query = {}, user = null, rawBody = null } = {}) {
     let statusCode = 200;
     let jsonResponse = null;
     let nextCalled = false;
@@ -63,6 +63,8 @@ async function main() {
     const req = {
       headers,
       body,
+      query,
+      user,
       rawBody,
     };
 
@@ -797,8 +799,8 @@ async function main() {
 
       const insertOrder = executedQueries.find((q) => q.text.includes('INSERT INTO checkout_orders'));
       assert.ok(insertOrder, 'Must insert into checkout_orders');
-      assert.strictEqual(insertOrder.params[0], 'ord_shp_7771', 'Order ID must match convention');
-      assert.strictEqual(insertOrder.params[3], 'cnt_shp_98765', 'contact_id must be populated with matching contact');
+      assert.strictEqual(insertOrder.params[0], 'ord_shp_usr_test_1_7771', 'Order ID must match convention');
+      assert.strictEqual(insertOrder.params[3], 'cnt_shp_usr_test_1_98765', 'contact_id must be populated with matching contact');
     } finally {
       pool.query = originalQuery;
     }
@@ -935,7 +937,7 @@ async function main() {
       if (text.includes('SELECT id, phone, whatsapp_opted FROM contacts WHERE id = $1')) {
         return { rows: [{ id: 'cnt_shp_cust_opted_in', phone: '+919876543210', whatsapp_opted: true }] };
       }
-      if (text.includes('SELECT workflow_id FROM checkout_orders WHERE id = $1 OR order_number = $2')) {
+      if (text.includes('SELECT workflow_id FROM checkout_orders WHERE') && text.includes('order_number = $2')) {
         return { rows: orderWorkflowId ? [{ workflow_id: orderWorkflowId }] : [] };
       }
       if (text.includes('SELECT id, workflow_id, contact_id FROM checkout_orders')) {
@@ -1122,6 +1124,278 @@ async function main() {
       assert.strictEqual(insertOrder.params[11], 10, 'Total amount must remain 10 without conversion');
       assert.strictEqual(insertOrder.params[20], 'USD', 'Currency must be preserved as USD and NOT INR');
       assert.ok(insertOrder.text.includes('currency'), 'SQL statement must explicitly include currency column');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 26: Token AES-256 Encryption, Decryption & Fallback
+  // -------------------------------------------------------------
+  await runAsyncTest('26. Token AES-256 encryption, decryption, and backward-compatible fallback work reliably', async () => {
+    const { encryptToken, decryptToken, isEncryptedToken, decryptTokenWithFallback } = await import('../utils/crypto.js');
+
+    const sampleRawToken = 'shpat_abcdef1234567890_test_token_sample';
+    const encrypted = encryptToken(sampleRawToken);
+
+    assert.notStrictEqual(encrypted, sampleRawToken, 'Encrypted token must differ from raw token');
+    assert.strictEqual(isEncryptedToken(encrypted), true, 'isEncryptedToken must return true for encrypted token');
+    assert.strictEqual(isEncryptedToken(sampleRawToken), false, 'isEncryptedToken must return false for raw token');
+
+    const parts = encrypted.split(':');
+    assert.strictEqual(parts.length, 2, 'Encrypted token must have 2 colon-delimited components (iv:ciphertext)');
+    assert.strictEqual(parts[0].length, 32, 'IV must be 32 hex characters');
+
+    const decrypted = decryptToken(encrypted);
+    assert.strictEqual(decrypted, sampleRawToken, 'decryptToken must restore original plaintext token');
+
+    // Fallback testing: plaintext token is returned as-is
+    const fallbackRaw = decryptTokenWithFallback(sampleRawToken);
+    assert.strictEqual(fallbackRaw, sampleRawToken, 'decryptTokenWithFallback must return legacy plaintext token safely');
+
+    // Fallback testing: encrypted token is decrypted
+    const fallbackEnc = decryptTokenWithFallback(encrypted);
+    assert.strictEqual(fallbackEnc, sampleRawToken, 'decryptTokenWithFallback must decrypt ciphertext correctly');
+
+    // Tampered ciphertext
+    const tampered = parts[0] + ':ffffffffffffffffffffffffffffffff';
+    assert.strictEqual(decryptToken(tampered), null, 'Tampered ciphertext must return null and fail safely');
+  });
+
+  // -------------------------------------------------------------
+  // Test 27: Cryptographically Signed Anti-CSRF OAuth State
+  // -------------------------------------------------------------
+  await runAsyncTest('27. Cryptographically signed anti-CSRF OAuth state verifies valid states and rejects tampered or expired states', async () => {
+    const { generateSignedOAuthState, verifySignedOAuthState } = await import('../utils/crypto.js');
+
+    const userId = 'usr_alice_123';
+    const shop = 'alice-boutique.myshopify.com';
+
+    const state = generateSignedOAuthState({ userId, shop });
+    assert.ok(state && state.includes('.'), 'State must be encoded as payload.signature');
+
+    // 27A: Valid state verification
+    const verified = verifySignedOAuthState(state, shop);
+    assert.strictEqual(verified.success, true, 'Valid state must pass verification');
+    assert.strictEqual(verified.userId, userId, 'Payload userId must match');
+    assert.strictEqual(verified.shop, shop, 'Payload shop must match');
+
+    // 27B: Shop mismatch
+    const mismatch = verifySignedOAuthState(state, 'bob-store.myshopify.com');
+    assert.strictEqual(mismatch.success, false, 'Mismatched shop domain must be rejected');
+    assert.ok(mismatch.error.includes('OAuth state shop mismatch'), 'Error must cite shop mismatch');
+
+    // 27C: Tampered payload
+    const [b64Payload, sig] = state.split('.');
+    const decoded = JSON.parse(Buffer.from(b64Payload, 'base64url').toString('utf8'));
+    decoded.userId = 'usr_attacker_666';
+    const tamperedPayload = Buffer.from(JSON.stringify(decoded)).toString('base64url');
+    const tamperedState = `${tamperedPayload}.${sig}`;
+
+    const tamperedCheck = verifySignedOAuthState(tamperedState, shop);
+    assert.strictEqual(tamperedCheck.success, false, 'Tampered state must fail verification');
+    assert.ok(tamperedCheck.error.includes('signature verification failed'), 'Error must cite signature verification failure');
+
+    // 27D: Expired state
+    const expiredPayload = {
+      userId,
+      shop,
+      nonce: 'expired_nonce_123',
+      exp: Date.now() - 15 * 60 * 1000, // 15 minutes ago (> 10m TTL)
+    };
+    const b64Expired = Buffer.from(JSON.stringify(expiredPayload)).toString('base64url');
+    const secret = process.env.SHOPIFY_API_SECRET || 'arco_aes256_secret_key_32_bytes_len!';
+    const expiredSig = crypto.createHmac('sha256', secret).update(b64Expired).digest('base64url');
+    const expiredState = `${b64Expired}.${expiredSig}`;
+
+    const expiredCheck = verifySignedOAuthState(expiredState, shop);
+    assert.strictEqual(expiredCheck.success, false, 'Expired state must fail verification');
+    assert.ok(expiredCheck.error.includes('expired'), 'Error must cite expired state');
+  });
+
+  // -------------------------------------------------------------
+  // Test 28: Store Hijacking Prevention in OAuth Flow
+  // -------------------------------------------------------------
+  await runAsyncTest('28. Store hijacking prevention blocks User B from claiming User A\'s connected store', async () => {
+    const { pool } = await import('../config/db.js');
+    const { integrationController } = await import('../controllers/integrationController.js');
+
+    const originalQuery = pool.query;
+    pool.query = async (text, params) => {
+      // Return existing store connected to User A ('usr_user_a')
+      if (text.includes('SELECT id, user_id, status FROM shopify_integrations WHERE shop_domain = $1')) {
+        return {
+          rows: [
+            { id: 'integ_store_1', user_id: 'usr_user_a', status: 'connected' },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      // 28A: User B attempts to initiate OAuth for User A's connected store -> 409 Conflict
+      const { req: reqB, res: resB, getStatus: getStatusB, getJson: getJsonB } = createMocks({
+        query: { shop: 'existing-store.myshopify.com' },
+        user: { id: 'usr_user_b' },
+      });
+
+      await integrationController.getShopifyOAuthUrl(reqB, resB, () => {});
+      assert.strictEqual(getStatusB(), 409, 'User B must receive 409 Conflict when attempting to connect User A\'s store');
+      assert.ok(getJsonB().error.includes('already connected to another ARCO account') || getJsonB().error.includes('already connected by another ARCO account'), 'Error message must clearly cite cross-tenant conflict');
+
+      // 28B: User A re-authenticates their own store -> succeeds
+      const { req: reqA, res: resA, getStatus: getStatusA, getJson: getJsonA } = createMocks({
+        query: { shop: 'existing-store.myshopify.com' },
+        user: { id: 'usr_user_a' },
+      });
+
+      await integrationController.getShopifyOAuthUrl(reqA, resA, () => {});
+      assert.strictEqual(getStatusA(), 200, 'Owner User A must be allowed to re-authenticate their own store');
+      assert.strictEqual(getJsonA().success, true);
+      assert.ok(getJsonA().data?.authUrl.includes('admin/oauth/authorize'), 'Must return Shopify authorize URL');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 29: Tenant Scoping in Disconnect & Webhook Reconciliation
+  // -------------------------------------------------------------
+  await runAsyncTest('29. Disconnect and webhook reconciliation strictly scope operations to authenticated user_id', async () => {
+    const { pool } = await import('../config/db.js');
+    const { integrationController } = await import('../controllers/integrationController.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      if (text.includes('UPDATE shopify_integrations')) {
+        return { rowCount: 1, rows: [] };
+      }
+      if (text.includes('SELECT config FROM integrations')) {
+        return { rows: [] };
+      }
+      if (text.includes('SELECT id, shop_domain, access_token, status FROM shopify_integrations')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      // 29A: Disconnect must scope update by user_id = $1
+      const { req: reqDisc, res: resDisc, getStatus: getStatusDisc } = createMocks({
+        user: { id: 'usr_user_tenant_1' },
+      });
+
+      await integrationController.disconnectShopify(reqDisc, resDisc, () => {});
+      assert.strictEqual(getStatusDisc(), 200);
+
+      const discQuery = executedQueries.find((q) => q.text.includes('UPDATE shopify_integrations'));
+      assert.ok(discQuery, 'Disconnect query must execute UPDATE on shopify_integrations');
+      assert.ok(discQuery.text.includes('user_id = $1'), 'Disconnect query must strictly check user_id = $1');
+      assert.strictEqual(discQuery.params[0], 'usr_user_tenant_1', 'user_id param must match authenticated user');
+
+      // 29B: Reconcile must scope lookup by user_id = $2
+      executedQueries.length = 0;
+      const { req: reqRec, res: resRec, getStatus: getStatusRec } = createMocks({
+        query: { shop: 'my-store.myshopify.com' },
+        user: { id: 'usr_user_tenant_2' },
+      });
+
+      await integrationController.reconcileShopifyWebhooks(reqRec, resRec, () => {});
+      // Since mock returns empty rows, it returns 404 (Not found on your account)
+      assert.strictEqual(getStatusRec(), 404);
+
+      const recQuery = executedQueries.find((q) => q.text.includes('FROM shopify_integrations'));
+      assert.ok(recQuery, 'Reconciliation must query shopify_integrations');
+      assert.ok(recQuery.text.includes('user_id = $2'), 'Reconciliation query must require user_id match');
+      assert.strictEqual(recQuery.params[1], 'usr_user_tenant_2', 'user_id param must match authenticated caller');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 30: Webhook Tenant Isolation (Drop Unmapped Stores)
+  // -------------------------------------------------------------
+  await runAsyncTest('30. Webhook sync drops payloads from unmapped or inactive stores without polluting usr_1', async () => {
+    const { pool } = await import('../config/db.js');
+    const { handleCustomerSync, handleOrderSync } = await import('../controllers/shopifyWebhookController.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      // Unmapped store returns no rows
+      if (text.includes('SELECT user_id FROM shopify_integrations')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      // 30A: Customer sync from unmapped store
+      executedQueries.length = 0;
+      const custResult = await handleCustomerSync('unmapped-rogue-store.myshopify.com', {
+        id: 99999,
+        first_name: 'Intruder',
+        email: 'intruder@example.com',
+      });
+      assert.strictEqual(custResult, null, 'Customer sync must return null for unmapped store');
+      const contactInserts = executedQueries.filter((q) => q.text.includes('INSERT INTO contacts'));
+      assert.strictEqual(contactInserts.length, 0, 'No contact must be created for unmapped store');
+
+      // 30B: Order sync from unmapped store
+      executedQueries.length = 0;
+      await handleOrderSync('unmapped-rogue-store.myshopify.com', {
+        id: 88888,
+        order_number: '9999',
+        total_price: '500.00',
+      });
+      const orderInserts = executedQueries.filter((q) => q.text.includes('INSERT INTO checkout_orders'));
+      assert.strictEqual(orderInserts.length, 0, 'No order must be created for unmapped store');
+    } finally {
+      pool.query = originalQuery;
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Test 31: Plaintext Token Migration Helper
+  // -------------------------------------------------------------
+  await runAsyncTest('31. migratePlaintextShopifyTokens migrates unencrypted tokens and leaves encrypted tokens untouched', async () => {
+    const { pool } = await import('../config/db.js');
+    const { encryptToken, migratePlaintextShopifyTokens } = await import('../utils/crypto.js');
+
+    const originalQuery = pool.query;
+    const executedQueries = [];
+
+    const mockTokens = [
+      { id: 'integ_1', access_token: 'shpat_raw_legacy_token_123', refresh_token: null },
+      { id: 'integ_2', access_token: encryptToken('shpat_already_encrypted_token_456'), refresh_token: null },
+    ];
+
+    pool.query = async (text, params) => {
+      executedQueries.push({ text, params });
+      if (text.includes('shopify_integrations') && text.includes('access_token') && text.includes('SELECT')) {
+        return { rows: mockTokens };
+      }
+      if (text.includes('shopify_integrations') && text.includes('UPDATE')) {
+        return { rowCount: 1 };
+      }
+      return { rows: [] };
+    };
+
+    try {
+      const migratedCount = await migratePlaintextShopifyTokens();
+      assert.strictEqual(migratedCount, 1, 'Must migrate exactly 1 unencrypted token');
+
+      const updates = executedQueries.filter((q) => q.text.includes('shopify_integrations') && q.text.includes('UPDATE'));
+      assert.strictEqual(updates.length, 1, 'Exactly one UPDATE query should be executed');
+      assert.strictEqual(updates[0].params[2], 'integ_1', 'Update must target legacy integ_1');
+      assert.notStrictEqual(updates[0].params[0], 'shpat_raw_legacy_token_123', 'Updated token must be ciphertext');
     } finally {
       pool.query = originalQuery;
     }

@@ -1,6 +1,7 @@
 import { query, pool } from './db.js';
 import { config } from './index.js';
 import { shopifyGraphService } from '../services/shopifyGraphService.js';
+import { decryptTokenWithFallback } from '../utils/crypto.js';
 
 /**
  * Production Webhook Reconciliation Script
@@ -59,11 +60,18 @@ export async function reconcileShopifyWebhooks(targetShop = null) {
         continue;
       }
 
+      const decryptedToken = decryptTokenWithFallback(row.access_token);
+      if (!decryptedToken) {
+        console.warn(`[Skip] Cannot reconcile store ${shopDomain}: Unable to decrypt access token.`);
+        storeResults.push({ shopDomain, success: false, error: 'Token decryption failed' });
+        continue;
+      }
+
       console.log(`Reconciling webhooks to: ${targetWebhookUrl}...`);
 
       const reconcileResults = await shopifyGraphService.registerPhase1Webhooks({
         shopDomain,
-        accessToken: row.access_token,
+        accessToken: decryptedToken,
         webhookUrl: targetWebhookUrl,
       });
 

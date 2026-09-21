@@ -23,3 +23,11 @@ export const config = {
   shopifyWebhookBaseUrl: process.env.SHOPIFY_WEBHOOK_BASE_URL || 'https://arco-backend-ecbl.onrender.com',
   dbPath: path.join(__dirname, '../data/database.json'),
 };
+
+// Validate critical security secrets in production
+if (config.nodeEnv === 'production') {
+  if (!process.env.JWT_SECRET) {
+    console.error('[SECURITY CRITICAL] JWT_SECRET must be explicitly defined in production environment.');
+    throw new Error('FATAL: JWT_SECRET must be defined in production environment.');
+  }
+}
