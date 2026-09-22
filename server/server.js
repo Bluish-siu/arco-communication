@@ -14,6 +14,7 @@ import { startCampaignScheduler, recoverStaleProcessing } from './services/campa
 import { migratePlaintextShopifyTokens } from './utils/crypto.js';
 import { initShopifyEventsTable } from './config/initShopifyEventsTable.js';
 import { initShopifySyncJobsTable } from './config/initShopifySyncJobsTable.js';
+import { initFlowSchema } from './config/initFlowTables.js';
 
 const app = express();
 
@@ -109,6 +110,7 @@ const server = app.listen(PORT, HOST, async () => {
     await initCampaignReplyFlowsSchema();
     await initShopifyEventsTable();
     await initShopifySyncJobsTable();
+    await initFlowSchema();
     await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
     startCampaignScheduler(20000);

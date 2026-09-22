@@ -157,9 +157,18 @@ export async function dispatchBatch(campaign, recipients) {
     return { sent: 0, failed: 0 };
   }
 
+  const isFlowBroadcast =
+    campaign.channel === 'whatsapp_flow' ||
+    campaign.type === 'flow_broadcast' ||
+    campaign.channel === 'flow';
+
   const variableMapping = typeof campaign.variable_mapping === 'string'
     ? JSON.parse(campaign.variable_mapping || '{}')
     : (campaign.variable_mapping || {});
+
+  const templatePayload = typeof campaign.template_payload === 'string'
+    ? JSON.parse(campaign.template_payload || '{}')
+    : (campaign.template_payload || {});
 
   let sentCount = 0;
   let failedCount = 0;
@@ -172,12 +181,51 @@ export async function dispatchBatch(campaign, recipients) {
     const resolvedVariables = resolveVariables(variableMapping, recipient, rawCsv);
 
     try {
-      const metaResult = await metaWhatsAppService.sendTemplateMessage({
-        to: recipient.phone,
-        templateName: campaign.template_name || 'promo_offer',
-        languageCode: campaign.template_language || 'en_US',
-        variables: resolvedVariables,
-      });
+      let metaResult;
+
+      if (isFlowBroadcast) {
+        const flowId =
+          campaign.template_id ||
+          templatePayload.flow_id ||
+          templatePayload.flowId ||
+          templatePayload.meta_flow_id ||
+          campaign.name;
+
+        const ctaText = templatePayload.cta_text || templatePayload.ctaText || 'Open';
+        const headerText = templatePayload.header_text || templatePayload.headerText || null;
+        const bodyText = templatePayload.body_text || templatePayload.bodyText || null;
+        const footerText = templatePayload.footer_text || templatePayload.footerText || null;
+        const screen = templatePayload.screen || null;
+
+        // Only pass flow action data if explicitly defined in template payload or custom flow inputs
+        let flowData = {};
+        if (templatePayload.data && typeof templatePayload.data === 'object' && Object.keys(templatePayload.data).length > 0) {
+          flowData = resolveVariables(templatePayload.data, recipient, rawCsv);
+        } else if (templatePayload.has_custom_flow_data) {
+          flowData = resolvedVariables;
+        }
+
+        metaResult = await metaWhatsAppService.sendFlowMessage({
+          to: recipient.phone,
+          recipientPhone: recipient.phone,
+          flowId,
+          ctaText,
+          headerText,
+          bodyText,
+          footerText,
+          screen,
+          data: flowData,
+          flowToken: `token_${campaign.id}_${recipient.id}`,
+          userId: campaign.created_by,
+        });
+      } else {
+        metaResult = await metaWhatsAppService.sendTemplateMessage({
+          to: recipient.phone,
+          templateName: campaign.template_name || 'promo_offer',
+          languageCode: campaign.template_language || 'en_US',
+          variables: resolvedVariables,
+        });
+      }
 
       if (metaResult.success) {
         sentCount++;
@@ -190,10 +238,19 @@ export async function dispatchBatch(campaign, recipients) {
                error_code = NULL,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $2`,
-          [metaResult.wamid || `wamid_${Date.now()}`, recipient.id]
+          [metaResult.wamid || metaResult.metaMessageId || metaResult.data?.wamid || `wamid_${Date.now()}`, recipient.id]
         );
       } else {
         failedCount++;
+        const metaErrorCode = String(metaResult.errorCode || 'META_API_ERROR');
+        let fullErrorMessage = metaResult.error || metaResult.message || 'Meta API delivery failed';
+        if (metaResult.errorType && !fullErrorMessage.includes(metaResult.errorType)) {
+          fullErrorMessage = `[${metaResult.errorType}] ${fullErrorMessage}`;
+        }
+        if (metaResult.fbtraceId && !fullErrorMessage.includes(metaResult.fbtraceId)) {
+          fullErrorMessage += ` (fbtrace_id: ${metaResult.fbtraceId})`;
+        }
+
         await query(
           `UPDATE campaign_recipients
            SET status = 'failed',
@@ -203,8 +260,8 @@ export async function dispatchBatch(campaign, recipients) {
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $3`,
           [
-            metaResult.error || metaResult.message || 'Meta API delivery failed',
-            String(metaResult.errorCode || 'META_API_ERROR'),
+            fullErrorMessage,
+            metaErrorCode,
             recipient.id,
           ]
         );
@@ -346,7 +403,8 @@ export async function processCampaign(campaignId) {
     }
 
     // Final calculation to ensure terminal status is stamped
-    await recalculateCampaignStats(campaignId);
+    const finalStats = await recalculateCampaignStats(campaignId);
+    return { success: true, ...finalStats };
   } catch (err) {
     console.error(`[Campaign Dispatcher] Error processing campaign ${campaignId}:`, err);
   } finally {

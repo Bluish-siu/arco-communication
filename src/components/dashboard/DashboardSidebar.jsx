@@ -26,6 +26,7 @@ import {
   UserCheck,
   Zap,
   Layers,
+  Workflow,
   PhoneCall,
   Contact,
   Kanban,
@@ -59,6 +60,7 @@ export default function DashboardSidebar() {
     location.pathname.includes('/templates') ||
     location.pathname.includes('/segments') ||
     location.pathname.includes('/campaigns') ||
+    location.pathname.includes('/flows') ||
     location.pathname.includes('/analytics/campaign-reports') ||
     location.pathname.includes('/analytics/ad-performance') ||
     location.pathname.includes('/ctwa') ||
@@ -142,6 +144,7 @@ export default function DashboardSidebar() {
             { id: 'templates', label: 'Templates', icon: FileText, link: '/templates/list?channel_type=whatsapp&segment=library' },
             { id: 'segments', label: 'Segments', icon: Filter, link: '/segments' },
             { id: 'campaigns-sub', label: 'Campaigns', icon: Megaphone, link: '/campaigns' },
+            { id: 'flows', label: 'Flows', icon: Workflow, link: '/flows' },
             { id: 'campaign-reports', label: 'Custom Campaign Reports', icon: BarChart3, link: '/analytics/campaign-reports' },
             { id: 'meta-ads', label: 'Meta Ads', icon: Target, link: '/analytics/ad-performance' },
           ],
@@ -381,6 +384,7 @@ export default function DashboardSidebar() {
                             (sub.id === 'order-panel' && (location.pathname === '/commerce/order-panel' || location.pathname === '/order-panel')) ||
                             (sub.id === 'tasks' && (location.pathname === '/sales-crm-tasks' || location.pathname === '/tasks')) ||
                             (sub.id === 'segments' && location.pathname === '/segments') ||
+                            (sub.id === 'flows' && location.pathname.startsWith('/flows')) ||
                             (sub.id === 'campaigns-sub' && (location.pathname.startsWith('/campaigns') || location.pathname.startsWith('/notification'))) ||
                             (sub.id === 'sales-reports' && (location.pathname === '/sales-crm-reports' || location.pathname === '/sales-crm/reports'));
 

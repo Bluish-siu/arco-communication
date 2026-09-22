@@ -43,6 +43,9 @@ import OrderPanel from '../pages/OrderPanel';
 import Templates from '../pages/Templates';
 import NewTemplate from '../pages/NewTemplate';
 import Segments from '../pages/Segments';
+import Flows from '../pages/Flows';
+import CreateFlowBroadcast from '../pages/CreateFlowBroadcast';
+import FlowBroadcastDetails from '../pages/FlowBroadcastDetails';
 import Integrations from '../pages/Integrations';
 import WhatsAppWidget from '../pages/WhatsAppWidget';
 
@@ -131,6 +134,10 @@ export default function AppRoutes() {
       <Route path="/templates/:id" element={<NewTemplate />} />
       <Route path="/templates" element={<Navigate to="/templates/list?channel_type=whatsapp&segment=library" replace />} />
       <Route path="/segments" element={<Segments />} />
+      <Route path="/flows" element={<Flows />} />
+      <Route path="/flows/broadcast" element={<CreateFlowBroadcast />} />
+      <Route path="/flows/broadcasts/:id" element={<FlowBroadcastDetails />} />
+      <Route path="/market/flows" element={<Navigate to="/flows" replace />} />
 
       {/* Integrations Marketplace Route */}
       <Route path="/integrations" element={<Integrations />} />

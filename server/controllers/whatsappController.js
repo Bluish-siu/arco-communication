@@ -2,6 +2,12 @@ import { db, query } from '../config/db.js';
 import { evaluateAssignmentInternal } from './chatAssignmentController.js';
 import { campaignReplyFlowService } from '../services/campaignReplyFlowService.js';
 import { workflowExecutionEngine } from '../services/workflowExecutionEngine.js';
+import {
+  metaWhatsAppService,
+  normalizeRecipientPhone,
+  isWhatsAppOpted,
+} from '../services/metaWhatsAppService.js';
+import { processCampaign } from '../services/campaignDispatcher.js';
 /**
  * Normalizes an incoming WhatsApp message payload to extract clean text,
  * type, and interactive details (button_reply, list_reply, template buttons).
@@ -17,6 +23,8 @@ export function normalizeWhatsAppInboundMessage(message) {
   let messageText = '';
   let messageType = message.type || 'text';
   let replyId = null;
+  let flowResponse = null;
+  let flowToken = null;
 
   // 1. Text message
   if (message.text?.body && typeof message.text.body === 'string' && message.text.body.trim()) {
@@ -44,10 +52,23 @@ export function normalizeWhatsAppInboundMessage(message) {
     } else if (inter.nfm_reply?.response_json) {
       messageType = 'nfm_reply';
       try {
-        const resp = typeof inter.nfm_reply.response_json === 'string'
+        flowResponse = typeof inter.nfm_reply.response_json === 'string'
           ? JSON.parse(inter.nfm_reply.response_json)
           : inter.nfm_reply.response_json;
-        messageText = resp?.title || resp?.name || (resp?.screen ? `[Flow: ${resp.screen}]` : '[Flow Response]');
+        flowToken = flowResponse?.flow_token || null;
+
+        if (flowResponse && typeof flowResponse === 'object') {
+          const keys = Object.keys(flowResponse).filter((k) => !['flow_token'].includes(k));
+          if (keys.length > 0) {
+            const lines = keys.map((k) => `• ${k.replace(/_/g, ' ')}: ${flowResponse[k]}`);
+            const title = flowResponse.screen ? `Flow Submission (${flowResponse.screen})` : 'Flow Submission';
+            messageText = `📋 ${title}:\n${lines.join('\n')}`;
+          } else {
+            messageText = flowResponse.title || flowResponse.name || (flowResponse.screen ? `[Flow: ${flowResponse.screen}]` : '[Flow Response]');
+          }
+        } else {
+          messageText = '[Flow Response]';
+        }
       } catch {
         messageText = '[Flow Response]';
       }
@@ -89,6 +110,8 @@ export function normalizeWhatsAppInboundMessage(message) {
     text: messageText || '[Message]',
     type: messageType,
     replyId,
+    flowResponse,
+    flowToken,
   };
 }
 
@@ -321,6 +344,88 @@ export const whatsappController = {
                 timestamp,
               ]
             );
+
+            // D2. Persist Flow submission if messageType is 'nfm_reply'
+            if (messageType === 'nfm_reply' && normalizedMsg.flowResponse) {
+              try {
+                const flowResp = normalizedMsg.flowResponse;
+                const flowToken = normalizedMsg.flowToken || flowResp.flow_token || null;
+                const flowId = flowResp.flow_id || null;
+                const tenantUserId = contact?.user_id || 'usr_1';
+
+                // 1. Record into whatsapp_form_responses
+                const respId = `resp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                await query(
+                  `INSERT INTO whatsapp_form_responses (
+                     id, user_id, form_id, meta_flow_id, flow_token, contact_name, contact_phone,
+                     answers, raw_submission, meta_message_id, status, created_at
+                   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted', CURRENT_TIMESTAMP)`,
+                  [
+                    respId,
+                    tenantUserId,
+                    flowId || flowToken || 'meta_flow',
+                    flowId,
+                    flowToken,
+                    contact?.name || senderProfileName || fromPhone,
+                    fromPhone,
+                    JSON.stringify(flowResp),
+                    JSON.stringify(message.interactive?.nfm_reply || {}),
+                    messageId,
+                  ]
+                );
+
+                // 2. Increment response_count in whatsapp_forms if matching form exists
+                if (flowId) {
+                  await query(
+                    `UPDATE whatsapp_forms
+                     SET response_count = COALESCE(response_count, 0) + 1, updated_at = CURRENT_TIMESTAMP
+                     WHERE (meta_flow_id = $1 OR form_id = $1) AND user_id = $2`,
+                    [String(flowId), tenantUserId]
+                  );
+                }
+
+                // 3. Update contact attributes / email / name if submitted
+                if (contact) {
+                  const customAttrs = { ...(contact.custom_attributes || {}) };
+                  let contactUpdated = false;
+                  let newEmail = contact.email || '';
+                  let newName = contact.name || '';
+
+                  for (const [key, val] of Object.entries(flowResp)) {
+                    if (['flow_token', 'screen'].includes(key)) continue;
+                    customAttrs[key] = val;
+                    contactUpdated = true;
+
+                    const lKey = key.toLowerCase();
+                    if ((lKey.includes('email') || lKey === 'email_address') && (!newEmail || newEmail === '')) {
+                      if (typeof val === 'string' && val.includes('@')) newEmail = val.trim();
+                    }
+                    if ((lKey.includes('name') || lKey === 'full_name' || lKey === 'client_name') && (!newName || newName === fromPhone || newName.startsWith('WhatsApp User'))) {
+                      if (typeof val === 'string' && val.trim()) newName = val.trim();
+                    }
+                  }
+
+                  if (contactUpdated) {
+                    await query(
+                      `UPDATE contacts
+                       SET custom_attributes = $1,
+                           name = COALESCE(NULLIF($2, ''), name),
+                           email = COALESCE(NULLIF($3, ''), email),
+                           updated_at = CURRENT_TIMESTAMP
+                       WHERE id = $4`,
+                      [JSON.stringify(customAttrs), newName, newEmail, contact.id]
+                    );
+                    contact.custom_attributes = customAttrs;
+                    if (newName) contact.name = newName;
+                    if (newEmail) contact.email = newEmail;
+                  }
+                }
+
+                console.log(`[WhatsApp Webhook] Flow submission recorded for ${fromPhone} (flowToken: ${flowToken})`);
+              } catch (respErr) {
+                console.warn('[WhatsApp Webhook] Error recording Flow submission:', respErr.message);
+              }
+            }
 
             // E. Post-Campaign Reply Flow Evaluation
             let postCampaignHandled = false;
@@ -627,6 +732,809 @@ export const whatsappController = {
       };
 
       res.json({ success: true, data: dispatchResult });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/whatsapp/flows/:flowId
+  getFlow: async (req, res, next) => {
+    try {
+      const { flowId } = req.params;
+      const userId = req.user?.id || 'usr_1';
+
+      if (!flowId) {
+        return res.status(400).json({ success: false, error: 'Flow ID is required' });
+      }
+
+      // Query Meta Graph API via metaWhatsAppService
+      const metaResult = await metaWhatsAppService.getFlow(flowId);
+
+      // Also check local database whatsapp_forms for cached/existing form
+      const localForm = await query(
+        `SELECT * FROM whatsapp_forms WHERE (meta_flow_id = $1 OR form_id = $1) AND user_id = $2 LIMIT 1`,
+        [String(flowId), userId]
+      );
+
+      // If Meta returned flow details, sync into local DB whatsapp_forms
+      if (metaResult.success) {
+        const flowData = metaResult;
+        if (localForm.rows.length > 0) {
+          await query(
+            `UPDATE whatsapp_forms
+             SET status = $1, categories = $2, validation_errors = $3, json_version = $4,
+                 data_api_version = $5, endpoint_uri = $6, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $7`,
+            [
+              (flowData.status || 'published').toLowerCase(),
+              JSON.stringify(flowData.categories || []),
+              JSON.stringify(flowData.validationErrors || []),
+              flowData.jsonVersion,
+              flowData.dataApiVersion,
+              flowData.endpointUri,
+              localForm.rows[0].id,
+            ]
+          );
+        } else {
+          const newFormId = `form_${Date.now()}`;
+          await query(
+            `INSERT INTO whatsapp_forms (
+               id, user_id, title, description, form_id, meta_flow_id, status,
+               categories, validation_errors, json_version, data_api_version, endpoint_uri,
+               created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              newFormId,
+              userId,
+              flowData.name || 'WhatsApp Flow',
+              `Meta Flow ${flowData.flowId}`,
+              `flow_${flowData.flowId}`,
+              flowData.flowId,
+              (flowData.status || 'published').toLowerCase(),
+              JSON.stringify(flowData.categories || []),
+              JSON.stringify(flowData.validationErrors || []),
+              flowData.jsonVersion,
+              flowData.dataApiVersion,
+              flowData.endpointUri,
+            ]
+          );
+        }
+      }
+
+      res.json({
+        success: metaResult.success,
+        data: metaResult.success ? metaResult : localForm.rows[0] || null,
+        error: metaResult.error || null,
+        errorCode: metaResult.errorCode || null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/whatsapp/send-flow
+  sendFlow: async (req, res, next) => {
+    try {
+      const userId = req.user?.id || 'usr_1';
+      const {
+        recipientPhone,
+        flowId,
+        ctaText = 'Open',
+        headerText,
+        bodyText,
+        footerText,
+        screen,
+        data,
+        flowToken,
+        mode,
+      } = req.body;
+
+      if (!recipientPhone || !flowId) {
+        return res.status(400).json({
+          success: false,
+          error: 'recipientPhone and flowId are required',
+        });
+      }
+
+      // Tenant isolation: If this flow exists in whatsapp_forms, ensure it belongs to this tenant
+      const existingForm = await query(
+        `SELECT id, user_id, meta_flow_id, title FROM whatsapp_forms WHERE (meta_flow_id = $1 OR form_id = $1) LIMIT 1`,
+        [String(flowId)]
+      );
+      if (existingForm.rows.length > 0 && existingForm.rows[0].user_id !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Unauthorized: Flow belongs to another tenant',
+        });
+      }
+
+      const dispatchResult = await metaWhatsAppService.sendFlowMessage({
+        to: recipientPhone,
+        flowId,
+        ctaText,
+        headerText,
+        bodyText,
+        footerText,
+        screen,
+        data,
+        flowToken,
+        mode,
+        userId,
+      });
+
+      if (!dispatchResult.success) {
+        return res.status(dispatchResult.errorCode === 190 ? 401 : 400).json(dispatchResult);
+      }
+
+      res.json({ success: true, data: dispatchResult });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/whatsapp/flows
+  getFlows: async (req, res, next) => {
+    try {
+      const userId = req.user?.id || 'usr_1';
+      const { search, status } = req.query;
+
+      // 1. Fetch live flows from connected Meta WABA
+      const creds = await metaWhatsAppService.getCredentials();
+      let metaFlows = [];
+      if (creds.isConfigured && creds.wabaId) {
+        try {
+          const wabaFlowsUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/flows`;
+          const wabaFlowsResp = await fetch(wabaFlowsUrl, {
+            headers: { Authorization: `Bearer ${creds.accessToken}` },
+          });
+          const wabaFlowsData = await wabaFlowsResp.json();
+          if (Array.isArray(wabaFlowsData.data)) {
+            metaFlows = wabaFlowsData.data;
+          }
+        } catch (wabaErr) {
+          console.warn('[whatsappController] Could not fetch live WABA flows:', wabaErr.message);
+        }
+      }
+
+      // 2. Query local whatsapp_forms for this tenant
+      const localFormsRes = await query(
+        `SELECT * FROM whatsapp_forms WHERE user_id = $1 ORDER BY updated_at DESC`,
+        [userId]
+      );
+
+      // 3. Merge/Sync live Meta flows with local database records
+      for (const mf of metaFlows) {
+        const existing = localFormsRes.rows.find(
+          (r) => r.meta_flow_id === mf.id || r.form_id === mf.id || r.form_id === `flow_${mf.id}`
+        );
+        if (existing) {
+          // Update status & metadata if changed
+          const normStatus = (mf.status || 'published').toLowerCase();
+          if (existing.status !== normStatus || !existing.meta_flow_id) {
+            await query(
+              `UPDATE whatsapp_forms
+               SET status = $1, categories = $2, validation_errors = $3, meta_flow_id = $4, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $5`,
+              [
+                normStatus,
+                JSON.stringify(mf.categories || []),
+                JSON.stringify(mf.validation_errors || []),
+                mf.id,
+                existing.id,
+              ]
+            );
+            existing.status = normStatus;
+            existing.categories = mf.categories || [];
+            existing.meta_flow_id = mf.id;
+          }
+        } else {
+          // Sync new Meta flow into local DB for this tenant
+          const newId = `form_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          await query(
+            `INSERT INTO whatsapp_forms (
+               id, user_id, title, description, form_id, meta_flow_id, status,
+               categories, validation_errors, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              newId,
+              userId,
+              mf.name || 'ARCO Flow',
+              `Meta WhatsApp Flow (${mf.id})`,
+              `flow_${mf.id}`,
+              mf.id,
+              (mf.status || 'published').toLowerCase(),
+              JSON.stringify(mf.categories || []),
+              JSON.stringify(mf.validation_errors || []),
+            ]
+          );
+          localFormsRes.rows.unshift({
+            id: newId,
+            user_id: userId,
+            title: mf.name || 'ARCO Flow',
+            description: `Meta WhatsApp Flow (${mf.id})`,
+            form_id: `flow_${mf.id}`,
+            meta_flow_id: mf.id,
+            status: (mf.status || 'published').toLowerCase(),
+            categories: mf.categories || [],
+            validation_errors: mf.validation_errors || [],
+            response_count: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      // 4. Format flows response
+      let flows = localFormsRes.rows.map((row) => {
+        const rawCats = Array.isArray(row.categories)
+          ? row.categories
+          : (typeof row.categories === 'string' ? JSON.parse(row.categories || '[]') : []);
+        const catStr = rawCats.length > 0 ? rawCats.join(', ') : 'Lead Generation';
+        return {
+          id: row.id,
+          name: row.title,
+          title: row.title,
+          category: catStr.replace(/_/g, ' '),
+          categories: rawCats,
+          status: (row.status || 'published').toLowerCase(),
+          metaFlowId: row.meta_flow_id || (row.form_id?.startsWith('flow_') ? row.form_id.replace('flow_', '') : row.form_id),
+          formId: row.form_id,
+          responseCount: row.response_count || 0,
+          validationErrors: row.validation_errors || [],
+          jsonVersion: row.json_version || '7.3',
+          endpointUri: row.endpoint_uri || null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      });
+
+      // Filter by search & status
+      if (search && search.trim()) {
+        const s = search.trim().toLowerCase();
+        flows = flows.filter(
+          (f) =>
+            f.name.toLowerCase().includes(s) ||
+            f.category.toLowerCase().includes(s) ||
+            (f.metaFlowId && f.metaFlowId.toLowerCase().includes(s))
+        );
+      }
+
+      if (status && status !== 'all') {
+        flows = flows.filter((f) => f.status === status.toLowerCase());
+      }
+
+      res.json({ success: true, count: flows.length, data: flows });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/whatsapp/flows
+  createFlow: async (req, res, next) => {
+    try {
+      const userId = req.user?.id || 'usr_1';
+      const { name, category = 'LEAD_GENERATION' } = req.body;
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'Flow name is required' });
+      }
+
+      const creds = await metaWhatsAppService.getCredentials();
+      let metaFlowId = null;
+      let flowStatus = 'draft';
+
+      // Attempt to register/create Flow in Meta WABA if connected
+      if (creds.isConfigured && creds.wabaId) {
+        try {
+          const createUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/flows`;
+          const resp = await fetch(createUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${creds.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: name.trim(),
+              categories: [category.toUpperCase()],
+            }),
+          });
+          const metaData = await resp.json();
+          if (metaData.id) {
+            metaFlowId = metaData.id;
+            flowStatus = 'draft';
+          } else if (metaData.error) {
+            console.warn('[whatsappController] Meta Flow creation API returned error:', metaData.error.message);
+          }
+        } catch (metaErr) {
+          console.warn('[whatsappController] Meta Flow creation network error:', metaErr.message);
+        }
+      }
+
+      // Save into whatsapp_forms table
+      const newFormId = `form_${Date.now()}`;
+      const uniqueFormCode = metaFlowId ? `flow_${metaFlowId}` : `wf_${Date.now()}`;
+
+      await query(
+        `INSERT INTO whatsapp_forms (
+           id, user_id, title, description, form_id, meta_flow_id, status,
+           categories, validation_errors, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          newFormId,
+          userId,
+          name.trim(),
+          `Flow ${name.trim()}`,
+          uniqueFormCode,
+          metaFlowId,
+          flowStatus,
+          JSON.stringify([category]),
+          JSON.stringify([]),
+        ]
+      );
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: newFormId,
+          name: name.trim(),
+          category,
+          status: flowStatus,
+          metaFlowId,
+          formId: uniqueFormCode,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/whatsapp/send-flow-bulk (Creates and queues bulk Flow broadcast)
+  sendFlowBulk: async (req, res, next) => {
+    try {
+      const userId = req.user?.id || 'usr_1';
+      const {
+        name,
+        flowId,
+        ctaText = 'Give Feedback',
+        headerText,
+        bodyText = 'Please complete our quick form',
+        footerText,
+        screen,
+        csvContacts = [],
+        recipients = [],
+        variableMapping = {},
+        scheduledFor,
+        scheduleTimezone = 'Asia/Kolkata',
+        whatsappOptedOnly = true,
+        status = 'Scheduled',
+      } = req.body;
+
+      const broadcastName = (name && name.trim()) || `Flow Broadcast - ${new Date().toLocaleDateString()}`;
+
+      if (!flowId) {
+        return res.status(400).json({ success: false, error: 'Meta Flow ID (flowId) is required' });
+      }
+
+      // 1. Tenant isolation & Flow validation
+      const existingForm = await query(
+        `SELECT id, user_id, meta_flow_id, title, status FROM whatsapp_forms WHERE (meta_flow_id = $1 OR form_id = $1) LIMIT 1`,
+        [String(flowId)]
+      );
+
+      if (existingForm.rows.length > 0 && existingForm.rows[0].user_id !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Selected Flow does not belong to your tenant account',
+        });
+      }
+
+      // Verify Flow status with Meta if possible
+      let flowTitle = existingForm.rows[0]?.title || 'ARCO Flow';
+      let flowStatus = existingForm.rows[0]?.status || 'published';
+      try {
+        const metaFlowRes = await metaWhatsAppService.getFlow(flowId);
+        if (metaFlowRes.success) {
+          flowTitle = metaFlowRes.name || flowTitle;
+          flowStatus = (metaFlowRes.status || 'published').toLowerCase();
+          if (flowStatus !== 'published') {
+            return res.status(400).json({
+              success: false,
+              error: `Flow "${flowTitle}" is currently in ${flowStatus.toUpperCase()} status. Only PUBLISHED flows can be broadcast.`,
+            });
+          }
+        }
+      } catch (checkErr) {
+        console.warn('[whatsappController] Could not verify flow with Meta API:', checkErr.message);
+      }
+
+      // 2. Process & deduplicate recipient audience
+      const rawContacts = Array.isArray(csvContacts) && csvContacts.length > 0
+        ? csvContacts
+        : (Array.isArray(recipients) && recipients.length > 0 ? recipients : []);
+
+      const seenPhones = new Set();
+      const eligibleRecipients = [];
+
+      rawContacts.forEach((row, idx) => {
+        const rawOpted = row.whatsappOpted ?? row.whatsapp_opted ?? row['WhatsApp Opted'] ?? row['whatsapp opted'] ?? true;
+        const optedIn = isWhatsAppOpted(rawOpted);
+
+        if (whatsappOptedOnly && !optedIn) return;
+
+        const phoneNorm = normalizeRecipientPhone({
+          fullPhone: row.fullPhone || row.full_phone || row['Full Phone Number'] || row['Full Phone'],
+          phone: row.phone || row.phoneNumber || row['Phone Number'] || row.phone_number,
+          countryCode: row.countryCode || row.country_code || row['Country Code'] || '91',
+        });
+
+        if (!phoneNorm.isValid || !phoneNorm.normalizedPhone) return;
+
+        if (seenPhones.has(phoneNorm.normalizedPhone)) return;
+        seenPhones.add(phoneNorm.normalizedPhone);
+
+        const recipientName = row.name || row.Name || row['Full Name'] || 'Customer';
+        const recipientEmail = row.email || row.Email || null;
+        const countryCode = row.countryCode || row.country_code || row['Country Code'] || '91';
+
+        eligibleRecipients.push({
+          id: `rcp_flow_${Date.now()}_${idx}`,
+          name: recipientName,
+          phone: phoneNorm.normalizedPhone,
+          email: recipientEmail,
+          countryCode,
+          whatsappOpted: optedIn,
+          csvData: row.csvData || { ...row },
+        });
+      });
+
+      if (status !== 'Draft' && eligibleRecipients.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No valid recipient phone numbers found in audience. Please check phone number formats.',
+        });
+      }
+
+      const campaignId = `cmp_flow_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const campaignStatus = status === 'Draft' ? 'Draft' : 'Scheduled';
+      const scheduledTimestamp = scheduledFor
+        ? new Date(scheduledFor).toISOString()
+        : new Date().toISOString();
+
+      const templatePayload = {
+        flow_id: String(flowId).trim(),
+        flowId: String(flowId).trim(),
+        cta_text: (ctaText || 'Give Feedback').trim().slice(0, 20),
+        header_text: headerText ? headerText.trim().slice(0, 60) : null,
+        body_text: (bodyText || 'Please complete our quick form').trim().slice(0, 1024),
+        footer_text: footerText ? footerText.trim().slice(0, 60) : null,
+        screen: screen || null,
+      };
+
+      // 3. Insert broadcast master record into campaigns
+      await query(
+        `INSERT INTO campaigns (
+           id, name, description, channel, type, category, status, recipients, delivered, read, replied,
+           scheduled_for, schedule_timezone, audience_type, audience_filter, template_id, template_name,
+           template_language, template_category, template_payload, variable_mapping, recurring_config,
+           post_campaign_reply_flows, created_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, 'whatsapp_flow', 'flow_broadcast', 'Marketing', $4, $5, 0, 0, 0, $6, $7, 'csv', $8, $9, $10, 'en_US', 'FLOW', $11, $12, '{}'::jsonb, '{}'::jsonb, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          campaignId,
+          broadcastName,
+          `Flow Broadcast (${flowTitle})`,
+          campaignStatus,
+          eligibleRecipients.length,
+          scheduledTimestamp,
+          scheduleTimezone,
+          JSON.stringify({ whatsappOptedOnly, flowId }),
+          String(flowId),
+          flowTitle,
+          JSON.stringify(templatePayload),
+          JSON.stringify(variableMapping || {}),
+          req.user?.id || req.user?.name || 'Shraddha',
+        ]
+      );
+
+      // 4. Bulk insert recipients into campaign_recipients in chunks of 100
+      if (eligibleRecipients.length > 0) {
+        const batchChunkSize = 100;
+        for (let i = 0; i < eligibleRecipients.length; i += batchChunkSize) {
+          const chunk = eligibleRecipients.slice(i, i + batchChunkSize);
+          const batchNum = Math.floor(i / batchChunkSize) + 1;
+          const placeholders = [];
+          const values = [];
+
+          chunk.forEach((c, idx) => {
+            const offset = idx * 10;
+            placeholders.push(
+              `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10})`
+            );
+            values.push(
+              `rcp_${campaignId}_${i + idx}`,
+              campaignId,
+              null,
+              c.name,
+              c.phone,
+              c.email || '',
+              c.countryCode || '91',
+              c.whatsappOpted,
+              JSON.stringify(c.csvData || {}),
+              batchNum
+            );
+          });
+
+          await query(
+            `INSERT INTO campaign_recipients (
+               id, campaign_id, contact_id, name, phone, email, country_code, whatsapp_opted, csv_data, batch_number
+             ) VALUES ${placeholders.join(', ')}
+             ON CONFLICT (id) DO NOTHING`,
+            values
+          );
+        }
+      }
+
+      // 5. Trigger dispatch if scheduled for now and not draft
+      const shouldSendImmediately =
+        campaignStatus !== 'Draft' &&
+        new Date(scheduledTimestamp).getTime() <= Date.now() + 60000;
+
+      if (shouldSendImmediately && eligibleRecipients.length > 0) {
+        processCampaign(campaignId).catch((procErr) => {
+          console.error(`[whatsappController] Background dispatch failed for ${campaignId}:`, procErr);
+        });
+      }
+
+      res.status(201).json({
+        success: true,
+        broadcastId: campaignId,
+        totalRecipients: eligibleRecipients.length,
+        message: campaignStatus === 'Draft'
+          ? 'Flow broadcast saved as draft'
+          : (shouldSendImmediately ? 'Flow broadcast launched live' : 'Flow broadcast scheduled successfully'),
+        data: {
+          id: campaignId,
+          broadcastId: campaignId,
+          name: broadcastName,
+          flowId,
+          flowTitle,
+          status: shouldSendImmediately ? 'Sending' : campaignStatus,
+          recipients: eligibleRecipients.length,
+          totalRecipients: eligibleRecipients.length,
+          scheduledFor: scheduledTimestamp,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/whatsapp/flow-broadcasts (List all Flow broadcasts for tenant)
+  getFlowBroadcasts: async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const params = [];
+      let whereClause = `WHERE (c.channel = 'whatsapp_flow' OR c.type = 'flow_broadcast')`;
+      if (userId) {
+        params.push(userId);
+        whereClause += ` AND c.created_by = $${params.length}`;
+      }
+
+      const sql = `
+        SELECT
+          c.*,
+          COALESCE(r.total_recs, c.recipients) as calculated_recipients,
+          COALESCE(r.sent_recs, 0) as calculated_sent,
+          COALESCE(r.delivered_recs, c.delivered) as calculated_delivered,
+          COALESCE(r.read_recs, c.read) as calculated_read,
+          COALESCE(r.replied_recs, c.replied) as calculated_replied,
+          COALESCE(r.failed_recs, c.failure_count) as calculated_failed
+        FROM campaigns c
+        LEFT JOIN (
+          SELECT
+            campaign_id,
+            COUNT(*) as total_recs,
+            COUNT(*) FILTER (WHERE status = 'sent') as sent_recs,
+            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered_recs,
+            COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read_recs,
+            COUNT(*) FILTER (WHERE status = 'replied') as replied_recs,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed_recs
+          FROM campaign_recipients
+          GROUP BY campaign_id
+        ) r ON c.id = r.campaign_id
+        ${whereClause}
+        ORDER BY c.created_at DESC
+      `;
+
+      const result = await query(sql, params);
+      const broadcasts = result.rows.map((row) => {
+        const total = parseInt(row.calculated_recipients, 10) || 0;
+        const sent = parseInt(row.calculated_sent, 10) || 0;
+        const delivered = parseInt(row.calculated_delivered, 10) || 0;
+        const read = parseInt(row.calculated_read, 10) || 0;
+        const replied = parseInt(row.calculated_replied, 10) || 0;
+        const failed = parseInt(row.calculated_failed, 10) || 0;
+
+        const progressPercent = total > 0 ? Math.min(100, Math.round(((sent + delivered + read + failed) / total) * 100)) : 0;
+        const payload = typeof row.template_payload === 'string' ? JSON.parse(row.template_payload || '{}') : (row.template_payload || {});
+
+        return {
+          id: row.id,
+          name: row.name,
+          flowId: row.template_id || payload.flow_id,
+          flowTitle: row.template_name || 'ARCO Flow',
+          status: row.status,
+          recipients: total,
+          sent,
+          delivered,
+          read,
+          replied,
+          failed,
+          progressPercent,
+          scheduledFor: row.scheduled_for,
+          createdAt: row.created_at,
+          completedAt: row.completed_at,
+        };
+      });
+
+      res.json({ success: true, count: broadcasts.length, data: broadcasts });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/whatsapp/flow-broadcasts/:id
+  getFlowBroadcast: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      const params = [id];
+      let userFilter = '';
+      if (userId) {
+        params.push(userId);
+        userFilter = ` AND c.created_by = $${params.length}`;
+      }
+
+      const sql = `
+        SELECT
+          c.*,
+          COALESCE(r.total_recs, c.recipients) as calculated_recipients,
+          COALESCE(r.sent_recs, 0) as calculated_sent,
+          COALESCE(r.delivered_recs, c.delivered) as calculated_delivered,
+          COALESCE(r.read_recs, c.read) as calculated_read,
+          COALESCE(r.replied_recs, c.replied) as calculated_replied,
+          COALESCE(r.failed_recs, c.failure_count) as calculated_failed,
+          COALESCE(r.pending_recs, 0) as calculated_pending
+        FROM campaigns c
+        LEFT JOIN (
+          SELECT
+            campaign_id,
+            COUNT(*) as total_recs,
+            COUNT(*) FILTER (WHERE status = 'sent') as sent_recs,
+            COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered_recs,
+            COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read_recs,
+            COUNT(*) FILTER (WHERE status = 'replied') as replied_recs,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed_recs,
+            COUNT(*) FILTER (WHERE status = 'pending' OR status = 'queued') as pending_recs
+          FROM campaign_recipients
+          GROUP BY campaign_id
+        ) r ON c.id = r.campaign_id
+        WHERE c.id = $1 AND (c.channel = 'whatsapp_flow' OR c.type = 'flow_broadcast')${userFilter}
+        LIMIT 1
+      `;
+
+      const result = await query(sql, params);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Flow broadcast not found' });
+      }
+
+      const row = result.rows[0];
+      const total = parseInt(row.calculated_recipients, 10) || 0;
+      const sent = parseInt(row.calculated_sent, 10) || 0;
+      const delivered = parseInt(row.calculated_delivered, 10) || 0;
+      const read = parseInt(row.calculated_read, 10) || 0;
+      const replied = parseInt(row.calculated_replied, 10) || 0;
+      const failed = parseInt(row.calculated_failed, 10) || 0;
+      const pending = parseInt(row.calculated_pending, 10) || 0;
+
+      const progressPercent = total > 0 ? Math.min(100, Math.round(((sent + delivered + read + failed) / total) * 100)) : 0;
+      const deliveryRate = total > 0 ? Math.round(((delivered + read) / total) * 100) : 0;
+      const readRate = delivered > 0 ? Math.round((read / delivered) * 100) : 0;
+      const payload = typeof row.template_payload === 'string' ? JSON.parse(row.template_payload || '{}') : (row.template_payload || {});
+
+      res.json({
+        success: true,
+        data: {
+          id: row.id,
+          name: row.name,
+          flowId: row.template_id || payload.flow_id,
+          flowTitle: row.template_name || 'ARCO Flow',
+          status: row.status,
+          recipients: total,
+          sent,
+          delivered,
+          read,
+          replied,
+          failed,
+          pending,
+          progressPercent: `${progressPercent}%`,
+          deliveryRate: `${deliveryRate}%`,
+          readRate: `${readRate}%`,
+          templatePayload: payload,
+          variableMapping: typeof row.variable_mapping === 'string' ? JSON.parse(row.variable_mapping || '{}') : row.variable_mapping,
+          scheduledFor: row.scheduled_for,
+          createdAt: row.created_at,
+          sentAt: row.sent_at,
+          completedAt: row.completed_at,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/whatsapp/flow-broadcasts/:id/recipients
+  getFlowBroadcastRecipients: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      const page = parseInt(req.query.page, 10) || 1;
+      const limit = parseInt(req.query.limit, 10) || 20;
+      const offset = (page - 1) * limit;
+      const { status, search } = req.query;
+
+      // Tenant isolation verification
+      if (userId) {
+        const campCheck = await query(`SELECT id, created_by FROM campaigns WHERE id = $1`, [id]);
+        if (campCheck.rows.length === 0 || (campCheck.rows[0].created_by && campCheck.rows[0].created_by !== userId)) {
+          return res.status(404).json({ success: false, error: 'Broadcast not found or access denied' });
+        }
+      }
+
+      let countSql = 'SELECT COUNT(*) FROM campaign_recipients WHERE campaign_id = $1';
+      let dataSql = `
+        SELECT id, name, phone, phone as phone_number, email, status, meta_message_id, meta_message_id as wamid, error_message, error_message as error_reason, error_code,
+               sent_at, delivered_at, read_at, failed_at, created_at, csv_data
+        FROM campaign_recipients
+        WHERE campaign_id = $1
+      `;
+      const params = [id];
+
+      if (status && status !== 'all') {
+        params.push(status.toLowerCase());
+        countSql += ` AND LOWER(status) = $${params.length}`;
+        dataSql += ` AND LOWER(status) = $${params.length}`;
+      }
+
+      if (search && search.trim()) {
+        params.push(`%${search.trim().toLowerCase()}%`);
+        countSql += ` AND (LOWER(name) LIKE $${params.length} OR phone LIKE $${params.length} OR LOWER(email) LIKE $${params.length})`;
+        dataSql += ` AND (LOWER(name) LIKE $${params.length} OR phone LIKE $${params.length} OR LOWER(email) LIKE $${params.length})`;
+      }
+
+      const totalRes = await query(countSql, params);
+      const total = parseInt(totalRes.rows[0].count, 10);
+
+      dataSql += ` ORDER BY id ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      const dataRes = await query(dataSql, [...params, limit, offset]);
+
+      // Aggregate status counts
+      const statusCountsRes = await query(
+        `SELECT status, COUNT(*) as count FROM campaign_recipients WHERE campaign_id = $1 GROUP BY status`,
+        [id]
+      );
+      const statusCounts = {};
+      statusCountsRes.rows.forEach(r => {
+        statusCounts[r.status] = parseInt(r.count, 10);
+      });
+
+      res.json({
+        success: true,
+        data: dataRes.rows,
+        statusCounts,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit) || 1,
+      });
     } catch (error) {
       next(error);
     }

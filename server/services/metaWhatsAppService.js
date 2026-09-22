@@ -13,6 +13,10 @@ export function formatPhoneNumber(phone) {
   }
   // Remove all non-digit characters
   let digits = str.replace(/\D/g, '');
+  // If 11-digit starting with 0 followed by 6-9, replace 0 with 91
+  if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits.slice(1))) {
+    digits = `91${digits.slice(1)}`;
+  }
   // If Indian number without country code (10 digits starting with 6, 7, 8, 9), prefix 91
   if (digits.length === 10 && /^[6-9]/.test(digits)) {
     digits = `91${digits}`;
@@ -34,62 +38,112 @@ export function normalizeRecipientPhone({ fullPhone, phone, countryCode } = {}) 
     };
   }
 
-  // 1. Prefer Full Phone Number if provided
-  if (cleanFull) {
-    const digits = cleanFull.replace(/\D/g, '');
+  // Determine candidate raw phone string (cleanFull takes precedence if non-empty)
+  const candidate = cleanFull || cleanPhone;
+  if (!candidate) {
+    return {
+      isValid: false,
+      normalizedPhone: '',
+      reason: 'Missing phone number',
+    };
+  }
+
+  const hasLeadingPlus = candidate.startsWith('+');
+  let digits = candidate.replace(/\D/g, '');
+
+  if (!digits) {
+    return {
+      isValid: false,
+      normalizedPhone: '',
+      reason: 'No digits found in phone number',
+    };
+  }
+
+  // 1. Explicit leading '+' (e.g. "+91 98765 43210", "+1 415 555 2671")
+  if (hasLeadingPlus) {
     if (digits.length >= 9 && digits.length <= 15) {
       return {
         isValid: true,
         normalizedPhone: digits,
         formattedDisplay: `+${digits}`,
+      };
+    }
+    return {
+      isValid: false,
+      normalizedPhone: digits,
+      reason: 'Phone number with "+" must have between 9 and 15 digits',
+    };
+  }
+
+  // 2. Explicit non-India country code provided (e.g. countryCode = '1', phone = '4155552671')
+  if (cleanCc && cleanCc !== '91') {
+    if (digits.startsWith(cleanCc) && digits.length >= cleanCc.length + 7 && digits.length <= 15) {
+      return {
+        isValid: true,
+        normalizedPhone: digits,
+        formattedDisplay: `+${digits}`,
+      };
+    }
+    const combined = `${cleanCc}${digits.replace(/^0+/, '')}`;
+    if (combined.length >= 9 && combined.length <= 15) {
+      return {
+        isValid: true,
+        normalizedPhone: combined,
+        formattedDisplay: `+${combined}`,
       };
     }
   }
 
-  // 2. Phone + Country Code
-  if (cleanPhone) {
-    let digits = cleanPhone.replace(/\D/g, '');
-    if (cleanCc) {
-      if (digits.startsWith(cleanCc) && digits.length >= cleanCc.length + 8) {
-        // Country code is already included
-        return {
-          isValid: true,
-          normalizedPhone: digits,
-          formattedDisplay: `+${digits}`,
-        };
-      }
-      const combined = `${cleanCc}${digits}`;
-      if (combined.length >= 9 && combined.length <= 15) {
-        return {
-          isValid: true,
-          normalizedPhone: combined,
-          formattedDisplay: `+${combined}`,
-        };
-      }
-    }
+  // 3. Indian numbers: 12 digits starting with '91' and valid mobile prefix [6-9]
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits.slice(2))) {
+    return {
+      isValid: true,
+      normalizedPhone: digits,
+      formattedDisplay: `+91 ${digits.slice(2)}`,
+    };
+  }
 
-    // Default 10-digit Indian phone normalization
-    if (digits.length === 10 && /^[6-9]/.test(digits)) {
-      return {
-        isValid: true,
-        normalizedPhone: `91${digits}`,
-        formattedDisplay: `+91 ${digits}`,
-      };
-    }
+  // 4. Indian numbers: 11 digits starting with '0' and valid mobile prefix [6-9]
+  if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits.slice(1))) {
+    const norm = `91${digits.slice(1)}`;
+    return {
+      isValid: true,
+      normalizedPhone: norm,
+      formattedDisplay: `+91 ${digits.slice(1)}`,
+    };
+  }
 
-    if (digits.length >= 9 && digits.length <= 15) {
-      return {
-        isValid: true,
-        normalizedPhone: digits,
-        formattedDisplay: `+${digits}`,
-      };
-    }
+  // 5. Standard Indian mobile numbers: 10 digits starting with [6-9]
+  if (digits.length === 10 && /^[6-9]/.test(digits)) {
+    return {
+      isValid: true,
+      normalizedPhone: `91${digits}`,
+      formattedDisplay: `+91 ${digits}`,
+    };
+  }
+
+  // 6. Explicit countryCode '91' with 10 digits
+  if (cleanCc === '91' && digits.length === 10) {
+    return {
+      isValid: true,
+      normalizedPhone: `91${digits}`,
+      formattedDisplay: `+91 ${digits}`,
+    };
+  }
+
+  // 7. General international digits already including country code (9-15 digits)
+  if (digits.length >= 9 && digits.length <= 15) {
+    return {
+      isValid: true,
+      normalizedPhone: digits,
+      formattedDisplay: `+${digits}`,
+    };
   }
 
   return {
     isValid: false,
-    normalizedPhone: cleanFull || cleanPhone || '',
-    reason: 'Invalid or missing phone number (must be 9-15 digits with valid country code)',
+    normalizedPhone: digits,
+    reason: 'Invalid phone format (must be 9-15 digits with valid country code)',
   };
 }
 
@@ -110,13 +164,52 @@ export function isWithin24HourWindow(lastInboundAt) {
 }
 
 export const metaWhatsAppService = {
+  normalizeRecipientPhone,
+  formatPhoneNumber,
+
   // 1. Resolve Meta WhatsApp Cloud API credentials
-  getCredentials: async () => {
+  getCredentials: async (userId = null) => {
     // Check environment variables first
     const envToken = process.env.META_ACCESS_TOKEN || process.env.META_WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN;
     const envPhoneId = process.env.META_PHONE_NUMBER_ID || process.env.META_WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
     const envWabaId = process.env.META_WABA_ID || process.env.META_BUSINESS_ACCOUNT_ID || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
     const version = process.env.META_GRAPH_API_VERSION || 'v25.0';
+
+    // 1. If tenant userId is provided, check if tenant has a connected DB integration
+    if (userId) {
+      try {
+        const tenantRes = await query(
+          `SELECT id, user_id, meta_business_id, waba_id, phone_number_id, display_phone_number,
+                  access_token_encrypted, status
+           FROM meta_integrations
+           WHERE user_id = $1 AND status = 'connected'
+           ORDER BY updated_at DESC LIMIT 1`,
+          [userId]
+        );
+
+        if (tenantRes.rows.length > 0) {
+          const row = tenantRes.rows[0];
+          const decryptedToken = decryptToken(row.access_token_encrypted);
+          const effectiveToken = decryptedToken || row.access_token_encrypted;
+
+          if (effectiveToken && row.phone_number_id) {
+            return {
+              isConfigured: true,
+              source: 'database_tenant',
+              tenantId: userId,
+              accessToken: effectiveToken,
+              phoneNumberId: row.phone_number_id,
+              wabaId: row.waba_id,
+              displayPhoneNumber: row.display_phone_number,
+              version,
+              missingFields: [],
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[metaWhatsAppService] Tenant DB lookup for credentials failed:', err.message);
+      }
+    }
 
     const isEnvConfigured = Boolean(
       envToken &&
@@ -129,6 +222,7 @@ export const metaWhatsAppService = {
       return {
         isConfigured: true,
         source: 'env',
+        tenantId: userId || 'default',
         accessToken: envToken,
         phoneNumberId: envPhoneId,
         wabaId: envWabaId || null,
@@ -138,10 +232,10 @@ export const metaWhatsAppService = {
       };
     }
 
-    // Check PostgreSQL database meta_integrations table
+    // 2. Check general PostgreSQL database meta_integrations table
     try {
       const res = await query(
-        `SELECT id, meta_business_id, waba_id, phone_number_id, display_phone_number,
+        `SELECT id, user_id, meta_business_id, waba_id, phone_number_id, display_phone_number,
                 access_token_encrypted, status
          FROM meta_integrations
          WHERE status = 'connected'
@@ -162,6 +256,7 @@ export const metaWhatsAppService = {
         return {
           isConfigured: isDbConfigured,
           source: 'database',
+          tenantId: row.user_id || userId || 'default',
           accessToken: effectiveToken,
           phoneNumberId: row.phone_number_id,
           wabaId: row.waba_id,
@@ -181,6 +276,7 @@ export const metaWhatsAppService = {
     return {
       isConfigured: false,
       source: 'none',
+      tenantId: userId || 'none',
       accessToken: null,
       phoneNumberId: null,
       wabaId: null,
@@ -1055,6 +1151,324 @@ export const metaWhatsAppService = {
       return {
         success: false,
         error: `Failed to fetch message templates from Meta Cloud API: ${err.message}`,
+      };
+    }
+  },
+
+  // 6. Fetch Meta WhatsApp Flow Details by Flow ID
+  getFlow: async (flowId) => {
+    if (!flowId) {
+      return { success: false, error: 'Flow ID is required' };
+    }
+
+    const creds = await metaWhatsAppService.getCredentials();
+    if (!creds.isConfigured) {
+      return {
+        success: false,
+        error: 'META_CREDENTIALS_MISSING',
+        message: 'WhatsApp Business API is not connected. Please configure your Meta credentials.',
+        missingFields: creds.missingFields,
+      };
+    }
+
+    const cleanFlowId = String(flowId).trim();
+    const url = `https://graph.facebook.com/${creds.version}/${cleanFlowId}?fields=id,name,status,categories,validation_errors,json_version,data_api_version,endpoint_uri,preview`;
+
+    try {
+      console.log(`[Meta Cloud API] Fetching Flow ${cleanFlowId} from Meta Graph API (${creds.version})...`);
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        console.error(
+          `[Meta Cloud API Flow Fetch Failed] Status: ${response.status}, Code: ${data.error?.code || 'N/A'}, Subcode: ${data.error?.error_subcode || 'N/A'}, Message: ${data.error?.message || 'Unknown error'}`
+        );
+
+        let customErrorMsg = data.error?.message || `Meta Graph API returned HTTP ${response.status}`;
+        if (data.error?.code === 190) {
+          customErrorMsg = `Meta Access Token Session Expired (Error #190): ${data.error?.message || 'Please update META_ACCESS_TOKEN in .env'}`;
+        }
+
+        return {
+          success: false,
+          error: customErrorMsg,
+          rawError: data.error?.message,
+          errorCode: data.error?.code,
+          errorSubcode: data.error?.error_subcode,
+          errorType: data.error?.type,
+          fbtraceId: data.error?.fbtrace_id,
+        };
+      }
+
+      return {
+        success: true,
+        flowId: data.id,
+        name: data.name,
+        status: data.status, // e.g. 'PUBLISHED', 'DRAFT', 'DEPRECATED', 'BLOCKED'
+        categories: data.categories || [],
+        validationErrors: data.validation_errors || [],
+        jsonVersion: data.json_version || null,
+        dataApiVersion: data.data_api_version || null,
+        endpointUri: data.endpoint_uri || null,
+        preview: data.preview || null,
+        rawData: data,
+      };
+    } catch (err) {
+      console.error('[Meta Cloud API Fetch Flow Exception]:', err.message);
+      return {
+        success: false,
+        error: `Network error fetching Flow from Meta: ${err.message}`,
+      };
+    }
+  },
+
+  // 7. Fetch Meta WhatsApp Flow Assets (Screens / JSON definition)
+  getFlowAssets: async (flowId) => {
+    if (!flowId) {
+      return { success: false, error: 'Flow ID is required' };
+    }
+
+    const creds = await metaWhatsAppService.getCredentials();
+    if (!creds.isConfigured) {
+      return {
+        success: false,
+        error: 'META_CREDENTIALS_MISSING',
+        message: 'WhatsApp Business API is not connected.',
+        missingFields: creds.missingFields,
+      };
+    }
+
+    const cleanFlowId = String(flowId).trim();
+    const url = `https://graph.facebook.com/${creds.version}/${cleanFlowId}/assets`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        return {
+          success: false,
+          error: data.error?.message || `Meta Graph API returned HTTP ${response.status}`,
+          errorCode: data.error?.code,
+          errorSubcode: data.error?.error_subcode,
+        };
+      }
+
+      return {
+        success: true,
+        assets: data.data || [],
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: `Network error fetching Flow assets: ${err.message}`,
+      };
+    }
+  },
+
+  // 8. Send Interactive Flow Message via Meta WhatsApp Cloud API
+  sendFlowMessage: async ({
+    to,
+    recipientPhone,
+    flowId,
+    ctaText = 'Open',
+    headerText,
+    bodyText = 'Please complete our quick form',
+    footerText,
+    screen,
+    flowToken,
+    data = {},
+    mode = 'navigate',
+    userId = null,
+  }) => {
+    const targetPhone = to || recipientPhone;
+    if (!targetPhone) {
+      return { success: false, error: 'Recipient phone number is required' };
+    }
+    if (!flowId) {
+      return { success: false, error: 'Flow ID is required' };
+    }
+
+    const cleanTo = formatPhoneNumber(targetPhone);
+    if (!cleanTo || cleanTo.length < 8) {
+      return {
+        success: false,
+        error: `Invalid phone number format: "${targetPhone}". Must be a valid phone number with country code.`,
+      };
+    }
+
+    const creds = await metaWhatsAppService.getCredentials(userId);
+    if (!creds.isConfigured) {
+      return {
+        success: false,
+        error: 'META_CREDENTIALS_MISSING',
+        message: 'WhatsApp Business API is not connected. Please configure your Meta credentials in environment variables.',
+        missingFields: creds.missingFields,
+      };
+    }
+
+    const resolvedFlowToken = flowToken || `token_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const parameters = {
+      flow_message_version: '3',
+      flow_token: resolvedFlowToken,
+      flow_id: String(flowId).trim(),
+      flow_cta: (ctaText || 'Open').trim().slice(0, 20),
+      flow_action: mode || 'navigate',
+    };
+
+    let resolvedScreen = screen ? String(screen).trim() : null;
+    if (!resolvedScreen) {
+      try {
+        const assetsRes = await metaWhatsAppService.getFlowAssets(flowId);
+        if (assetsRes.success && assetsRes.assets?.length > 0) {
+          const flowJsonAsset = assetsRes.assets.find((a) => a.asset_type === 'FLOW_JSON') || assetsRes.assets[0];
+          if (flowJsonAsset?.download_url) {
+            const dlRes = await fetch(flowJsonAsset.download_url, {
+              headers: { Authorization: `Bearer ${creds.accessToken}` },
+            });
+            const flowDef = await dlRes.json();
+            if (flowDef.screens && flowDef.screens.length > 0) {
+              resolvedScreen = flowDef.screens[0].id;
+              console.log(`[Meta Cloud API] Auto-resolved initial screen "${resolvedScreen}" for Flow ${flowId}`);
+            }
+          }
+        }
+      } catch (assetErr) {
+        // Proceed if auto-resolution fails
+      }
+    }
+
+    if (resolvedScreen) {
+      parameters.flow_action_payload = {
+        screen: resolvedScreen,
+        ...(data && typeof data === 'object' && Object.keys(data).length > 0 ? { data } : {}),
+      };
+    } else if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      parameters.flow_action_payload = { data };
+    }
+
+    const interactivePayload = {
+      type: 'flow',
+      body: { text: (bodyText || 'Please complete our quick form').trim().slice(0, 1024) },
+      action: {
+        name: 'flow',
+        parameters,
+      },
+    };
+
+    if (headerText && headerText.trim()) {
+      interactivePayload.header = { type: 'text', text: headerText.trim().slice(0, 60) };
+    }
+    if (footerText && footerText.trim()) {
+      interactivePayload.footer = { text: footerText.trim().slice(0, 60) };
+    }
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'interactive',
+      interactive: interactivePayload,
+    };
+
+    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+
+    try {
+      console.log(
+        `[Meta Cloud API Outgoing Flow] Phone ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | Flow ID: ${flowId} | CTA: "${parameters.flow_cta}"`
+      );
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const resData = await response.json();
+
+      if (!response.ok || resData.error) {
+        let customErrorMsg = resData.error?.message || `Meta Cloud API error (HTTP ${response.status})`;
+        if (resData.error?.error_data?.details) {
+          customErrorMsg = `${customErrorMsg}: ${resData.error.error_data.details}`;
+        } else if (resData.error?.code === 131047 || resData.error?.code === 131051) {
+          customErrorMsg = 'The 24-hour WhatsApp customer service window has expired. A pre-approved template message is required to message this customer.';
+        } else if (resData.error?.code === 131030) {
+          customErrorMsg = `Recipient phone (+${cleanTo}) is not in Meta Allowed Numbers list (Development mode).`;
+        } else if (resData.error?.code === 190) {
+          customErrorMsg = `Meta Access Token Session Expired (#190): ${resData.error?.message || 'Please update META_ACCESS_TOKEN in .env'}`;
+        }
+
+        console.warn(`[Meta Cloud API Send Flow Failed]: ${customErrorMsg}`);
+        return {
+          success: false,
+          error: customErrorMsg,
+          rawError: resData.error?.message,
+          errorCode: resData.error?.code,
+          errorSubcode: resData.error?.error_subcode,
+          errorType: resData.error?.type,
+          fbtraceId: resData.error?.fbtrace_id,
+          payload,
+        };
+      }
+
+      const wamid = resData.messages?.[0]?.id || `wamid_${Date.now()}`;
+      const messageStatus = resData.messages?.[0]?.message_status || 'accepted';
+
+      // Persist outbound dispatch in whatsapp_message_logs
+      try {
+        await query(
+          `INSERT INTO whatsapp_message_logs (
+             wamid, recipient_phone, template_name, sender_phone_id,
+             status, raw_payload, raw_response, accepted_at, updated_at
+           ) VALUES ($1, $2, 'flow_message', $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (wamid) DO UPDATE SET
+             status = EXCLUDED.status,
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            wamid,
+            cleanTo,
+            creds.phoneNumberId,
+            messageStatus,
+            JSON.stringify(payload),
+            JSON.stringify(resData),
+          ]
+        );
+      } catch (logErr) {
+        console.warn('[metaWhatsAppService] Failed to record flow message in whatsapp_message_logs:', logErr.message);
+      }
+
+      return {
+        success: true,
+        wamid,
+        metaMessageId: wamid,
+        flowId: String(flowId),
+        flowToken: resolvedFlowToken,
+        recipientPhone: cleanTo,
+        status: messageStatus,
+        timestamp: new Date().toISOString(),
+        metaResponse: resData,
+        payload,
+      };
+    } catch (err) {
+      console.error('[Meta Cloud API Fetch Flow Exception]:', err.message);
+      return {
+        success: false,
+        error: `Network connection failed: ${err.message}`,
       };
     }
   },
