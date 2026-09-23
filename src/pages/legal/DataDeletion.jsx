@@ -34,7 +34,7 @@ export default function DataDeletion() {
                 Overview & Commitment
               </h2>
               <p>
-                At <strong>[Registered Business Name]</strong> ("ARCO Communication"), we respect your privacy and provide transparent mechanisms for you to manage, disconnect, or permanently delete your account and associated data from our systems.
+                At <strong>ARCO Communication</strong> ("we", "us", or "our"), we respect your privacy and provide transparent mechanisms for you to manage, disconnect, or permanently delete your account and associated data from our systems.
               </p>
               <p>
                 In compliance with Meta Platform Policies and applicable data protection regulations, this page outlines what data can be deleted and the exact steps to submit a deletion request.
@@ -157,7 +157,7 @@ export default function DataDeletion() {
                 Processing Timeline
               </h2>
               <p>
-                We process verified data deletion requests within <strong>[Within 30 Days]</strong> of receipt. Once processed, the action is irreversible and deleted data cannot be recovered.
+                We process verified data deletion requests within <strong>30 days</strong> of receipt. Once processed, the action is irreversible and deleted data cannot be recovered.
               </p>
             </section>
 
@@ -182,10 +182,11 @@ export default function DataDeletion() {
                 For any questions regarding data deletion or privacy inquiries, please contact our data privacy team:
               </p>
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
-                <p><strong>Entity:</strong> [Registered Business Name]</p>
+                <p><strong>Registered Business Name:</strong> Arco</p>
+                <p><strong>Platform:</strong> ARCO Communication</p>
                 <p><strong>Privacy Email:</strong> <a href="mailto:contact@arcocommunication.com" className="text-red-600 font-semibold hover:underline">contact@arcocommunication.com</a></p>
-                <p><strong>Address:</strong> [Registered Business Address]</p>
-                <p><strong>Website:</strong> <a href="https://arcocommunication.com" className="text-slate-700 font-semibold hover:underline">https://arcocommunication.com</a></p>
+                <p><strong>Customer Support:</strong> <a href="mailto:support@arcocommunication.com" className="text-red-600 font-semibold hover:underline">support@arcocommunication.com</a></p>
+                <p><strong>Website:</strong> <a href="https://arco-communication.vercel.app" className="text-slate-700 font-semibold hover:underline">https://arco-communication.vercel.app</a></p>
               </div>
             </section>
 

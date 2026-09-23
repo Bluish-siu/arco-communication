@@ -182,6 +182,7 @@ export default function AppRoutes() {
         {/* Legal & Meta Compliance Pages */}
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/terms-of-service" element={<TermsOfService />} />
+        <Route path="/terms" element={<TermsOfService />} />
         <Route path="/data-deletion" element={<DataDeletion />} />
 
         {/* 11 Dedicated Product Landing Pages */}
