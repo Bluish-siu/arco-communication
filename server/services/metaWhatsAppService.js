@@ -1655,12 +1655,12 @@ export const metaWhatsAppService = {
   },
 
   // 6. Fetch Meta WhatsApp Flow Details by Flow ID
-  getFlow: async (flowId) => {
+  getFlow: async (flowId, userId = null) => {
     if (!flowId) {
       return { success: false, error: 'Flow ID is required' };
     }
 
-    const creds = await metaWhatsAppService.getCredentials();
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         success: false,

@@ -462,6 +462,7 @@ async function reportAsyncTest(name, fn) {
   });
 
   // =========================================================================
+  // =========================================================================
   // TEST 10: EXISTING INBOX REGRESSION
   // =========================================================================
   await reportAsyncTest('10. Existing Inbox Regression: getConversations returns list with active window & unread counts', async () => {
@@ -477,6 +478,232 @@ async function reportAsyncTest(name, fn) {
     assert(Array.isArray(inboxData.data), 'Expected array of conversations');
   });
 
+  // =========================================================================
+  // TEST 11: FIRST FLOW SYNC -> INSERT WITH REAL META FLOW ID
+  // =========================================================================
+  await reportAsyncTest('11. First Flow Sync: Inserts new flow using real Meta Flow ID and returns valid record', async () => {
+    const testSyncFlowId = `sync_flow_${Date.now()}`;
+    const testTenant = `usr_sync_t11_${Date.now()}`;
+
+    const origFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.includes('/flows')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: testSyncFlowId,
+                name: 'Test Customer Onboarding',
+                status: 'PUBLISHED',
+                categories: ['LEAD_GENERATION'],
+                validation_errors: [],
+              },
+            ],
+          }),
+        };
+      }
+      return origFetch(url, opts);
+    };
+
+    try {
+      let resJson = null;
+      const mockRes = { json: (d) => { resJson = d; } };
+
+      await whatsappController.getFlows({ user: { id: testTenant }, query: {} }, mockRes, (err) => {
+        if (err) throw err;
+      });
+
+      assert(resJson !== null, 'getFlows should return JSON response');
+      assert.strictEqual(resJson.success, true);
+      const inserted = resJson.data.find((f) => f.metaFlowId === testSyncFlowId);
+      assert(inserted, 'Newly synced flow must be present in response');
+      assert.strictEqual(inserted.id, testSyncFlowId, 'Flow ID must match real Meta Flow ID');
+
+      // Verify row in database
+      const dbRow = await query('SELECT * FROM whatsapp_forms WHERE id = $1 AND user_id = $2', [testSyncFlowId, testTenant]);
+      assert.strictEqual(dbRow.rows.length, 1, 'Exactly 1 row must be inserted');
+      assert.strictEqual(dbRow.rows[0].id, testSyncFlowId, 'Row ID must be real Meta Flow ID');
+      assert.strictEqual(dbRow.rows[0].title, 'Test Customer Onboarding');
+    } finally {
+      global.fetch = origFetch;
+      await query('DELETE FROM whatsapp_forms WHERE user_id = $1', [testTenant]);
+    }
+  });
+
+  // =========================================================================
+  // TEST 12: SAME FLOW SYNCED AGAIN -> UPDATE / NO DUPLICATE ERROR
+  // =========================================================================
+  await reportAsyncTest('12. Same Flow Synced Again: Updates existing record without duplicate key error', async () => {
+    const testSyncFlowId = `sync_flow_${Date.now()}`;
+    const testTenant = `usr_sync_t12_${Date.now()}`;
+
+    // 1. Pre-insert the flow
+    await query(
+      `INSERT INTO whatsapp_forms (id, user_id, title, form_id, meta_flow_id, status, categories, validation_errors)
+       VALUES ($1, $2, 'Initial Name', $3, $4, 'draft', '[]', '[]')`,
+      [testSyncFlowId, testTenant, `flow_${testSyncFlowId}`, testSyncFlowId]
+    );
+
+    // Mock global fetch for WABA flows returning updated name & status
+    const origFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.includes('/flows')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: testSyncFlowId,
+                name: 'Updated Name by Meta',
+                status: 'PUBLISHED',
+                categories: ['CUSTOMER_SUPPORT'],
+                validation_errors: [],
+              },
+            ],
+          }),
+        };
+      }
+      return origFetch(url, opts);
+    };
+
+    try {
+      let resJson = null;
+      let errOccurred = null;
+      const mockRes = { json: (d) => { resJson = d; } };
+
+      await whatsappController.getFlows({ user: { id: testTenant }, query: {} }, mockRes, (err) => {
+        errOccurred = err;
+      });
+
+      assert.strictEqual(errOccurred, null, 'No error should occur on second sync');
+      assert(resJson !== null && resJson.success === true, 'getFlows should return success');
+
+      // Verify row was updated in database
+      const dbRows = await query('SELECT * FROM whatsapp_forms WHERE id = $1 AND user_id = $2', [testSyncFlowId, testTenant]);
+      assert.strictEqual(dbRows.rows.length, 1, 'Must still be exactly 1 row');
+      assert.strictEqual(dbRows.rows[0].title, 'Updated Name by Meta', 'Row title must be updated');
+      assert.strictEqual(dbRows.rows[0].status, 'published', 'Row status must be updated');
+    } finally {
+      global.fetch = origFetch;
+      await query('DELETE FROM whatsapp_forms WHERE user_id = $1', [testTenant]);
+    }
+  });
+
+  // =========================================================================
+  // TEST 13: MULTIPLE REPEATED SYNCS (10x) -> STILL ONE RECORD
+  // =========================================================================
+  await reportAsyncTest('13. Repeated Syncs: 10 consecutive sync calls produce zero errors and exactly 1 record', async () => {
+    const testSyncFlowId = `sync_flow_10x_${Date.now()}`;
+    const testTenant = `usr_sync_t13_${Date.now()}`;
+
+    const origFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.includes('/flows')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: testSyncFlowId,
+                name: 'Loop Flow',
+                status: 'PUBLISHED',
+                categories: ['LEAD_GENERATION'],
+                validation_errors: [],
+              },
+            ],
+          }),
+        };
+      }
+      return origFetch(url, opts);
+    };
+
+    try {
+      for (let i = 0; i < 10; i++) {
+        let resJson = null;
+        let errOccurred = null;
+        const mockRes = { json: (d) => { resJson = d; } };
+        await whatsappController.getFlows({ user: { id: testTenant }, query: {} }, mockRes, (err) => {
+          errOccurred = err;
+        });
+
+        assert.strictEqual(errOccurred, null, `Sync iteration ${i + 1} must not throw error`);
+        assert(resJson?.success === true, `Sync iteration ${i + 1} must return success: true`);
+      }
+
+      const rowsRes = await query('SELECT * FROM whatsapp_forms WHERE (id = $1 OR meta_flow_id = $1) AND user_id = $2', [testSyncFlowId, testTenant]);
+      assert.strictEqual(rowsRes.rows.length, 1, '10 sync iterations must result in exactly 1 database record');
+    } finally {
+      global.fetch = origFetch;
+      await query('DELETE FROM whatsapp_forms WHERE user_id = $1', [testTenant]);
+    }
+  });
+
+  // =========================================================================
+  // TEST 14: TENANT ISOLATION PRESERVED ACROSS FLOW SYNCS
+  // =========================================================================
+  await reportAsyncTest('14. Tenant Isolation: Flow belonging to Tenant A cannot be overwritten by Tenant B', async () => {
+    const flowId = `flow_shared_id_${Date.now()}`;
+    const tenantA = `usr_tenant_a_${Date.now()}`;
+    const tenantB = `usr_tenant_b_${Date.now()}`;
+
+    // 1. Insert flow for Tenant A
+    await query(
+      `INSERT INTO whatsapp_forms (id, user_id, title, form_id, meta_flow_id, status)
+       VALUES ($1, $2, 'Tenant A Secret Form', $3, $4, 'published')`,
+      [flowId, tenantA, `flow_${flowId}`, flowId]
+    );
+
+    // Mock fetch for Tenant B attempting to sync same Meta Flow ID with different title
+    const origFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.includes('/flows')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: flowId,
+                name: 'Tenant B Overwrite Attempt',
+                status: 'DRAFT',
+                categories: ['SURVEY'],
+                validation_errors: [],
+              },
+            ],
+          }),
+        };
+      }
+      return origFetch(url, opts);
+    };
+
+    try {
+      let bRes = null;
+      let bErr = null;
+      const mockResB = { json: (d) => { bRes = d; } };
+      await whatsappController.getFlows({ user: { id: tenantB }, query: {} }, mockResB, (err) => {
+        bErr = err;
+      });
+
+      assert.strictEqual(bErr, null, 'Tenant B sync should complete without crashing');
+      assert(bRes?.success === true, 'Tenant B sync should succeed');
+
+      // Verify Tenant A's record was NOT modified or overwritten
+      const checkA = await query('SELECT * FROM whatsapp_forms WHERE id = $1', [flowId]);
+      assert.strictEqual(checkA.rows.length, 1);
+      assert.strictEqual(checkA.rows[0].user_id, tenantA, 'Tenant A record user_id must remain Tenant A');
+      assert.strictEqual(checkA.rows[0].title, 'Tenant A Secret Form', 'Tenant A record title must not be overwritten');
+
+      // Verify Tenant B has their own isolated record
+      const checkB = await query('SELECT * FROM whatsapp_forms WHERE user_id = $1', [tenantB]);
+      assert.strictEqual(checkB.rows.length, 1, 'Tenant B must have their own isolated record');
+      assert.strictEqual(checkB.rows[0].user_id, tenantB);
+      assert.strictEqual(checkB.rows[0].meta_flow_id, flowId);
+    } finally {
+      global.fetch = origFetch;
+      await query('DELETE FROM whatsapp_forms WHERE user_id IN ($1, $2)', [tenantA, tenantB]);
+    }
+  });
+
   console.log('\n-------------------------------------------------------------');
   console.log(` RESULTS: ${passedTests}/${totalTests} Tests Passed`);
   console.log('-------------------------------------------------------------\n');
@@ -486,3 +713,4 @@ async function reportAsyncTest(name, fn) {
   console.error('\nTest Suite Fatal Error:', err);
   process.exit(1);
 });
+

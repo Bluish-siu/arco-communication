@@ -797,62 +797,68 @@ export const whatsappController = {
       }
 
       // Query Meta Graph API via metaWhatsAppService
-      const metaResult = await metaWhatsAppService.getFlow(flowId);
+      const metaResult = await metaWhatsAppService.getFlow(flowId, userId);
 
       // Also check local database whatsapp_forms for cached/existing form
       const localForm = await query(
-        `SELECT * FROM whatsapp_forms WHERE (meta_flow_id = $1 OR form_id = $1) AND user_id = $2 LIMIT 1`,
-        [String(flowId), userId]
+        `SELECT * FROM whatsapp_forms 
+         WHERE (id = $1 OR meta_flow_id = $1 OR form_id = $1 OR form_id = $2) 
+           AND user_id = $3 
+         LIMIT 1`,
+        [String(flowId), `flow_${flowId}`, userId]
       );
 
-      // If Meta returned flow details, sync into local DB whatsapp_forms
+      // If Meta returned flow details, sync into local DB whatsapp_forms idempotently
       if (metaResult.success) {
         const flowData = metaResult;
-        if (localForm.rows.length > 0) {
-          await query(
-            `UPDATE whatsapp_forms
-             SET status = $1, categories = $2, validation_errors = $3, json_version = $4,
-                 data_api_version = $5, endpoint_uri = $6, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $7`,
-            [
-              (flowData.status || 'published').toLowerCase(),
-              JSON.stringify(flowData.categories || []),
-              JSON.stringify(flowData.validationErrors || []),
-              flowData.jsonVersion,
-              flowData.dataApiVersion,
-              flowData.endpointUri,
-              localForm.rows[0].id,
-            ]
-          );
-        } else {
-          const newFormId = `form_${Date.now()}`;
-          await query(
-            `INSERT INTO whatsapp_forms (
-               id, user_id, title, description, form_id, meta_flow_id, status,
-               categories, validation_errors, json_version, data_api_version, endpoint_uri,
-               created_at, updated_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [
-              newFormId,
-              userId,
-              flowData.name || 'WhatsApp Flow',
-              `Meta Flow ${flowData.flowId}`,
-              `flow_${flowData.flowId}`,
-              flowData.flowId,
-              (flowData.status || 'published').toLowerCase(),
-              JSON.stringify(flowData.categories || []),
-              JSON.stringify(flowData.validationErrors || []),
-              flowData.jsonVersion,
-              flowData.dataApiVersion,
-              flowData.endpointUri,
-            ]
-          );
-        }
+        const targetId = localForm.rows.length > 0 ? localForm.rows[0].id : String(flowData.flowId);
+
+        await query(
+          `INSERT INTO whatsapp_forms (
+             id, user_id, title, description, form_id, meta_flow_id, status,
+             categories, validation_errors, json_version, data_api_version, endpoint_uri,
+             created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) DO UPDATE
+           SET title = COALESCE(NULLIF(EXCLUDED.title, ''), whatsapp_forms.title),
+               status = EXCLUDED.status,
+               categories = EXCLUDED.categories,
+               validation_errors = EXCLUDED.validation_errors,
+               json_version = EXCLUDED.json_version,
+               data_api_version = EXCLUDED.data_api_version,
+               endpoint_uri = EXCLUDED.endpoint_uri,
+               meta_flow_id = EXCLUDED.meta_flow_id,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE whatsapp_forms.user_id = EXCLUDED.user_id`,
+          [
+            targetId,
+            userId,
+            flowData.name || 'WhatsApp Flow',
+            `Meta Flow ${flowData.flowId}`,
+            `flow_${flowData.flowId}`,
+            String(flowData.flowId),
+            (flowData.status || 'published').toLowerCase(),
+            JSON.stringify(flowData.categories || []),
+            JSON.stringify(flowData.validationErrors || []),
+            flowData.jsonVersion,
+            flowData.dataApiVersion,
+            flowData.endpointUri,
+          ]
+        );
       }
+
+      // Re-query fresh local form state
+      const refreshedForm = await query(
+        `SELECT * FROM whatsapp_forms 
+         WHERE (id = $1 OR meta_flow_id = $1 OR form_id = $1 OR form_id = $2) 
+           AND user_id = $3 
+         LIMIT 1`,
+        [String(flowId), `flow_${flowId}`, userId]
+      );
 
       res.json({
         success: metaResult.success,
-        data: metaResult.success ? metaResult : localForm.rows[0] || null,
+        data: metaResult.success ? metaResult : refreshedForm.rows[0] || null,
         error: metaResult.error || null,
         errorCode: metaResult.errorCode || null,
       });
@@ -928,7 +934,7 @@ export const whatsappController = {
       const { search, status } = req.query;
 
       // 1. Fetch live flows from connected Meta WABA
-      const creds = await metaWhatsAppService.getCredentials();
+      const creds = await metaWhatsAppService.getCredentials(userId);
       let metaFlows = [];
       if (creds.isConfigured && creds.wabaId) {
         try {
@@ -951,70 +957,143 @@ export const whatsappController = {
         [userId]
       );
 
-      // 3. Merge/Sync live Meta flows with local database records
+      // 3. Merge/Sync live Meta flows with local database records idempotently
       for (const mf of metaFlows) {
+        if (!mf || !mf.id) continue;
+        const flowId = String(mf.id);
+        const normStatus = (mf.status || 'published').toLowerCase();
+        const flowTitle = mf.name || 'ARCO Flow';
+        const catsJson = JSON.stringify(mf.categories || []);
+        const errsJson = JSON.stringify(mf.validation_errors || []);
+
+        // Check if this tenant already has a record for this flow
         const existing = localFormsRes.rows.find(
-          (r) => r.meta_flow_id === mf.id || r.form_id === mf.id || r.form_id === `flow_${mf.id}`
+          (r) =>
+            String(r.id) === flowId ||
+            String(r.meta_flow_id) === flowId ||
+            String(r.form_id) === flowId ||
+            String(r.form_id) === `flow_${flowId}`
         );
+
         if (existing) {
-          // Update status & metadata if changed
-          const normStatus = (mf.status || 'published').toLowerCase();
-          if (existing.status !== normStatus || !existing.meta_flow_id) {
-            await query(
-              `UPDATE whatsapp_forms
-               SET status = $1, categories = $2, validation_errors = $3, meta_flow_id = $4, updated_at = CURRENT_TIMESTAMP
-               WHERE id = $5`,
-              [
-                normStatus,
-                JSON.stringify(mf.categories || []),
-                JSON.stringify(mf.validation_errors || []),
-                mf.id,
-                existing.id,
-              ]
-            );
-            existing.status = normStatus;
-            existing.categories = mf.categories || [];
-            existing.meta_flow_id = mf.id;
-          }
-        } else {
-          // Sync new Meta flow into local DB for this tenant
-          const newId = `form_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          // Idempotent UPDATE: update existing record in place
           await query(
-            `INSERT INTO whatsapp_forms (
-               id, user_id, title, description, form_id, meta_flow_id, status,
-               categories, validation_errors, created_at, updated_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            `UPDATE whatsapp_forms
+             SET title = COALESCE(NULLIF($1, ''), title),
+                 status = $2,
+                 categories = $3,
+                 validation_errors = $4,
+                 meta_flow_id = $5,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $6 AND user_id = $7`,
             [
-              newId,
+              flowTitle,
+              normStatus,
+              catsJson,
+              errsJson,
+              flowId,
+              existing.id,
               userId,
-              mf.name || 'ARCO Flow',
-              `Meta WhatsApp Flow (${mf.id})`,
-              `flow_${mf.id}`,
-              mf.id,
-              (mf.status || 'published').toLowerCase(),
-              JSON.stringify(mf.categories || []),
-              JSON.stringify(mf.validation_errors || []),
             ]
           );
-          localFormsRes.rows.unshift({
-            id: newId,
-            user_id: userId,
-            title: mf.name || 'ARCO Flow',
-            description: `Meta WhatsApp Flow (${mf.id})`,
-            form_id: `flow_${mf.id}`,
-            meta_flow_id: mf.id,
-            status: (mf.status || 'published').toLowerCase(),
-            categories: mf.categories || [],
-            validation_errors: mf.validation_errors || [],
-            response_count: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
+        } else {
+          // Check if a global record exists for another tenant to preserve isolation
+          const globalCheck = await query(
+            `SELECT id, user_id FROM whatsapp_forms WHERE id = $1 OR meta_flow_id = $1 OR form_id = $1 OR form_id = $2 LIMIT 1`,
+            [flowId, `flow_${flowId}`]
+          );
+
+          if (globalCheck.rows.length > 0 && globalCheck.rows[0].user_id === userId) {
+            // Already exists for this tenant
+            await query(
+              `UPDATE whatsapp_forms
+               SET title = COALESCE(NULLIF($1, ''), title),
+                   status = $2,
+                   categories = $3,
+                   validation_errors = $4,
+                   meta_flow_id = $5,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $6 AND user_id = $7`,
+              [
+                flowTitle,
+                normStatus,
+                catsJson,
+                errsJson,
+                flowId,
+                globalCheck.rows[0].id,
+                userId,
+              ]
+            );
+          } else if (globalCheck.rows.length > 0 && globalCheck.rows[0].user_id !== userId) {
+            // Belongs to a different tenant! Preserve tenant isolation:
+            // Do NOT overwrite other tenant's record; scope tenant identifier
+            const scopedId = `${userId}_${flowId}`;
+            const scopedFormId = `flow_${userId}_${flowId}`;
+            await query(
+              `INSERT INTO whatsapp_forms (
+                 id, user_id, title, description, form_id, meta_flow_id, status,
+                 categories, validation_errors, created_at, updated_at
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (id) DO UPDATE
+               SET title = EXCLUDED.title,
+                   status = EXCLUDED.status,
+                   categories = EXCLUDED.categories,
+                   validation_errors = EXCLUDED.validation_errors,
+                   meta_flow_id = EXCLUDED.meta_flow_id,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE whatsapp_forms.user_id = EXCLUDED.user_id`,
+              [
+                scopedId,
+                userId,
+                flowTitle,
+                `Meta WhatsApp Flow (${flowId})`,
+                scopedFormId,
+                flowId,
+                normStatus,
+                catsJson,
+                errsJson,
+              ]
+            );
+          } else {
+            // Brand new record: use the real Meta Flow ID as ID (requirement 8)
+            // Use ON CONFLICT (id) DO UPDATE to prevent duplicate key race conditions
+            await query(
+              `INSERT INTO whatsapp_forms (
+                 id, user_id, title, description, form_id, meta_flow_id, status,
+                 categories, validation_errors, created_at, updated_at
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (id) DO UPDATE
+               SET title = EXCLUDED.title,
+                   status = EXCLUDED.status,
+                   categories = EXCLUDED.categories,
+                   validation_errors = EXCLUDED.validation_errors,
+                   meta_flow_id = EXCLUDED.meta_flow_id,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE whatsapp_forms.user_id = EXCLUDED.user_id`,
+              [
+                flowId,
+                userId,
+                flowTitle,
+                `Meta WhatsApp Flow (${flowId})`,
+                `flow_${flowId}`,
+                flowId,
+                normStatus,
+                catsJson,
+                errsJson,
+              ]
+            );
+          }
         }
       }
 
-      // 4. Format flows response
-      let flows = localFormsRes.rows.map((row) => {
+      // 4. Query fresh synced forms from database for this tenant
+      const freshFormsRes = await query(
+        `SELECT * FROM whatsapp_forms WHERE user_id = $1 ORDER BY updated_at DESC`,
+        [userId]
+      );
+
+      // 5. Format flows response
+      let flows = freshFormsRes.rows.map((row) => {
         const rawCats = Array.isArray(row.categories)
           ? row.categories
           : (typeof row.categories === 'string' ? JSON.parse(row.categories || '[]') : []);
@@ -1068,7 +1147,7 @@ export const whatsappController = {
         return res.status(400).json({ success: false, error: 'Flow name is required' });
       }
 
-      const creds = await metaWhatsAppService.getCredentials();
+      const creds = await metaWhatsAppService.getCredentials(userId);
       let metaFlowId = null;
       let flowStatus = 'draft';
 
@@ -1089,7 +1168,7 @@ export const whatsappController = {
           });
           const metaData = await resp.json();
           if (metaData.id) {
-            metaFlowId = metaData.id;
+            metaFlowId = String(metaData.id);
             flowStatus = 'draft';
           } else if (metaData.error) {
             console.warn('[whatsappController] Meta Flow creation API returned error:', metaData.error.message);
@@ -1099,17 +1178,24 @@ export const whatsappController = {
         }
       }
 
-      // Save into whatsapp_forms table
-      const newFormId = `form_${Date.now()}`;
+      // Save into whatsapp_forms table using real Meta Flow ID if available
+      const targetId = metaFlowId ? String(metaFlowId) : `wf_${Date.now()}`;
       const uniqueFormCode = metaFlowId ? `flow_${metaFlowId}` : `wf_${Date.now()}`;
 
       await query(
         `INSERT INTO whatsapp_forms (
            id, user_id, title, description, form_id, meta_flow_id, status,
            categories, validation_errors, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE
+         SET title = EXCLUDED.title,
+             status = EXCLUDED.status,
+             categories = EXCLUDED.categories,
+             meta_flow_id = EXCLUDED.meta_flow_id,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE whatsapp_forms.user_id = EXCLUDED.user_id`,
         [
-          newFormId,
+          targetId,
           userId,
           name.trim(),
           `Flow ${name.trim()}`,
@@ -1124,7 +1210,7 @@ export const whatsappController = {
       res.status(201).json({
         success: true,
         data: {
-          id: newFormId,
+          id: targetId,
           name: name.trim(),
           category,
           status: flowStatus,
@@ -1136,6 +1222,7 @@ export const whatsappController = {
       next(error);
     }
   },
+
 
   // POST /api/whatsapp/send-flow-bulk (Creates and queues bulk Flow broadcast)
   sendFlowBulk: async (req, res, next) => {
