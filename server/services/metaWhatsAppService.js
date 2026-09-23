@@ -349,6 +349,7 @@ export const metaWhatsAppService = {
     headerImageUrl,
     headerMediaUrl,
     buttonPayloads = [],
+    userId = null,
   }) => {
     if (!to) {
       return { success: false, error: 'Recipient phone number is required' };
@@ -365,7 +366,7 @@ export const metaWhatsAppService = {
       };
     }
 
-    const creds = await metaWhatsAppService.getCredentials();
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         success: false,
@@ -381,7 +382,7 @@ export const metaWhatsAppService = {
     let foundTmpl = null;
 
     try {
-      const templatesRes = await metaWhatsAppService.getWhatsAppTemplates();
+      const templatesRes = await metaWhatsAppService.getWhatsAppTemplates(userId);
       foundTmpl = templatesRes.data?.find((t) => t.name === templateName) || templatesRes.approved?.find((t) => t.name === templateName);
       
       if (foundTmpl) {

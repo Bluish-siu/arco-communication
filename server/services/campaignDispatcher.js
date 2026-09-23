@@ -224,6 +224,7 @@ export async function dispatchBatch(campaign, recipients) {
           templateName: campaign.template_name || 'promo_offer',
           languageCode: campaign.template_language || 'en_US',
           variables: resolvedVariables,
+          userId: campaign.created_by,
         });
       }
 
@@ -363,11 +364,6 @@ export async function recalculateCampaignStats(campaignId) {
  * Enforces in-process concurrency guard (activeCampaignRuns) so the same campaign is not run twice.
  */
 export async function processCampaign(campaignId) {
-  if (activeCampaignRuns.has(campaignId)) {
-    console.log(`[Campaign Dispatcher] Campaign ${campaignId} is already actively running. Skipping duplicate trigger.`);
-    return;
-  }
-
   activeCampaignRuns.add(campaignId);
   try {
     const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [campaignId]);
@@ -424,12 +420,18 @@ export async function pollAndProcessDueCampaigns() {
   try {
     await client.query('BEGIN');
 
-    // 1. Claim campaigns that are due
+    // 1. Claim campaigns that are due or interrupted Sending campaigns with pending recipients
     const dueRes = await client.query(
       `SELECT c.id, c.status, c.scheduled_for
        FROM campaigns c
-       WHERE c.status = 'Scheduled'
-         AND (c.scheduled_for IS NULL OR c.scheduled_for <= CURRENT_TIMESTAMP)
+       WHERE (
+         (c.status = 'Scheduled' AND (c.scheduled_for IS NULL OR c.scheduled_for <= CURRENT_TIMESTAMP))
+         OR
+         (c.status = 'Sending' AND EXISTS (
+           SELECT 1 FROM campaign_recipients cr
+           WHERE cr.campaign_id = c.id AND cr.status = 'pending'
+         ))
+       )
        ORDER BY c.scheduled_for ASC NULLS FIRST
        LIMIT 20
        FOR UPDATE SKIP LOCKED`
@@ -454,6 +456,7 @@ export async function pollAndProcessDueCampaigns() {
     // Asynchronously dispatch the claimed campaigns
     for (const c of claimedCampaigns) {
       if (!activeCampaignRuns.has(c.id)) {
+        activeCampaignRuns.add(c.id);
         setImmediate(() => {
           processCampaign(c.id).catch((err) =>
             console.error(`[Campaign Dispatcher] Background execution error on ${c.id}:`, err.message)

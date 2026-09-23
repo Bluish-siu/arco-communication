@@ -9,6 +9,7 @@ import {
   dispatchBatch,
   recalculateCampaignStats,
   processCampaign,
+  pollAndProcessDueCampaigns,
   activeCampaignRuns,
 } from '../services/campaignDispatcher.js';
 
@@ -503,6 +504,16 @@ export const campaignController = {
         }
       }
 
+      // If campaign is scheduled for now or in the past, trigger background poller immediately
+      const isDueNow = !newCampaign.scheduled_for || new Date(newCampaign.scheduled_for) <= new Date();
+      if (newCampaign.status === 'Scheduled' && isDueNow) {
+        setImmediate(() => {
+          pollAndProcessDueCampaigns().catch((err) =>
+            console.warn('[Campaign Dispatcher] Immediate creation poll warning:', err.message)
+          );
+        });
+      }
+
       res.status(201).json({
         success: true,
         message: 'Campaign created and queued for delivery',
@@ -553,7 +564,7 @@ export const campaignController = {
       }
 
       // 3. Atomically transition campaign into 'Sending' ONLY IF it is currently in 'Scheduled', 'Draft', or 'Paused'
-      const updateRes = await query(
+      let updateRes = await query(
         `UPDATE campaigns
          SET status = 'Sending', sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND status IN ('Scheduled', 'Draft', 'Paused')
@@ -561,33 +572,56 @@ export const campaignController = {
         [id]
       );
 
+      let campaign;
       if (updateRes.rows.length === 0) {
-        const currentCampRes = await query('SELECT status FROM campaigns WHERE id = $1', [id]);
+        const currentCampRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
         if (currentCampRes.rows.length === 0) {
           return res.status(404).json({ success: false, error: 'Campaign not found' });
         }
-        const currentStatus = currentCampRes.rows[0].status;
+        campaign = currentCampRes.rows[0];
+        const currentStatus = campaign.status;
 
-        if (currentStatus === 'Sending' || activeCampaignRuns.has(id)) {
-          return res.status(409).json({
+        // If status is 'Sending' and no worker is actively running in memory, allow resumption if pending work remains
+        if (currentStatus === 'Sending') {
+          if (activeCampaignRuns.has(id)) {
+            return res.status(409).json({
+              success: false,
+              error: 'CAMPAIGN_ALREADY_SENDING',
+              message: 'Campaign dispatch is already in progress.',
+              data: { campaignId: id, status: 'Sending' },
+            });
+          }
+          const checkPending = await query(
+            `SELECT COUNT(*) as pending_count FROM campaign_recipients WHERE campaign_id = $1 AND status = 'pending'`,
+            [id]
+          );
+          const pendingCount = parseInt(checkPending.rows[0]?.pending_count || '0', 10);
+          if (pendingCount === 0) {
+            await query(
+              `UPDATE campaigns SET status = 'Completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [id]
+            );
+            return res.json({
+              success: true,
+              message: 'No pending recipients found for this campaign. Marked as Completed.',
+              data: { campaignId: id, status: 'Completed', remainingPending: 0 },
+            });
+          }
+          // Mark immediately to protect concurrent resumption requests
+          activeCampaignRuns.add(id);
+        } else {
+          return res.status(400).json({
             success: false,
-            error: 'CAMPAIGN_ALREADY_SENDING',
-            message: 'Campaign dispatch is already in progress.',
-            data: { campaignId: id, status: 'Sending' },
+            error: 'CAMPAIGN_CANNOT_BE_SENT',
+            message: `Campaign cannot be sent because it is in status: ${currentStatus}.`,
+            data: { campaignId: id, status: currentStatus },
           });
         }
-
-        return res.status(400).json({
-          success: false,
-          error: 'CAMPAIGN_CANNOT_BE_SENT',
-          message: `Campaign cannot be sent because it is in status: ${currentStatus}.`,
-          data: { campaignId: id, status: currentStatus },
-        });
+      } else {
+        campaign = updateRes.rows[0];
+        // Mark immediately to protect concurrent requests in the same tick
+        activeCampaignRuns.add(id);
       }
-
-      const campaign = updateRes.rows[0];
-      // Mark in-process active run immediately to protect concurrent async requests
-      activeCampaignRuns.add(id);
 
       // 4. Fetch Pending Recipients Count
       const pendingRes = await query(

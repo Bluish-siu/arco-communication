@@ -274,6 +274,9 @@ async function runAllTests() {
       // Run poller
       await pollAndProcessDueCampaigns();
 
+      // Wait for background worker to settle
+      await new Promise((r) => setTimeout(r, 200));
+
       // Check campaign status transitioned
       const checkRes = await pool.query('SELECT status FROM campaigns WHERE id = $1', [campId]);
       assert(
@@ -499,6 +502,246 @@ async function runAllTests() {
       // Cleanup
       await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
       await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
+    });
+
+    // -------------------------------------------------------------------------
+    // TEST 11: 1 Recipient Bulk Campaign: Pending recipient gets claimed & dispatched
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 11: 1 Recipient Bulk Campaign: Pending recipient gets claimed & dispatched to sent', async () => {
+      const campId = `cmp_t11_${Date.now()}`;
+      await pool.query(`
+        INSERT INTO campaigns (id, name, status, template_name, recipients, created_at, updated_at)
+        VALUES ($1, 'Test 1 Recipient Campaign', 'Scheduled', 'test_template', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [campId]);
+
+      await pool.query(`
+        INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted)
+        VALUES ('rcp_t11_1', $1, 'Single User', '919876543111', 'pending', true)
+      `, [campId]);
+
+      let dispatchedTo = null;
+      metaWhatsAppService.sendTemplateMessage = async ({ to }) => {
+        if (to === '919876543111') {
+          dispatchedTo = to;
+        }
+        return { success: true, wamid: 'wamid_t11_single' };
+      };
+
+      await processCampaign(campId);
+
+      const rcpCheck = await pool.query('SELECT status, meta_message_id FROM campaign_recipients WHERE id = $1', ['rcp_t11_1']);
+      assert.strictEqual(rcpCheck.rows[0].status, 'sent', 'Recipient status must become sent');
+      assert.strictEqual(rcpCheck.rows[0].meta_message_id, 'wamid_t11_single', 'Recipient must store wamid');
+      assert.strictEqual(dispatchedTo, '919876543111', 'Meta API must receive recipient phone');
+
+      const campCheck = await pool.query('SELECT status FROM campaigns WHERE id = $1', [campId]);
+      assert.strictEqual(campCheck.rows[0].status, 'Completed', 'Campaign must become Completed');
+
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
+      await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
+    });
+
+    // -------------------------------------------------------------------------
+    // TEST 12: 5 Recipient Bulk Campaign: All 5 pending claimed, dispatched, and campaign Completed
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 12: 5 Recipient Bulk Campaign: All 5 pending claimed, dispatched, and campaign Completed', async () => {
+      const campId = `cmp_t12_${Date.now()}`;
+      await pool.query(`
+        INSERT INTO campaigns (id, name, status, template_name, recipients, created_at, updated_at)
+        VALUES ($1, 'Test 5 Recipient Campaign', 'Scheduled', 'test_template', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [campId]);
+
+      for (let i = 1; i <= 5; i++) {
+        await pool.query(`
+          INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted)
+          VALUES ($1, $2, $3, $4, 'pending', true)
+        `, [`rcp_t12_${i}`, campId, `User ${i}`, `91987654320${i}`]);
+      }
+
+      const dispatchedPhones = [];
+      metaWhatsAppService.sendTemplateMessage = async ({ to }) => {
+        if (to.startsWith('91987654320')) {
+          dispatchedPhones.push(to);
+        }
+        return { success: true, wamid: `wamid_t12_${to}` };
+      };
+
+      await processCampaign(campId);
+
+      assert.strictEqual(dispatchedPhones.length, 5, 'All 5 recipients must be dispatched');
+      const rcpCheck = await pool.query('SELECT status FROM campaign_recipients WHERE campaign_id = $1 AND status = $2', [campId, 'sent']);
+      assert.strictEqual(rcpCheck.rows.length, 5, 'All 5 recipients must be in sent status');
+
+      const campCheck = await pool.query('SELECT status FROM campaigns WHERE id = $1', [campId]);
+      assert.strictEqual(campCheck.rows[0].status, 'Completed', 'Campaign must become Completed');
+
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
+      await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
+    });
+
+    // -------------------------------------------------------------------------
+    // TEST 13: Failed Meta Send Records Failure
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 13: Failed Meta send records error message & code, does not leave recipient pending', async () => {
+      const campId = `cmp_t13_${Date.now()}`;
+      await pool.query(`
+        INSERT INTO campaigns (id, name, status, template_name, recipients, created_at, updated_at)
+        VALUES ($1, 'Test Failure Recording', 'Scheduled', 'test_template', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [campId]);
+
+      await pool.query(`
+        INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted)
+        VALUES ('rcp_t13_1', $1, 'User Fail', '919876543299', 'pending', true)
+      `, [campId]);
+
+      metaWhatsAppService.sendTemplateMessage = async ({ to }) => {
+        if (to === '919876543299') {
+          return {
+            success: false,
+            error: 'Rate limit exceeded on phone number',
+            errorCode: 'RATE_LIMIT_130429',
+          };
+        }
+        return { success: true, wamid: `wamid_${to}` };
+      };
+
+      await processCampaign(campId);
+
+      const rcpCheck = await pool.query('SELECT status, error_message, error_code FROM campaign_recipients WHERE id = $1', ['rcp_t13_1']);
+      assert.strictEqual(rcpCheck.rows[0].status, 'failed', 'Recipient must be marked failed');
+      assert(rcpCheck.rows[0].error_message.includes('Rate limit exceeded'), 'Error message must be preserved');
+      assert.strictEqual(rcpCheck.rows[0].error_code, 'RATE_LIMIT_130429', 'Error code must be stored');
+
+      const campCheck = await pool.query('SELECT status, failure_count FROM campaigns WHERE id = $1', [campId]);
+      assert.strictEqual(campCheck.rows[0].status, 'Failed', 'Campaign with 100% failed recipients must become Failed');
+      assert.strictEqual(parseInt(campCheck.rows[0].failure_count, 10), 1, 'failure_count must be 1');
+
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
+      await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
+    });
+
+    // -------------------------------------------------------------------------
+    // TEST 14: Repeated Dispatch Does Not Send The Same Recipient Twice
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 14: Repeated dispatch is idempotent and does not re-send recipients already sent', async () => {
+      const campId = `cmp_t14_${Date.now()}`;
+      await pool.query(`
+        INSERT INTO campaigns (id, name, status, template_name, recipients, created_at, updated_at)
+        VALUES ($1, 'Test Idempotent Repeat', 'Sending', 'test_template', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [campId]);
+
+      // 1 already sent, 1 pending
+      await pool.query(`
+        INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted, meta_message_id)
+        VALUES ('rcp_t14_sent', $1, 'Already Sent', '919876543141', 'sent', true, 'wamid_existing_141')
+      `, [campId]);
+
+      await pool.query(`
+        INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted)
+        VALUES ('rcp_t14_pend', $1, 'Still Pending', '919876543142', 'pending', true)
+      `, [campId]);
+
+      const dispatched = [];
+      metaWhatsAppService.sendTemplateMessage = async ({ to }) => {
+        if (to.startsWith('91987654314')) {
+          dispatched.push(to);
+        }
+        return { success: true, wamid: `wamid_${to}` };
+      };
+
+      // Run dispatch batch
+      await processCampaign(campId);
+
+      assert.strictEqual(dispatched.length, 1, 'Exactly 1 message must be dispatched (the pending one)');
+      assert.strictEqual(dispatched[0], '919876543142', 'Must dispatch the pending recipient, NOT the already sent one');
+
+      // Run dispatch again immediately
+      await processCampaign(campId);
+      assert.strictEqual(dispatched.length, 1, 'Second run must not dispatch anything further');
+
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
+      await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
+    });
+
+    // -------------------------------------------------------------------------
+    // TEST 15: Background Scheduler Resumes Interrupted Sending Campaigns
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 15: Background poller resumes interrupted Sending campaigns with pending recipients', async () => {
+      const campId = `cmp_t15_${Date.now()}`;
+      // Campaign already in status 'Sending' (e.g. from server restart or prior abort)
+      await pool.query(`
+        INSERT INTO campaigns (id, name, status, template_name, recipients, created_at, updated_at)
+        VALUES ($1, 'Test Interrupted Resume', 'Sending', 'test_template', 1, CURRENT_TIMESTAMP - INTERVAL '10 minutes', CURRENT_TIMESTAMP)
+      `, [campId]);
+
+      await pool.query(`
+        INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted)
+        VALUES ('rcp_t15_1', $1, 'User Interrupted', '919876543151', 'pending', true)
+      `, [campId]);
+
+      let dispatchedTo = null;
+      metaWhatsAppService.sendTemplateMessage = async ({ to }) => {
+        if (to === '919876543151') {
+          dispatchedTo = to;
+        }
+        return { success: true, wamid: 'wamid_t15' };
+      };
+
+      // Run poller
+      await pollAndProcessDueCampaigns();
+
+      // Wait a tick for async background worker
+      await new Promise((r) => setTimeout(r, 200));
+
+      assert.strictEqual(dispatchedTo, '919876543151', 'Scheduler must pick up and dispatch the pending recipient');
+
+      const campCheck = await pool.query('SELECT status FROM campaigns WHERE id = $1', [campId]);
+      assert.strictEqual(campCheck.rows[0].status, 'Completed', 'Interrupted campaign must transition to Completed');
+
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
+      await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
+    });
+
+    // -------------------------------------------------------------------------
+    // TEST 16: Tenant Isolation Across Campaigns & Dispatch
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 16: Tenant Isolation: Tenant A campaign dispatch passes Tenant A userId and ignores Tenant B', async () => {
+      const tenantA = `usr_t16_a_${Date.now()}`;
+      const tenantB = `usr_t16_b_${Date.now()}`;
+
+      const campA = `cmp_t16_a_${Date.now()}`;
+      const campB = `cmp_t16_b_${Date.now()}`;
+
+      await pool.query(`
+        INSERT INTO campaigns (id, name, status, template_name, created_by, created_at, updated_at)
+        VALUES ($1, 'Tenant A Campaign', 'Scheduled', 'tmpl_a', $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+               ($3, 'Tenant B Campaign', 'Draft', 'tmpl_b', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [campA, tenantA, campB, tenantB]);
+
+      await pool.query(`
+        INSERT INTO campaign_recipients (id, campaign_id, name, phone, status, whatsapp_opted)
+        VALUES ('rcp_t16_a', $1, 'User A', '919876543161', 'pending', true),
+               ('rcp_t16_b', $2, 'User B', '919876543162', 'pending', true)
+      `, [campA, campB]);
+
+      let passedUserId = null;
+      metaWhatsAppService.sendTemplateMessage = async ({ to, userId }) => {
+        if (to === '919876543161') {
+          passedUserId = userId;
+        }
+        return { success: true, wamid: 'wamid_t16' };
+      };
+
+      await processCampaign(campA);
+
+      assert.strictEqual(passedUserId, tenantA, 'Tenant A created_by must be passed as userId to Meta service');
+
+      // Verify Tenant B was NOT touched
+      const bCheck = await pool.query('SELECT status FROM campaign_recipients WHERE id = $1', ['rcp_t16_b']);
+      assert.strictEqual(bCheck.rows[0].status, 'pending', 'Tenant B recipient must remain pending');
+
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id IN ($1, $2)', [campA, campB]);
+      await pool.query('DELETE FROM campaigns WHERE id IN ($1, $2)', [campA, campB]);
     });
 
   } finally {
