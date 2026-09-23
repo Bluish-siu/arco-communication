@@ -1009,8 +1009,8 @@ export const metaWhatsAppService = {
   },
 
   // 5. Fetch Real WhatsApp Message Templates from Meta Graph API
-  getWhatsAppTemplates: async () => {
-    const creds = await metaWhatsAppService.getCredentials();
+  getWhatsAppTemplates: async (userId = null) => {
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured || !creds.wabaId) {
       return {
         success: false,
@@ -1151,6 +1151,505 @@ export const metaWhatsAppService = {
       return {
         success: false,
         error: `Failed to fetch message templates from Meta Cloud API: ${err.message}`,
+      };
+    }
+  },
+
+  // Helper to validate and format template identifier name for Meta
+  validateAndFormatTemplateName: (name) => {
+    if (!name || typeof name !== 'string') {
+      return { isValid: false, error: 'Template name is required.' };
+    }
+    const clean = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+
+    if (!clean) {
+      return { isValid: false, error: 'Template name must contain alphanumeric characters.' };
+    }
+    if (clean.length > 512) {
+      return { isValid: false, error: 'Template name cannot exceed 512 characters.' };
+    }
+    return { isValid: true, name: clean };
+  },
+
+  // Helper to validate template variables syntax and consecutive numbering
+  validateTemplateVariables: (bodyText) => {
+    if (!bodyText) return { isValid: true, count: 0, variables: [] };
+
+    // Check for invalid non-numeric variables like {{name}}, {{user_id}}
+    const nonNumeric = bodyText.match(/\{\{([a-zA-Z_][\w]*)\}\}/g);
+    if (nonNumeric && nonNumeric.length > 0) {
+      return {
+        isValid: false,
+        error: `Invalid variable syntax: WhatsApp Cloud API requires numeric variables like {{1}}, {{2}}. Found: "${nonNumeric[0]}"`,
+      };
+    }
+
+    const matches = bodyText.match(/\{\{(\d+)\}\}/g) || [];
+    const nums = matches.map((m) => parseInt(m.replace(/\D/g, ''), 10));
+    const uniqueNums = Array.from(new Set(nums)).sort((a, b) => a - b);
+
+    if (uniqueNums.length === 0) {
+      return { isValid: true, count: 0, variables: [] };
+    }
+
+    if (uniqueNums[0] !== 1) {
+      return {
+        isValid: false,
+        error: `Variables must start with {{1}}. Found lowest variable: {{${uniqueNums[0]}}}`,
+      };
+    }
+
+    for (let i = 0; i < uniqueNums.length; i++) {
+      if (uniqueNums[i] !== i + 1) {
+        return {
+          isValid: false,
+          error: `Variables must be consecutive numbers with no gaps. Expected {{${i + 1}}} but found {{${uniqueNums[i]}}}.`,
+        };
+      }
+    }
+
+    return { isValid: true, count: uniqueNums.length, variables: uniqueNums };
+  },
+
+  // Build Meta WhatsApp Business Management API compliant payload
+  buildMetaTemplatePayload: ({ template, sampleValues = {}, headerHandle = null }) => {
+    if (!template) {
+      throw new Error('Template object is required to build Meta payload.');
+    }
+
+    // 1. Name validation
+    const nameCheck = metaWhatsAppService.validateAndFormatTemplateName(template.name);
+    if (!nameCheck.isValid) {
+      throw new Error(nameCheck.error);
+    }
+
+    // 2. Category mapping & validation
+    const rawCategory = String(template.category || 'MARKETING').toUpperCase();
+    let category = 'MARKETING';
+    if (rawCategory === 'UTILITY' || rawCategory === 'TRANSACTIONAL' || rawCategory === 'SERVICE_ALERTS') {
+      category = 'UTILITY';
+    } else if (rawCategory === 'AUTHENTICATION' || rawCategory === 'AUTH') {
+      category = 'AUTHENTICATION';
+    } else {
+      category = 'MARKETING';
+    }
+
+    // 3. Language code
+    const language = template.language || 'en_US';
+
+    // 4. Body component and variable validation
+    const bodyText = String(template.body || '').trim();
+    if (!bodyText) {
+      throw new Error('Message body text is required for template creation.');
+    }
+    if (bodyText.length > 1024) {
+      throw new Error('Message body text cannot exceed 1024 characters.');
+    }
+
+    const varCheck = metaWhatsAppService.validateTemplateVariables(bodyText);
+    if (!varCheck.isValid) {
+      throw new Error(varCheck.error);
+    }
+
+    const components = [];
+
+    // --- HEADER COMPONENT ---
+    const headerType = String(template.header_type || 'NONE').toUpperCase();
+    if (headerType === 'TEXT') {
+      const hText = String(template.header_text || '').trim();
+      if (!hText) {
+        throw new Error('Header text is required when Header Type is set to TEXT.');
+      }
+      if (hText.length > 60) {
+        throw new Error('Header text cannot exceed 60 characters.');
+      }
+      const headerComp = {
+        type: 'HEADER',
+        format: 'TEXT',
+        text: hText,
+      };
+      // Check for variables in header text (max 1 allowed in Meta header)
+      const hVars = hText.match(/\{\{(\d+)\}\}/g) || [];
+      if (hVars.length > 1) {
+        throw new Error('Header text can contain at most one variable {{1}}.');
+      } else if (hVars.length === 1) {
+        const sampleHeaderVal =
+          (sampleValues && (sampleValues.header || sampleValues.header_1 || sampleValues.var_header)) ||
+          'Sample';
+        headerComp.example = {
+          header_text: [String(sampleHeaderVal).trim() || 'Sample'],
+        };
+      }
+      components.push(headerComp);
+    } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType)) {
+      const headerComp = {
+        type: 'HEADER',
+        format: headerType,
+      };
+      if (headerHandle) {
+        headerComp.example = {
+          header_handle: [headerHandle],
+        };
+      }
+      components.push(headerComp);
+    }
+
+    // --- BODY COMPONENT ---
+    const bodyComp = {
+      type: 'BODY',
+      text: bodyText,
+    };
+    if (varCheck.count > 0) {
+      const samples = [];
+      for (let i = 1; i <= varCheck.count; i++) {
+        let val = '';
+        if (sampleValues) {
+          val =
+            sampleValues[`var_${i}`] ||
+            sampleValues[`Variable ${i}`] ||
+            sampleValues[String(i)] ||
+            (Array.isArray(sampleValues) ? sampleValues[i - 1] : '') ||
+            '';
+        }
+        samples.push(String(val).trim() || `Sample_${i}`);
+      }
+      bodyComp.example = {
+        body_text: [samples],
+      };
+    }
+    components.push(bodyComp);
+
+    // --- FOOTER COMPONENT ---
+    const footerText = String(template.footer || '').trim();
+    if (footerText) {
+      if (footerText.length > 60) {
+        throw new Error('Footer text cannot exceed 60 characters.');
+      }
+      if (/\{\{\d+\}\}/.test(footerText)) {
+        throw new Error('Footer text cannot contain variables in WhatsApp templates.');
+      }
+      components.push({
+        type: 'FOOTER',
+        text: footerText,
+      });
+    }
+
+    // --- BUTTONS COMPONENT ---
+    const rawButtons = Array.isArray(template.buttons)
+      ? template.buttons
+      : JSON.parse(template.buttons || '[]');
+
+    if (rawButtons.length > 0) {
+      if (rawButtons.length > 3) {
+        throw new Error('Maximum 3 buttons allowed for standard WhatsApp templates.');
+      }
+      const formattedButtons = [];
+      for (const btn of rawButtons) {
+        const bType = String(btn.type || 'QUICK_REPLY').toUpperCase();
+        const bText = String(btn.text || '').trim();
+        if (!bText) {
+          throw new Error('Button text cannot be empty.');
+        }
+        if (bText.length > 25) {
+          throw new Error(`Button text "${bText}" exceeds maximum 25 characters.`);
+        }
+
+        if (bType === 'QUICK_REPLY') {
+          formattedButtons.push({
+            type: 'QUICK_REPLY',
+            text: bText,
+          });
+        } else if (bType === 'URL') {
+          const urlStr = String(btn.url || '').trim();
+          if (!urlStr || (!urlStr.startsWith('http://') && !urlStr.startsWith('https://'))) {
+            throw new Error(`Button "${bText}" has an invalid URL. URLs must start with https:// or http://.`);
+          }
+          const hasDynamicVar = /\{\{1\}\}/.test(urlStr);
+          const urlObj = {
+            type: 'URL',
+            text: bText,
+            url: urlStr,
+          };
+          if (hasDynamicVar) {
+            urlObj.example = [btn.sampleUrl || 'https://example.com/sample'];
+          }
+          formattedButtons.push(urlObj);
+        } else if (bType === 'PHONE_NUMBER') {
+          const cleanPhone = String(btn.phone_number || '').trim();
+          if (!cleanPhone) {
+            throw new Error(`Button "${bText}" requires a phone number with country code.`);
+          }
+          formattedButtons.push({
+            type: 'PHONE_NUMBER',
+            text: bText,
+            phone_number: cleanPhone,
+          });
+        }
+      }
+
+      if (formattedButtons.length > 0) {
+        components.push({
+          type: 'BUTTONS',
+          buttons: formattedButtons,
+        });
+      }
+    }
+
+    return {
+      name: nameCheck.name,
+      category,
+      language,
+      components,
+    };
+  },
+
+  // Resumable upload for sample media asset to get Meta header_handle
+  uploadMediaForTemplateHeader: async ({ mediaUrl, creds }) => {
+    if (!mediaUrl || !creds?.accessToken) return null;
+    try {
+      let buffer = null;
+      let mimeType = 'image/jpeg';
+      let fileLength = 0;
+
+      if (mediaUrl.startsWith('data:')) {
+        const matches = mediaUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (matches) {
+          mimeType = matches[1];
+          buffer = Buffer.from(matches[2], 'base64');
+          fileLength = buffer.length;
+        }
+      } else if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) {
+        const res = await fetch(mediaUrl);
+        if (res.ok) {
+          mimeType = res.headers.get('content-type') || 'image/jpeg';
+          const arrayBuf = await res.arrayBuffer();
+          buffer = Buffer.from(arrayBuf);
+          fileLength = buffer.length;
+        }
+      }
+
+      if (!buffer || fileLength === 0) return null;
+
+      // Create Meta Resumable Upload session
+      const createSessionUrl = `https://graph.facebook.com/${creds.version}/app/uploads?file_length=${fileLength}&file_type=${encodeURIComponent(mimeType)}`;
+      const sessionRes = await fetch(createSessionUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+        },
+      });
+      const sessionData = await sessionRes.json();
+      if (!sessionRes.ok || !sessionData.id) {
+        console.warn('[Meta Cloud API] Failed to initiate header media upload session:', sessionData.error?.message || sessionData);
+        return null;
+      }
+
+      // Upload binary payload
+      const uploadUrl = `https://graph.facebook.com/${creds.version}/${sessionData.id}`;
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `OAuth ${creds.accessToken}`,
+          file_offset: '0',
+          'Content-Type': 'application/octet-stream',
+        },
+        body: buffer,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || !uploadData.h) {
+        console.warn('[Meta Cloud API] Failed to complete header media upload chunk:', uploadData.error?.message || uploadData);
+        return null;
+      }
+
+      return uploadData.h;
+    } catch (err) {
+      console.warn('[Meta Cloud API] uploadMediaForTemplateHeader exception:', err.message);
+      return null;
+    }
+  },
+
+  // Submit template to Meta WhatsApp Business Management API
+  createWhatsAppTemplate: async ({ template, sampleValues = {}, userId = null }) => {
+    // 1. Resolve tenant credentials (enforcing tenant isolation)
+    const creds = await metaWhatsAppService.getCredentials(userId);
+    if (!creds.isConfigured || !creds.wabaId || !creds.accessToken) {
+      return {
+        success: false,
+        error: 'WhatsApp Business Account (WABA) is not connected or WABA ID is missing. Please connect your Meta WhatsApp integration before submitting templates.',
+        missingFields: creds.missingFields || ['waba_id'],
+      };
+    }
+
+    // 2. Resolve header media handle if header requires media
+    let headerHandle = template.header_handle || null;
+    if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(template.header_type) && !headerHandle && template.header_media_url) {
+      headerHandle = await metaWhatsAppService.uploadMediaForTemplateHeader({
+        mediaUrl: template.header_media_url,
+        creds,
+      });
+    }
+
+    // 3. Build & validate Meta template payload
+    let metaPayload;
+    try {
+      metaPayload = metaWhatsAppService.buildMetaTemplatePayload({
+        template,
+        sampleValues,
+        headerHandle,
+      });
+    } catch (valErr) {
+      return {
+        success: false,
+        error: valErr.message,
+      };
+    }
+
+    // 4. Send POST request to Meta Graph API
+    const url = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates`;
+
+    try {
+      console.log(
+        `[Meta Cloud API Template Submit] WABA ID: ${creds.wabaId} | Template Name: "${metaPayload.name}" | Category: "${metaPayload.category}" | Language: "${metaPayload.language}" | Endpoint: ${url}`
+      );
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(metaPayload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        console.error('[Meta Cloud API Template Submit Error]:', JSON.stringify({
+          status: response.status,
+          errorCode: data.error?.code,
+          errorSubcode: data.error?.error_subcode,
+          errorMessage: data.error?.message,
+          errorType: data.error?.type,
+          fbtraceId: data.error?.fbtrace_id,
+        }));
+
+        let userErrorMsg = data.error?.message || `Meta API HTTP ${response.status}`;
+        if (data.error?.code === 100 && (data.error?.error_subcode === 2388001 || /already exists/i.test(data.error?.message || ''))) {
+          userErrorMsg = `A WhatsApp template with the name "${metaPayload.name}" and language "${metaPayload.language}" already exists in your connected WhatsApp Business Account. Please choose a different template name.`;
+        } else if (data.error?.code === 190) {
+          userErrorMsg = `Meta Access Token Session Expired (#190). Please reconnect your Meta WhatsApp integration or update the access token.`;
+        } else if (data.error?.code === 100 && /variable|example/i.test(data.error?.message || '')) {
+          userErrorMsg = `Meta rejected variable examples: ${data.error.message}`;
+        } else if (data.error?.code === 100 && /header_handle/i.test(data.error?.message || '')) {
+          userErrorMsg = `Meta requires a valid sample media file for ${template.header_type} headers. Please upload or select a valid media file.`;
+        }
+
+        return {
+          success: false,
+          error: userErrorMsg,
+          rawError: data.error?.message,
+          errorCode: data.error?.code,
+          errorSubcode: data.error?.error_subcode,
+          metaError: {
+            code: data.error?.code,
+            subcode: data.error?.error_subcode,
+            message: data.error?.message,
+          },
+          wabaId: creds.wabaId,
+          payload: metaPayload,
+        };
+      }
+
+      // 5. Successful submission (Meta returns { id: "...", status: "PENDING", category: "..." })
+      return {
+        success: true,
+        metaTemplateId: data.id,
+        metaStatus: data.status || 'PENDING',
+        category: data.category || metaPayload.category,
+        wabaId: creds.wabaId,
+        metaResponse: data,
+      };
+    } catch (err) {
+      console.error('[Meta Cloud API Template Submit Exception]:', err.message);
+      return {
+        success: false,
+        error: `Network error communicating with Meta Graph API: ${err.message}`,
+      };
+    }
+  },
+
+  // Synchronize actual Meta WhatsApp template statuses from Graph API
+  syncTemplatesWithMeta: async (userId = null) => {
+    const creds = await metaWhatsAppService.getCredentials(userId);
+    if (!creds.isConfigured || !creds.wabaId || !creds.accessToken) {
+      return {
+        success: false,
+        error: 'WHATSAPP_NOT_CONNECTED',
+        message: 'WhatsApp Business Account (WABA) is not connected or WABA ID is missing.',
+      };
+    }
+
+    const url = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates?limit=100`;
+
+    try {
+      console.log(`[Meta Cloud API] Syncing message templates from WABA ID ${creds.wabaId}...`);
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        return {
+          success: false,
+          error: data.error?.message || `Meta API HTTP ${response.status}`,
+          errorCode: data.error?.code,
+        };
+      }
+
+      const metaTemplates = Array.isArray(data.data) ? data.data : [];
+      let syncedCount = 0;
+
+      for (const mt of metaTemplates) {
+        const metaId = mt.id;
+        const metaName = mt.name;
+        const metaStatus = mt.status; // 'APPROVED', 'PENDING', 'REJECTED', 'PAUSED', 'DISABLED'
+        const rejectionReason = mt.rejected_reason || null;
+
+        const updateRes = await query(
+          `UPDATE whatsapp_templates 
+           SET meta_status = $1, 
+               status = $1, 
+               meta_template_id = $2, 
+               waba_id = $3, 
+               rejection_reason = $4, 
+               updated_at = CURRENT_TIMESTAMP 
+           WHERE (name = $5 OR meta_template_id = $2) AND user_id = $6`,
+          [metaStatus, metaId, creds.wabaId, rejectionReason, metaName, creds.tenantId || userId || 'usr_1']
+        );
+
+        if (updateRes.rowCount > 0) {
+          syncedCount += updateRes.rowCount;
+        }
+      }
+
+      return {
+        success: true,
+        syncedCount,
+        totalFromMeta: metaTemplates.length,
+        metaTemplates,
+      };
+    } catch (err) {
+      console.error('[Meta Cloud API Template Sync Exception]:', err.message);
+      return {
+        success: false,
+        error: `Failed to sync templates from Meta: ${err.message}`,
       };
     }
   },

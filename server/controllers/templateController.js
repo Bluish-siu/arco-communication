@@ -1,4 +1,5 @@
 import { query } from '../config/db.js';
+import { metaWhatsAppService } from '../services/metaWhatsAppService.js';
 
 // Helper to extract {{1}}, {{2}} variable numbers from body text
 function extractVariables(bodyText) {
@@ -213,7 +214,7 @@ export const templateController = {
         footer = '',
         buttons = [],
         variables = [],
-        status = 'PENDING',
+        status = 'DRAFT',
         createdBy = 'Shraddha Sharma',
       } = req.body;
 
@@ -457,29 +458,95 @@ export const templateController = {
     }
   },
 
-  // POST /api/templates/:id/submit (Submit for Meta Approval)
+  // POST /api/templates/:id/submit (Submit for REAL Meta Approval)
   submitTemplate: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
       const { id } = req.params;
+      const { sampleValues = {} } = req.body || {};
 
-      // Update status to APPROVED
-      const result = await query(
-        `UPDATE whatsapp_templates 
-         SET status = 'APPROVED', meta_status = 'APPROVED', meta_template_id = 'meta_tmpl_' || substr(md5(random()::text), 1, 10), updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $1 AND user_id = $2 
-         RETURNING *`,
+      // 1. Fetch template from DB (enforcing tenant isolation)
+      const tmplRes = await query(
+        'SELECT * FROM whatsapp_templates WHERE id = $1 AND user_id = $2 LIMIT 1',
         [id, userId]
       );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Template not found' });
+      if (tmplRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Template not found or unauthorized' });
+      }
+
+      const template = tmplRes.rows[0];
+
+      // 2. Submit to Meta WhatsApp Business Management API
+      const metaResult = await metaWhatsAppService.createWhatsAppTemplate({
+        template,
+        sampleValues,
+        userId,
+      });
+
+      if (!metaResult.success) {
+        // Record failure and rejection reason, do NOT mark APPROVED
+        const updateReject = await query(
+          `UPDATE whatsapp_templates 
+           SET meta_status = 'REJECTED', 
+               rejection_reason = $1, 
+               updated_at = CURRENT_TIMESTAMP 
+           WHERE id = $2 AND user_id = $3 
+           RETURNING *`,
+          [metaResult.error || 'Template submission rejected by Meta WhatsApp', id, userId]
+        );
+
+        return res.status(400).json({
+          success: false,
+          error: metaResult.error || 'Failed to submit template to Meta',
+          metaError: metaResult.metaError || null,
+          data: updateReject.rows[0],
+        });
+      }
+
+      // 3. Meta submission succeeded!
+      // Status returned by Meta is usually 'PENDING' (or in some cases 'APPROVED')
+      const initialMetaStatus = metaResult.metaStatus || 'PENDING';
+      const updatedRes = await query(
+        `UPDATE whatsapp_templates 
+         SET status = $1, 
+             meta_status = $2, 
+             meta_template_id = $3, 
+             waba_id = $4, 
+             rejection_reason = NULL, 
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $5 AND user_id = $6 
+         RETURNING *`,
+        [initialMetaStatus, initialMetaStatus, metaResult.metaTemplateId, metaResult.wabaId || null, id, userId]
+      );
+
+      res.json({
+        success: true,
+        message: `Template "${template.display_name || template.name}" successfully submitted to Meta! Current status: ${initialMetaStatus}.`,
+        metaTemplateId: metaResult.metaTemplateId,
+        metaStatus: initialMetaStatus,
+        data: updatedRes.rows[0],
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/templates/sync (Synchronize templates with Meta Graph API)
+  syncTemplates: async (req, res, next) => {
+    try {
+      const userId = req.user?.id || 'usr_1';
+      const syncResult = await metaWhatsAppService.syncTemplatesWithMeta(userId);
+
+      if (!syncResult.success) {
+        return res.status(400).json(syncResult);
       }
 
       res.json({
         success: true,
-        message: 'Template submitted and approved by Meta WhatsApp!',
-        data: result.rows[0],
+        message: `Successfully synchronized ${syncResult.syncedCount || 0} templates with Meta WhatsApp Business Platform.`,
+        syncedCount: syncResult.syncedCount,
+        totalFromMeta: syncResult.totalFromMeta,
       });
     } catch (error) {
       next(error);

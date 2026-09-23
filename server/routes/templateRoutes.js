@@ -19,6 +19,9 @@ router.get('/deleted', templateController.getDeletedTemplates);
 // POST /api/templates (Create template)
 router.post('/', templateController.createTemplate);
 
+// POST /api/templates/sync (Synchronize templates with Meta)
+router.post('/sync', templateController.syncTemplates);
+
 // GET /api/templates/:id (Single template)
 router.get('/:id', templateController.getTemplateById);
 

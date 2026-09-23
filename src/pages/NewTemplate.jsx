@@ -376,7 +376,7 @@ export default function NewTemplate() {
   // Submit for Meta Approval
   const handleSubmitForApproval = async () => {
     if (!name.trim() || !body.trim()) {
-      showToast('Please fill required fields before submitting', 'error');
+      showToast('Please fill required fields (Name and Body) before submitting', 'error');
       return;
     }
 
@@ -387,6 +387,13 @@ export default function NewTemplate() {
 
     if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && !headerMediaUrl) {
       showToast(`Please upload or select a sample ${headerType.toLowerCase()} header for Meta approval`, 'error');
+      return;
+    }
+
+    // Validate variables syntax
+    const nonNumeric = (body || '').match(/\{\{([a-zA-Z_][\w]*)\}\}/g);
+    if (nonNumeric && nonNumeric.length > 0) {
+      showToast(`Invalid variable syntax: WhatsApp template variables must be numbers like {{1}}, {{2}}. Found: "${nonNumeric[0]}"`, 'error');
       return;
     }
 
@@ -404,20 +411,36 @@ export default function NewTemplate() {
         footer,
         buttons,
         variables,
-        status: 'APPROVED',
+        status: 'DRAFT',
       };
 
+      let targetId = id;
       if (id) {
         await templateService.updateTemplate(id, payload);
-        await templateService.submitTemplate(id);
       } else {
         const created = await templateService.createTemplate(payload);
-        await templateService.submitTemplate(created.id);
+        targetId = created.id;
       }
-      showToast('Template submitted and APPROVED by Meta WhatsApp!');
+
+      // Submit to real Meta Graph API with sample values
+      const submitRes = await templateService.submitTemplate(targetId, {
+        sampleValues: sampleVarValues,
+      });
+
+      if (!submitRes || submitRes.success === false) {
+        throw new Error(submitRes?.error || 'Failed to submit template to Meta');
+      }
+
+      if (submitRes.metaStatus === 'APPROVED') {
+        showToast(`Template submitted and APPROVED by Meta! (ID: ${submitRes.metaTemplateId || targetId})`);
+      } else {
+        showToast(`Submitted to Meta! Status: PENDING REVIEW (ID: ${submitRes.metaTemplateId || targetId})`);
+      }
+
       navigate('/templates/list?channel_type=whatsapp&segment=active');
     } catch (err) {
-      showToast(err.message || 'Failed to submit template', 'error');
+      console.error('Submit for approval failed:', err);
+      showToast(err.message || 'Failed to submit template to Meta', 'error');
     } finally {
       setIsSubmitting(false);
     }

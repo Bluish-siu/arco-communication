@@ -93,11 +93,25 @@ export const templateService = {
   },
 
   // POST /api/templates/:id/submit
-  submitTemplate: async (id) => {
+  submitTemplate: async (id, payload = {}) => {
     const res = await apiRequest(`/templates/${id}/submit`, {
       method: 'POST',
+      body: JSON.stringify(payload),
     });
-    return res.data;
+    return res;
+  },
+
+  // POST /api/templates/sync
+  syncTemplates: async () => {
+    try {
+      const res = await apiRequest('/templates/sync', {
+        method: 'POST',
+      });
+      return res;
+    } catch (err) {
+      console.warn('[Template Service] syncTemplates failed:', err);
+      return { success: false, error: err.message };
+    }
   },
 
   // POST /api/templates/:id/test

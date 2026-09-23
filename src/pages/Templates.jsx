@@ -149,6 +149,22 @@ export default function Templates() {
     loadData();
   }, [currentSegment, searchTerm, selectedStatus, selectedCategories]);
 
+  // Synchronize templates with Meta WhatsApp Graph API
+  const handleSyncWithMeta = async () => {
+    setLoading(true);
+    try {
+      const syncRes = await templateService.syncTemplates();
+      if (syncRes && syncRes.success) {
+        showToast(`Synced ${syncRes.syncedCount || 0} templates from Meta WhatsApp Business Platform`);
+      } else if (syncRes && syncRes.error) {
+        showToast(syncRes.error, 'error');
+      }
+    } catch (e) {
+      console.warn('Sync failed:', e);
+    }
+    await loadData();
+  };
+
   // Use Template from Library
   const handleUseTemplate = (template) => {
     navigate('/templates/new', { state: { prefilled: template } });
@@ -235,6 +251,8 @@ export default function Templates() {
       case 'APPROVED':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'PENDING':
+      case 'PENDING REVIEW':
+      case 'PENDING_APPROVAL':
         return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'WAITING':
         return 'bg-blue-50 text-blue-700 border-blue-200';
@@ -242,8 +260,10 @@ export default function Templates() {
       case 'IN APPEAL':
         return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'REJECTED':
+      case 'REJECTED BY META':
         return 'bg-red-50 text-red-700 border-red-200';
       case 'DISABLED':
+      case 'PAUSED':
         return 'bg-gray-100 text-gray-600 border-gray-200';
       case 'PENDING_DELETION':
       case 'PENDING DELETION':
@@ -559,9 +579,9 @@ export default function Templates() {
 
                   <button
                     type="button"
-                    onClick={loadData}
+                    onClick={handleSyncWithMeta}
                     className="h-8 w-8 rounded border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 cursor-pointer shadow-2xs"
-                    title="Refresh Active Templates"
+                    title="Synchronize & Refresh from Meta WhatsApp"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                   </button>
@@ -632,7 +652,11 @@ export default function Templates() {
                                     tmpl.status
                                   )}`}
                                 >
-                                  {tmpl.status || 'DRAFT'}
+                                  {tmpl.status === 'PENDING'
+                                    ? 'PENDING REVIEW'
+                                    : tmpl.status === 'REJECTED'
+                                    ? 'REJECTED BY META'
+                                    : tmpl.status || 'DRAFT'}
                                 </span>
                               </td>
 
@@ -1015,7 +1039,15 @@ export default function Templates() {
               </div>
               <div>
                 <span className="text-gray-500 font-medium">Status:</span>{' '}
-                <span className="font-semibold text-emerald-800 uppercase">{previewTemplate.status}</span>
+                <span className={`font-semibold uppercase ${
+                  previewTemplate.status === 'APPROVED'
+                    ? 'text-emerald-700'
+                    : previewTemplate.status === 'REJECTED'
+                    ? 'text-red-700'
+                    : 'text-amber-700'
+                }`}>
+                  {previewTemplate.status === 'PENDING' ? 'PENDING REVIEW' : previewTemplate.status}
+                </span>
               </div>
               <div>
                 <span className="text-gray-500 font-medium">Language:</span>{' '}
@@ -1025,7 +1057,23 @@ export default function Templates() {
                 <span className="text-gray-500 font-medium">Created By:</span>{' '}
                 <span className="font-semibold text-gray-800">{previewTemplate.created_by || 'Shraddha Sharma'}</span>
               </div>
+              {previewTemplate.meta_template_id && (
+                <div className="col-span-2">
+                  <span className="text-gray-500 font-medium">Meta Template ID:</span>{' '}
+                  <span className="font-mono text-gray-800">{previewTemplate.meta_template_id}</span>
+                </div>
+              )}
             </div>
+
+            {/* Rejection Reason Notice */}
+            {previewTemplate.rejection_reason && (
+              <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Rejected by Meta:</span> {previewTemplate.rejection_reason}
+                </div>
+              </div>
+            )}
 
             {/* Footer Buttons */}
             <div className="pt-2 border-t border-gray-100 flex items-center justify-end gap-2">

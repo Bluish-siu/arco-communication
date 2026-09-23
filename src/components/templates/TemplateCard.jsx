@@ -57,9 +57,15 @@ export default function TemplateCard({
       case 'APPROVED':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'PENDING':
+      case 'PENDING REVIEW':
+      case 'PENDING_APPROVAL':
         return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'REJECTED':
+      case 'REJECTED BY META':
         return 'bg-red-50 text-red-700 border-red-200';
+      case 'PAUSED':
+      case 'DISABLED':
+        return 'bg-gray-100 text-gray-600 border-gray-200';
       default:
         return 'bg-slate-100 text-slate-700 border-slate-200';
     }
@@ -82,7 +88,11 @@ export default function TemplateCard({
                 template.status
               )}`}
             >
-              {template.status || 'DRAFT'}
+              {template.status === 'PENDING'
+                ? 'PENDING REVIEW'
+                : template.status === 'REJECTED'
+                ? 'REJECTED BY META'
+                : template.status || 'DRAFT'}
             </span>
           )}
         </div>
