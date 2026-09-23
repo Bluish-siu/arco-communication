@@ -1,10 +1,12 @@
 import { query } from './db.js';
 
-async function initWhatsAppTemplatesTables() {
+/**
+ * Idempotently initializes and migrates the WhatsApp templates schema.
+ * Adds waba_id and all necessary columns without destroying any existing data.
+ */
+export async function initWhatsAppTemplatesSchema() {
   try {
-    console.log('[PostgreSQL] Initializing WhatsApp Templates tables & seed data...');
-
-    // 1. Create whatsapp_templates table
+    // 1. Create table if not exists with all current columns including waba_id
     await query(`
       CREATE TABLE IF NOT EXISTS whatsapp_templates (
         id VARCHAR(255) PRIMARY KEY,
@@ -26,12 +28,42 @@ async function initWhatsAppTemplatesTables() {
         variables JSONB DEFAULT '[]',
         meta_template_id VARCHAR(255),
         meta_status VARCHAR(50),
+        waba_id VARCHAR(255),
         rejection_reason TEXT,
+        created_by VARCHAR(255) DEFAULT 'Shraddha Sharma',
         deleted_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-      )
+      );
+
+      -- Idempotent column migrations for existing tables
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS waba_id VARCHAR(255);
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS meta_template_id VARCHAR(255);
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS meta_status VARCHAR(50);
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR(255) DEFAULT 'Shraddha Sharma';
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS is_library_template BOOLEAN DEFAULT false;
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS library_category VARCHAR(50);
+
+      -- Idempotent indexes for fast lookup and tenant isolation
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_templates_user_id ON whatsapp_templates(user_id);
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_templates_status ON whatsapp_templates(status);
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_templates_waba_id ON whatsapp_templates(waba_id);
     `);
+    console.log('[PostgreSQL] WhatsApp templates schema verified (waba_id column verified).');
+    return true;
+  } catch (err) {
+    console.error('[PostgreSQL Error initializing WhatsApp templates schema]:', err.message);
+    return false;
+  }
+}
+
+export async function initWhatsAppTemplatesTables() {
+  try {
+    console.log('[PostgreSQL] Initializing WhatsApp Templates tables & seed data...');
+
+    // 1. Verify schema and idempotent columns (including waba_id)
+    await initWhatsAppTemplatesSchema();
 
     // 2. Seed WhatsApp Template Library (6 Categories matching Interakt UX)
     const libraryTemplates = [
@@ -409,12 +441,16 @@ async function initWhatsAppTemplatesTables() {
       console.log(`[PostgreSQL] Seeded ${activeUserTemplates.length} active user templates.`);
     }
 
-    console.log('[PostgreSQL] WhatsApp Templates table initialized successfully!');
   } catch (err) {
     console.error('Error initializing WhatsApp templates tables:', err);
-  } finally {
-    process.exit(0);
   }
 }
 
-initWhatsAppTemplatesTables();
+if (process.argv[1]?.endsWith('initWhatsAppTemplatesTables.js')) {
+  initWhatsAppTemplatesTables().then(() => {
+    process.exit(0);
+  }).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

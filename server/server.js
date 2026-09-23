@@ -15,6 +15,7 @@ import { migratePlaintextShopifyTokens } from './utils/crypto.js';
 import { initShopifyEventsTable } from './config/initShopifyEventsTable.js';
 import { initShopifySyncJobsTable } from './config/initShopifySyncJobsTable.js';
 import { initFlowSchema } from './config/initFlowTables.js';
+import { initWhatsAppTemplatesSchema } from './config/initWhatsAppTemplatesTables.js';
 
 const app = express();
 
@@ -111,6 +112,7 @@ const server = app.listen(PORT, HOST, async () => {
     await initShopifyEventsTable();
     await initShopifySyncJobsTable();
     await initFlowSchema();
+    await initWhatsAppTemplatesSchema();
     await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
     startCampaignScheduler(20000);
