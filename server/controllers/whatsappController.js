@@ -17,7 +17,7 @@ import { processCampaign } from '../services/campaignDispatcher.js';
  */
 export function normalizeWhatsAppInboundMessage(message) {
   if (!message || typeof message !== 'object') {
-    return { text: '[Message]', type: 'text', replyId: null };
+    return { text: '[Incoming Message]', type: 'text', replyId: null };
   }
 
   let messageText = '';
@@ -29,24 +29,25 @@ export function normalizeWhatsAppInboundMessage(message) {
   // 1. Text message
   if (message.text?.body && typeof message.text.body === 'string' && message.text.body.trim()) {
     messageText = message.text.body.trim();
+    messageType = 'text';
   }
   // 2. Interactive message (button_reply, list_reply, nfm_reply)
   else if (message.interactive) {
     const inter = message.interactive;
     if (inter.button_reply) {
-      messageText = (inter.button_reply.title || inter.button_reply.id || '').trim();
+      messageText = (inter.button_reply.title || inter.button_reply.text || inter.button_reply.id || '').trim();
       replyId = inter.button_reply.id || null;
       messageType = 'button_reply';
     } else if (inter.list_reply) {
-      messageText = (inter.list_reply.title || inter.list_reply.id || '').trim();
+      messageText = (inter.list_reply.title || inter.list_reply.text || inter.list_reply.id || '').trim();
       replyId = inter.list_reply.id || null;
       messageType = 'list_reply';
-    } else if (inter.type === 'button_reply' && inter.button_reply?.title) {
-      messageText = inter.button_reply.title.trim();
+    } else if (inter.type === 'button_reply' && (inter.button_reply?.title || inter.button_reply?.id)) {
+      messageText = (inter.button_reply.title || inter.button_reply.id || '').trim();
       replyId = inter.button_reply.id || null;
       messageType = 'button_reply';
-    } else if (inter.type === 'list_reply' && inter.list_reply?.title) {
-      messageText = inter.list_reply.title.trim();
+    } else if (inter.type === 'list_reply' && (inter.list_reply?.title || inter.list_reply?.id)) {
+      messageText = (inter.list_reply.title || inter.list_reply.id || '').trim();
       replyId = inter.list_reply.id || null;
       messageType = 'list_reply';
     } else if (inter.nfm_reply?.response_json) {
@@ -67,22 +68,56 @@ export function normalizeWhatsAppInboundMessage(message) {
             messageText = flowResponse.title || flowResponse.name || (flowResponse.screen ? `[Flow: ${flowResponse.screen}]` : '[Flow Response]');
           }
         } else {
-          messageText = '[Flow Response]';
+          messageText = inter.nfm_reply.body || '[Flow Response]';
         }
       } catch {
-        messageText = '[Flow Response]';
+        messageText = inter.nfm_reply?.body || '[Flow Response]';
       }
     } else if (inter.title && typeof inter.title === 'string') {
       messageText = inter.title.trim();
+      messageType = inter.type || 'interactive';
+    } else if (inter.body?.text && typeof inter.body.text === 'string') {
+      messageText = inter.body.text.trim();
+      messageType = inter.type || 'interactive';
+    } else {
+      messageText = '[Interactive Reply]';
+      messageType = 'interactive';
     }
   }
   // 3. Quick Reply button from template (e.g. "Book A Demo")
-  else if (message.button) {
-    messageText = (message.button.text || message.button.payload || '').trim();
-    replyId = message.button.payload || null;
+  else if (message.button || message.button_reply || message.type === 'button') {
+    const btn = message.button || message.button_reply || {};
+    const btnText = typeof btn === 'string'
+      ? btn
+      : (btn.text || btn.payload || btn.title || '');
+    messageText = String(btnText).trim();
+    replyId = (typeof btn === 'object' ? btn.payload : null) || null;
     messageType = 'button_reply';
+    if (!messageText) {
+      messageText = '[Button Reply]';
+    }
   }
-  // 4. Media & other types
+  // 4. Reactions
+  else if (message.reaction || message.type === 'reaction') {
+    const emoji = message.reaction?.emoji || '';
+    messageText = emoji ? `Reacted ${emoji}` : '[Reaction]';
+    messageType = 'reaction';
+  }
+  // 5. Stickers
+  else if (message.sticker || message.type === 'sticker') {
+    messageText = '[Sticker]';
+    messageType = 'sticker';
+  }
+  // 6. Meta Unsupported Type / Unknown payload
+  else if (message.type === 'unsupported') {
+    const errTitle = message.errors?.[0]?.title || message.errors?.[0]?.message || null;
+    const unsupType = message.unsupported?.type || null;
+    messageText = errTitle
+      ? `[${errTitle}]`
+      : (unsupType ? `[Unsupported: ${unsupType}]` : '[Unsupported message format]');
+    messageType = 'unsupported';
+  }
+  // 7. Media & other types
   else if (message.image) {
     messageText = message.image.caption || '[Image]';
     messageType = 'image';
@@ -90,7 +125,7 @@ export function normalizeWhatsAppInboundMessage(message) {
     messageText = message.document.filename || message.document.caption || '[Document]';
     messageType = 'document';
   } else if (message.audio) {
-    messageText = '[Audio message]';
+    messageText = message.audio.voice ? '[Voice message]' : '[Audio message]';
     messageType = 'audio';
   } else if (message.video) {
     messageText = message.video.caption || '[Video]';
@@ -103,11 +138,14 @@ export function normalizeWhatsAppInboundMessage(message) {
     messageText = `[Contact: ${cName}]`;
     messageType = 'contacts';
   } else {
-    messageText = '[Message]';
+    // Specific type-aware fallback rather than generic [Message]
+    messageText = messageType && messageType !== 'text'
+      ? `[${messageType.replace(/_/g, ' ')}]`
+      : '[Incoming Message]';
   }
 
   return {
-    text: messageText || '[Message]',
+    text: messageText || '[Incoming Message]',
     type: messageType,
     replyId,
     flowResponse,
@@ -161,106 +199,116 @@ export const whatsappController = {
       const body = req.body;
       console.log('[WhatsApp Webhook Event Received]:', JSON.stringify(body));
 
-      // Standard Meta WhatsApp Webhook payload format
-      const entry = body?.entry?.[0];
-      const changes = entry?.changes || [];
+      // Standard Meta WhatsApp Webhook payload format (supporting multi-entry batches)
+      const rawEntries = Array.isArray(body?.entry) ? body.entry : (body?.entry ? [body.entry] : []);
 
-      for (const changeItem of changes) {
-        const change = changeItem?.value;
-        if (!change) continue;
+      for (const entry of rawEntries) {
+        const changes = entry?.changes || [];
 
-        // 1. Process Inbound Customer Messages
-        const messages = change?.messages;
-        if (Array.isArray(messages) && messages.length > 0) {
-          for (const message of messages) {
-            const messageId = message.id;
-            const fromRaw = message.from;
-            if (!messageId || !fromRaw) continue;
+        for (const changeItem of changes) {
+          const change = changeItem?.value;
+          if (!change) continue;
 
-            const fromPhone = fromRaw.startsWith('+') ? fromRaw : `+${fromRaw}`;
-            const clean10 = fromRaw.slice(-10);
-            const senderProfileName =
-              change?.contacts?.find((c) => c.wa_id === fromRaw)?.profile?.name ||
-              change?.contacts?.[0]?.profile?.name ||
-              null;
-            const timestamp = message.timestamp
-              ? new Date(parseInt(message.timestamp, 10) * 1000)
-              : new Date();
+          // 1. Process Inbound Customer Messages
+          const messages = change?.messages;
+          if (Array.isArray(messages) && messages.length > 0) {
+            for (const message of messages) {
+              const messageId = message.id;
+              const fromRaw = message.from;
+              if (!messageId || !fromRaw) continue;
 
-            // Deduplication against messages table by meta_message_id
-            const existingMsg = await query(
-              'SELECT id FROM messages WHERE meta_message_id = $1 LIMIT 1',
-              [messageId]
-            );
-            if (existingMsg.rows.length > 0) {
-              console.log(`[WhatsApp Webhook] Duplicate inbound message ${messageId} already exists. Skipping.`);
-              continue;
-            }
+              const fromPhone = fromRaw.startsWith('+') ? fromRaw : `+${fromRaw}`;
+              const cleanDigits = String(fromRaw).replace(/\D/g, '');
+              const clean10 = cleanDigits.slice(-10);
+              const senderProfileName =
+                change?.contacts?.find((c) => c.wa_id === fromRaw)?.profile?.name ||
+                change?.contacts?.[0]?.profile?.name ||
+                null;
+              const timestamp = message.timestamp
+                ? new Date(parseInt(message.timestamp, 10) * 1000)
+                : new Date();
 
-            // A. Contact Lookup / Auto-Create
-            let contact = null;
-            const contactRes = await query(
-              `SELECT * FROM contacts WHERE phone = $1 OR phone = $2 OR phone LIKE '%' || $3 LIMIT 1`,
-              [fromPhone, fromRaw, clean10]
-            );
-
-            // Check for explicit opt-in / opt-out intent in message text
-            const rawBody = (message.text?.body || '').trim().toLowerCase();
-            const hasExplicitOptIn = ['start', 'unstop', 'optin', 'opt in'].includes(rawBody);
-            const hasExplicitOptOut = ['stop', 'unsubscribe', 'optout', 'opt out'].includes(rawBody);
-
-            if (contactRes.rows.length > 0) {
-              contact = contactRes.rows[0];
-
-              // Preserve existing consent value unless webhook contains an explicit consent change
-              if (hasExplicitOptOut && contact.whatsapp_opted !== false) {
-                await query('UPDATE contacts SET whatsapp_opted = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
-                contact.whatsapp_opted = false;
-              } else if (hasExplicitOptIn && contact.whatsapp_opted !== true) {
-                await query('UPDATE contacts SET whatsapp_opted = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
-                contact.whatsapp_opted = true;
-              }
-
-              if ((!contact.name || contact.name === 'Unknown' || contact.name === fromPhone) && senderProfileName) {
-                await query('UPDATE contacts SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
-                  senderProfileName,
-                  contact.id,
-                ]);
-                contact.name = senderProfileName;
-              }
-            } else {
-              const newContactId = `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-              const contactName = senderProfileName || `WhatsApp User (${clean10})`;
-
-              // Compliance: An inbound message indicates customer initiated communication,
-              // but must NOT automatically be treated as marketing opt-in.
-              // If no explicit opt-in exists, default to false per ARCO consent conventions.
-              const initialConsent = hasExplicitOptIn ? true : false;
-
-              const newContactRes = await query(
-                `INSERT INTO contacts (id, name, phone, email, whatsapp_opted, tag, status, owner, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                 RETURNING *`,
-                [
-                  newContactId,
-                  contactName,
-                  fromPhone,
-                  '',
-                  initialConsent,
-                  'Lead',
-                  'Open Lead',
-                  'Unassigned',
-                ]
+              // Deduplication against messages table by meta_message_id
+              const existingMsg = await query(
+                'SELECT id FROM messages WHERE meta_message_id = $1 LIMIT 1',
+                [messageId]
               );
-              contact = newContactRes.rows[0];
-            }
+              if (existingMsg.rows.length > 0) {
+                console.log(`[WhatsApp Webhook] Duplicate inbound message ${messageId} already exists. Skipping.`);
+                continue;
+              }
 
-            // B. Conversation Lookup / Auto-Create
-            let conv = null;
-            const convRes = await query(
-              `SELECT * FROM conversations WHERE (phone = $1 OR phone = $2 OR phone LIKE '%' || $3) AND channel = 'whatsapp' LIMIT 1`,
-              [fromPhone, fromRaw, clean10]
-            );
+              // A. Contact Lookup / Auto-Create
+              let contact = null;
+              const contactRes = await query(
+                `SELECT * FROM contacts
+                 WHERE phone = $1
+                    OR phone = $2
+                    OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3
+                 LIMIT 1`,
+                [fromPhone, fromRaw, clean10]
+              );
+
+              // Check for explicit opt-in / opt-out intent in message text
+              const rawBody = (message.text?.body || '').trim().toLowerCase();
+              const hasExplicitOptIn = ['start', 'unstop', 'optin', 'opt in'].includes(rawBody);
+              const hasExplicitOptOut = ['stop', 'unsubscribe', 'optout', 'opt out'].includes(rawBody);
+
+              if (contactRes.rows.length > 0) {
+                contact = contactRes.rows[0];
+
+                // Preserve existing consent value unless webhook contains an explicit consent change
+                if (hasExplicitOptOut && contact.whatsapp_opted !== false) {
+                  await query('UPDATE contacts SET whatsapp_opted = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
+                  contact.whatsapp_opted = false;
+                } else if (hasExplicitOptIn && contact.whatsapp_opted !== true) {
+                  await query('UPDATE contacts SET whatsapp_opted = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
+                  contact.whatsapp_opted = true;
+                }
+
+                if ((!contact.name || contact.name === 'Unknown' || contact.name === fromPhone) && senderProfileName) {
+                  await query('UPDATE contacts SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
+                    senderProfileName,
+                    contact.id,
+                  ]);
+                  contact.name = senderProfileName;
+                }
+              } else {
+                const newContactId = `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                const contactName = senderProfileName || `WhatsApp User (${clean10})`;
+
+                // Compliance: An inbound message indicates customer initiated communication,
+                // but must NOT automatically be treated as marketing opt-in.
+                // If no explicit opt-in exists, default to false per ARCO consent conventions.
+                const initialConsent = hasExplicitOptIn ? true : false;
+
+                const newContactRes = await query(
+                  `INSERT INTO contacts (id, name, phone, email, whatsapp_opted, tag, status, owner, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                   RETURNING *`,
+                  [
+                    newContactId,
+                    contactName,
+                    fromPhone,
+                    '',
+                    initialConsent,
+                    'Lead',
+                    'Open Lead',
+                    'Unassigned',
+                  ]
+                );
+                contact = newContactRes.rows[0];
+              }
+
+              // B. Conversation Lookup / Auto-Create
+              let conv = null;
+              const convRes = await query(
+                `SELECT * FROM conversations
+                 WHERE (phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+                   AND channel = 'whatsapp'
+                 LIMIT 1`,
+                [fromPhone, fromRaw, clean10]
+              );
 
             const timeStr = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -672,6 +720,7 @@ export const whatsappController = {
           }
         }
       }
+    }
 
       res.status(200).send('EVENT_RECEIVED');
     } catch (error) {

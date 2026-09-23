@@ -240,6 +240,27 @@ const initialConversations = [
   },
 ];
 
+// Resolves display text for inbox preview & bubble, providing friendly fallbacks for legacy '[Message]' records
+function getMessageDisplayText(msg) {
+  if (!msg) return '';
+  if (msg.text && msg.text !== '[Message]') {
+    return msg.text;
+  }
+  const type = (msg.messageType || '').toLowerCase();
+  if (type === 'button_reply' || type === 'button') return '[Quick Reply / Button]';
+  if (type === 'list_reply') return '[List Option Selected]';
+  if (type === 'nfm_reply') return '[Flow Submission]';
+  if (type === 'image') return '[Photo]';
+  if (type === 'video') return '[Video]';
+  if (type === 'audio') return '[Audio Message]';
+  if (type === 'document') return '[Document]';
+  if (type === 'location') return '[Location]';
+  if (type === 'reaction') return '[Reaction]';
+  if (type === 'sticker') return '[Sticker]';
+  if (type === 'unsupported') return '[Unsupported Message]';
+  return msg.text || '[Incoming Message]';
+}
+
 export default function Inbox() {
   const navigate = useNavigate();
   const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
@@ -476,6 +497,20 @@ export default function Inbox() {
         console.warn('Failed to mark conversation as read:', err);
       });
     }
+
+    // Refresh conversation messages from backend on select to ensure complete message history is displayed
+    inboxService
+      .getConversation(chatId)
+      .then((fullConv) => {
+        if (fullConv && fullConv.id) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === chatId ? { ...c, ...fullConv } : c))
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to refresh conversation on select:', err);
+      });
   };
 
   // Automatically mark currently open conversation as read if unread count > 0 (e.g. from background poll)
@@ -1335,7 +1370,7 @@ export default function Inbox() {
                         </div>
 
                         <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                          {lastMsg ? lastMsg.text : 'No messages'}
+                          {lastMsg ? getMessageDisplayText(lastMsg) : 'No messages'}
                         </p>
 
                         <div className="mt-1.5 flex items-center justify-between gap-1 flex-wrap">
@@ -1544,7 +1579,7 @@ export default function Inbox() {
                                 : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs shadow-xs'
                             }`}
                           >
-                            <p className="whitespace-pre-wrap">{msg.text}</p>
+                            <p className="whitespace-pre-wrap">{getMessageDisplayText(msg)}</p>
                           </div>
                           <div className="flex items-center gap-1 mt-1 px-1 text-[10px] text-slate-400">
                             <span>{msg.time}</span>
