@@ -40,6 +40,7 @@ import {
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { crmService } from '../services/crmService';
+import { formatDateTime, formatRelativeTime } from '../utils/dateUtils';
 
 // Available Date Range Presets
 const DATE_RANGES = [
@@ -211,15 +212,7 @@ export default function SalesCrmReports() {
 
   // Relative Time Helper
   const formatTimeAgo = (dateStr) => {
-    if (!dateStr) return 'Recently';
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diffHours = Math.floor((now - d) / (1000 * 60 * 60));
-    if (diffHours < 1) return 'Just now';
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays === 1) return 'Yesterday';
-    return `${diffDays}d ago`;
+    return formatRelativeTime(dateStr, { fallback: 'Recently' });
   };
 
   // Sorted and Filtered Agents
@@ -260,7 +253,7 @@ export default function SalesCrmReports() {
 
     // 1. Report Metadata & KPIs
     csvContent += 'ARCO SALES CRM - SUMMARY REPORT\r\n';
-    csvContent += `Generated At,${new Date().toLocaleString('en-IN')}\r\n`;
+    csvContent += `Generated At,${formatDateTime(new Date())}\r\n`;
     csvContent += `Date Range,${dateRange}\r\n`;
     csvContent += `Filtered Account Owner,${selectedOwner}\r\n`;
     csvContent += `Filtered Stage,${selectedStage}\r\n\r\n`;

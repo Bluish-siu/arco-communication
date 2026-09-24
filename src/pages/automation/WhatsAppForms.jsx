@@ -39,6 +39,7 @@ import DashboardSidebar from '../../components/dashboard/DashboardSidebar';
 import AutomationSubNav from '../../components/automation/AutomationSubNav';
 import AutomationSimulatorDrawer from '../../components/automation/AutomationSimulatorDrawer';
 import { automationService } from '../../services/automationService';
+import { formatDateTime } from '../../utils/dateUtils';
 
 // Standard Interakt Templates configuration matching all 5 presets
 const PRESET_TEMPLATES = {
@@ -1952,7 +1953,7 @@ export default function WhatsAppForms({ initialTab }) {
                         <span>{resp.contact_name || 'Anonymous User'}</span>
                       </div>
                       <span className="text-[10px] font-normal text-slate-400">
-                        {resp.contact_phone} • {resp.submitted_at || 'Just now'}
+                        {resp.contact_phone} • {resp.created_at || resp.submitted_at ? formatDateTime(resp.created_at || resp.submitted_at) : 'Just now'}
                       </span>
                     </div>
                     <div className="bg-white p-3 rounded-md border border-slate-200/70 text-xs space-y-1.5">

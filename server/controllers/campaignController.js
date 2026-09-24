@@ -12,6 +12,7 @@ import {
   pollAndProcessDueCampaigns,
   activeCampaignRuns,
 } from '../services/campaignDispatcher.js';
+import { toUtcIsoString } from '../utils/dateUtils.js';
 
 export const campaignController = {
   // POST /api/campaigns/send-test (Real Meta WhatsApp Cloud API Test Message Sender)
@@ -170,17 +171,17 @@ export const campaignController = {
         read: parseInt(c.calculated_read ?? c.read ?? 0, 10),
         replied: parseInt(c.calculated_replied ?? c.replied ?? 0, 10),
         failureCount: parseInt(c.calculated_failed ?? c.failure_count ?? 0, 10),
-        scheduledFor: c.scheduled_for,
-        sentAt: c.sent_at,
-        completedAt: c.completed_at,
+        scheduledFor: c.scheduled_for ? toUtcIsoString(c.scheduled_for) : null,
+        sentAt: c.sent_at ? toUtcIsoString(c.sent_at) : null,
+        completedAt: c.completed_at ? toUtcIsoString(c.completed_at) : null,
         description: c.description || '',
         templateName: c.template_name || '',
         templateLanguage: c.template_language || 'en_US',
         audienceType: c.audience_type || 'all',
         recurringConfig: c.recurring_config || {},
         createdBy: c.created_by || 'Shraddha',
-        createdAt: c.created_at,
-        updatedAt: c.updated_at,
+        createdAt: c.created_at ? toUtcIsoString(c.created_at) : null,
+        updatedAt: c.updated_at ? toUtcIsoString(c.updated_at) : null,
       }));
 
       res.json({ success: true, count: formatted.length, data: formatted });
@@ -253,10 +254,10 @@ export const campaignController = {
             readRate: `${readRate}%`,
             replyRate: `${replyRate}%`,
           },
-          scheduledFor: c.scheduled_for,
+          scheduledFor: c.scheduled_for ? toUtcIsoString(c.scheduled_for) : null,
           scheduleTimezone: c.schedule_timezone || 'Asia/Kolkata',
-          sentAt: c.sent_at,
-          completedAt: c.completed_at,
+          sentAt: c.sent_at ? toUtcIsoString(c.sent_at) : null,
+          completedAt: c.completed_at ? toUtcIsoString(c.completed_at) : null,
           audienceType: c.audience_type || 'all',
           audienceFilter: c.audience_filter || {},
           templateId: c.template_id,
@@ -268,8 +269,8 @@ export const campaignController = {
           recurringConfig: c.recurring_config || {},
           postCampaignReplyFlows: c.post_campaign_reply_flows || {},
           createdBy: c.created_by || 'Shraddha',
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
+          createdAt: c.created_at ? toUtcIsoString(c.created_at) : null,
+          updatedAt: c.updated_at ? toUtcIsoString(c.updated_at) : null,
         },
       });
     } catch (error) {
@@ -736,11 +737,12 @@ export const campaignController = {
           countryCode: r.country_code,
           whatsappOpted: r.whatsapp_opted,
           csvData: typeof r.csv_data === 'string' ? JSON.parse(r.csv_data || '{}') : r.csv_data,
-          sentAt: r.sent_at,
-          deliveredAt: r.delivered_at,
-          readAt: r.read_at,
-          repliedAt: r.replied_at,
-          failedAt: r.failed_at,
+          sentAt: r.sent_at ? toUtcIsoString(r.sent_at) : null,
+          deliveredAt: r.delivered_at ? toUtcIsoString(r.delivered_at) : null,
+          readAt: r.read_at ? toUtcIsoString(r.read_at) : null,
+          repliedAt: r.replied_at ? toUtcIsoString(r.replied_at) : null,
+          failedAt: r.failed_at ? toUtcIsoString(r.failed_at) : null,
+          createdAt: r.created_at ? toUtcIsoString(r.created_at) : null,
           errorMessage: r.error_message,
           errorCode: r.error_code,
         })),

@@ -31,6 +31,7 @@ import {
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { commerceService } from '../services/commerceService';
+import { formatDate } from '../utils/dateUtils';
 
 export default function OrderPanel() {
   const { user, businessSetup, logout } = useOnboarding();
@@ -619,11 +620,7 @@ export default function OrderPanel() {
                       {orders.map((ord) => {
                         const items = Array.isArray(ord.items) ? ord.items : JSON.parse(ord.items || '[]');
                         const totalQty = items.reduce((acc, i) => acc + (i.qty || i.quantity || 1), 0);
-                        const formattedCartDate = new Date(ord.cart_date || ord.created_at).toLocaleDateString('en-GB', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                        });
+                        const formattedCartDate = formatDate(ord.cart_date || ord.created_at);
                         const orderCurrency = resolveOrderCurrency(ord);
 
                         return (

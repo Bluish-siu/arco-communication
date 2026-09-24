@@ -54,6 +54,7 @@ import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { inboxService } from '../services/inboxService';
 import { contactsService } from '../services/contactsService';
+import { formatMessageTime, formatConversationTime } from '../utils/dateUtils';
 
 // 7 Pre-Approved Interakt & Meta Style Quick Replies
 const STANDARD_QUICK_REPLIES = [
@@ -624,11 +625,14 @@ export default function Inbox() {
 
     const msgText = messageInput.trim();
     const tempId = `m_${Date.now()}`;
+    const nowIso = new Date().toISOString();
     const newMsg = {
       id: tempId,
       sender: 'me',
       text: msgText,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: nowIso,
+      timestamp: nowIso,
+      createdAt: nowIso,
       status: 'sent',
       messageType: 'text',
     };
@@ -639,6 +643,7 @@ export default function Inbox() {
           return {
             ...c,
             lastMessageTime: 'Just now',
+            updatedAt: nowIso,
             replyStatus: 'replied_manually',
             messages: [...c.messages, newMsg],
           };
@@ -707,7 +712,9 @@ export default function Inbox() {
             id: `m_${Date.now()}`,
             sender: 'me',
             text: chatPayload.initialMessage,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            time: new Date().toISOString(),
+            timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
           },
         ],
       };
@@ -766,7 +773,9 @@ export default function Inbox() {
             id: `m_${Date.now()}`,
             sender: 'me',
             text: chatPayload.initialMessage,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            time: new Date().toISOString(),
+            timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
           },
         ],
       };
@@ -846,7 +855,9 @@ export default function Inbox() {
             id: `m_${Date.now()}`,
             sender: 'me',
             text: chatPayload.initialMessage,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            time: new Date().toISOString(),
+            timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
           },
         ],
       };
@@ -1365,7 +1376,7 @@ export default function Inbox() {
                         <div className="flex items-center justify-between gap-1">
                           <h4 className="text-xs font-bold text-slate-900 truncate">{chat.name}</h4>
                           <span className="text-[10px] text-slate-400 shrink-0 font-medium">
-                            {chat.lastMessageTime}
+                            {formatConversationTime(chat)}
                           </span>
                         </div>
 
@@ -1582,7 +1593,7 @@ export default function Inbox() {
                             <p className="whitespace-pre-wrap">{getMessageDisplayText(msg)}</p>
                           </div>
                           <div className="flex items-center gap-1 mt-1 px-1 text-[10px] text-slate-400">
-                            <span>{msg.time}</span>
+                            <span>{formatMessageTime(msg)}</span>
                             {isMe && (
                               <>
                                 {msg.status === 'read' ? (

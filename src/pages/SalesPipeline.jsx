@@ -46,6 +46,7 @@ import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { crmService } from '../services/crmService';
 import { contactsService } from '../services/contactsService';
+import { formatDate, formatRelativeTime } from '../utils/dateUtils';
 
 // WhatsApp SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -302,18 +303,7 @@ export default function SalesPipeline() {
 
   // Format relative timestamp
   const formatTimeAgo = (dateStr) => {
-    if (!dateStr) return 'Recently';
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffHours < 1) return 'Just now';
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 30) return `${diffDays}d ago`;
-    return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    return formatRelativeTime(dateStr, { fallback: 'Recently' });
   };
 
   // Drag & Drop Handlers

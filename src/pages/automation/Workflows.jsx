@@ -58,6 +58,7 @@ import DashboardSidebar from '../../components/dashboard/DashboardSidebar';
 import AutomationSubNav from '../../components/automation/AutomationSubNav';
 import AutomationSimulatorDrawer from '../../components/automation/AutomationSimulatorDrawer';
 import { automationService } from '../../services/automationService';
+import { formatDate } from '../../utils/dateUtils';
 
 const DEFAULT_USER_TRAITS = [
   'id',
@@ -5489,8 +5490,8 @@ export default function Workflows() {
 
                           {/* Created/Updated */}
                           <td className="py-4 px-4 whitespace-nowrap text-[11px] text-slate-500 leading-relaxed">
-                            <div>Created on {wf.created_at ? new Date(wf.created_at).toLocaleDateString('en-GB') : '04/09/2026'}</div>
-                            <div>Updated on {wf.updated_at ? new Date(wf.updated_at).toLocaleDateString('en-GB') : '04/09/2026'}</div>
+                            <div>Created on {wf.created_at ? formatDate(wf.created_at) : '—'}</div>
+                            <div>Updated on {wf.updated_at ? formatDate(wf.updated_at) : '—'}</div>
                           </td>
 
                           {/* 3-Dot Menu */}

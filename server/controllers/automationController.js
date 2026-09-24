@@ -1,5 +1,6 @@
 import { db, query } from '../config/db.js';
 import { workflowExecutionEngine } from '../services/workflowExecutionEngine.js';
+import { toUtcIsoString } from '../utils/dateUtils.js';
 
 export const automationController = {
   // =========================================================================
@@ -1604,7 +1605,12 @@ export const automationController = {
       const { formId } = req.params;
 
       const responses = await query('SELECT * FROM whatsapp_form_responses WHERE form_id = $1 AND user_id = $2 ORDER BY created_at DESC', [formId, userId]);
-      res.json({ success: true, count: responses.rows.length, data: responses.rows });
+      const mapped = responses.rows.map((r) => ({
+        ...r,
+        created_at: r.created_at ? toUtcIsoString(r.created_at) : null,
+        submitted_at: r.created_at ? toUtcIsoString(r.created_at) : null,
+      }));
+      res.json({ success: true, count: mapped.length, data: mapped });
     } catch (error) {
       next(error);
     }

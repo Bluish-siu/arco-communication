@@ -34,6 +34,7 @@ import {
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
+import { formatTime, formatDate, formatDateTime } from '../utils/dateUtils';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -334,7 +335,7 @@ export default function CampaignDetails() {
                 </div>
                 <div className="flex justify-between text-slate-500">
                   <span>Scheduled for:</span>
-                  <strong className="text-slate-800">{new Date(campaign.scheduledFor).toLocaleDateString()}</strong>
+                  <strong className="text-slate-800">{campaign.scheduledFor ? formatDate(campaign.scheduledFor) : 'Immediate'}</strong>
                 </div>
                 <div className="flex justify-between text-slate-500">
                   <span>Timezone:</span>
@@ -571,13 +572,13 @@ export default function CampaignDetails() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-500 text-[11px]">
-                          {rcp.sentAt ? new Date(rcp.sentAt).toLocaleTimeString() : '—'}
+                          {rcp.sentAt ? formatTime(rcp.sentAt) : '—'}
                         </td>
                         <td className="py-3 px-4 text-slate-500 text-[11px]">
-                          {rcp.deliveredAt ? new Date(rcp.deliveredAt).toLocaleTimeString() : '—'}
+                          {rcp.deliveredAt ? formatTime(rcp.deliveredAt) : '—'}
                         </td>
                         <td className="py-3 px-4 text-slate-500 text-[11px]">
-                          {rcp.readAt ? new Date(rcp.readAt).toLocaleTimeString() : '—'}
+                          {rcp.readAt ? formatTime(rcp.readAt) : '—'}
                         </td>
                       </tr>
                     ))
@@ -691,16 +692,16 @@ export default function CampaignDetails() {
                 <div className="space-y-3 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 font-medium">Created:</span>
-                    <span className="font-semibold text-slate-800">{new Date(campaign.createdAt).toLocaleString()}</span>
+                    <span className="font-semibold text-slate-800">{campaign.createdAt ? formatDateTime(campaign.createdAt) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 font-medium">Scheduled For:</span>
-                    <span className="font-semibold text-slate-800">{new Date(campaign.scheduledFor).toLocaleString()}</span>
+                    <span className="font-semibold text-slate-800">{campaign.scheduledFor ? formatDateTime(campaign.scheduledFor) : 'Immediate'}</span>
                   </div>
                   {campaign.sentAt && (
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500 font-medium">Sent At:</span>
-                      <span className="font-semibold text-emerald-700">{new Date(campaign.sentAt).toLocaleString()}</span>
+                      <span className="font-semibold text-emerald-700">{formatDateTime(campaign.sentAt)}</span>
                     </div>
                   )}
                 </div>

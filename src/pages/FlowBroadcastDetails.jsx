@@ -26,6 +26,7 @@ import {
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { flowsService } from '../services/flowsService';
+import { formatTime, formatDateTime } from '../utils/dateUtils';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -344,12 +345,12 @@ export default function FlowBroadcastDetails() {
                   <p className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-3">
                     <span>Flow: <strong className="text-gray-700 font-semibold">{broadcast.flowName || 'ARCO'}</strong> (ID: {broadcast.flowId})</span>
                     <span>•</span>
-                    <span>Created: {broadcast.createdAt ? new Date(broadcast.createdAt).toLocaleString() : 'Recently'}</span>
+                    <span>Created: {broadcast.createdAt ? formatDateTime(broadcast.createdAt) : 'Recently'}</span>
                     {broadcast.scheduledAt && (
                       <>
                         <span>•</span>
                         <span className="flex items-center gap-1 text-blue-600 font-medium">
-                          <Calendar className="w-3 h-3" /> Scheduled: {new Date(broadcast.scheduledAt).toLocaleString()}
+                          <Calendar className="w-3 h-3" /> Scheduled: {formatDateTime(broadcast.scheduledAt)}
                         </span>
                       </>
                     )}
@@ -551,7 +552,7 @@ export default function FlowBroadcastDetails() {
 
                             {/* Sent Time */}
                             <td className="py-3 px-4 text-[11px] text-gray-500">
-                              {r.sent_at ? new Date(r.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                              {r.sent_at ? formatTime(r.sent_at) : '—'}
                             </td>
 
                             {/* Error Details */}

@@ -31,6 +31,7 @@ import DashboardSidebar from '../../components/dashboard/DashboardSidebar';
 import AutomationSubNav from '../../components/automation/AutomationSubNav';
 import AutomationSimulatorDrawer from '../../components/automation/AutomationSimulatorDrawer';
 import { automationService } from '../../services/automationService';
+import { formatDate } from '../../utils/dateUtils';
 
 const EMOJI_LIST = [
   '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣',
@@ -829,11 +830,11 @@ export default function CustomAutoReply() {
                             <td className="py-3.5 px-4 whitespace-nowrap text-[11px] text-slate-500 leading-tight">
                               <div>
                                 Created on{' '}
-                                {new Date(reply.created_at || Date.now()).toLocaleDateString('en-GB')}
+                                {reply.created_at ? formatDate(reply.created_at) : '—'}
                               </div>
                               <div>
                                 Updated on{' '}
-                                {new Date(reply.updated_at || Date.now()).toLocaleDateString('en-GB')}
+                                {reply.updated_at ? formatDate(reply.updated_at) : '—'}
                               </div>
                             </td>
 

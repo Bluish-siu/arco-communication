@@ -19,6 +19,7 @@ import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { segmentsService } from '../services/segmentsService';
 import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
+import { formatDate } from '../utils/dateUtils';
 
 export default function Segments() {
   const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
@@ -366,7 +367,7 @@ export default function Segments() {
 
                           {/* Last Updated */}
                           <td className="py-3 px-4 text-gray-500 text-[11px]">
-                            {seg.updatedAt ? new Date(seg.updatedAt).toLocaleDateString() : 'Recently'}
+                            {seg.updatedAt ? formatDate(seg.updatedAt) : 'Recently'}
                           </td>
 
                           {/* Actions */}

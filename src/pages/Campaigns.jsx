@@ -21,6 +21,7 @@ import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
 import CreateCampaignWorkspace from '../components/campaigns/CreateCampaignWorkspace';
+import { formatDateTime } from '../utils/dateUtils';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -602,7 +603,7 @@ export default function Campaigns() {
 
                           {/* Scheduled / Sent At */}
                           <td className="py-3 px-4 text-gray-600 text-[11px]">
-                            {camp.scheduledFor ? new Date(camp.scheduledFor).toLocaleString() : 'Immediate'}
+                            {camp.scheduledFor ? formatDateTime(camp.scheduledFor) : 'Immediate'}
                           </td>
 
                           {/* Created By */}

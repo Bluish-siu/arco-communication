@@ -27,6 +27,7 @@ import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { tasksService } from '../services/tasksService';
 import { contactsService } from '../services/contactsService';
+import { formatTime, formatDate, parseToDate } from '../utils/dateUtils';
 
 // WhatsApp SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -209,14 +210,15 @@ export default function Tasks() {
   // Format Due Date & Calendar Badges
   const formatDueDisplay = (dateStr) => {
     if (!dateStr) return { text: 'No Due Date', isOverdue: false, isToday: false, dateFormatted: '—', timeStr: '' };
-    const d = new Date(dateStr);
+    const d = parseToDate(dateStr);
+    if (!d) return { text: 'No Due Date', isOverdue: false, isToday: false, dateFormatted: '—', timeStr: '' };
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
     const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
-    const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-    const dateFormatted = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const timeStr = formatTime(d);
+    const dateFormatted = formatDate(d);
 
     let label = `${dateFormatted} at ${timeStr}`;
     let isToday = diffDays === 0;
@@ -274,9 +276,19 @@ export default function Tasks() {
     setFormContactId(task.contactId || '');
     setFormAssignedTo(task.assignedTo || 'Shraddha');
     if (task.dueDate) {
-      const d = new Date(task.dueDate);
-      setFormDueDate(d.toISOString().split('T')[0]);
-      setFormDueTime(d.toTimeString().slice(0, 5) || '17:30');
+      const d = parseToDate(task.dueDate);
+      if (d) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        setFormDueDate(`${year}-${month}-${day}`);
+        setFormDueTime(`${hours}:${minutes}`);
+      } else {
+        setFormDueDate('');
+        setFormDueTime('17:30');
+      }
     } else {
       setFormDueDate('');
       setFormDueTime('17:30');
@@ -999,7 +1011,7 @@ export default function Tasks() {
                             </td>
 
                             <td className="py-3.5 px-4 text-slate-400 text-[11px]">
-                              {new Date(task.createdAt || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                              {formatDate(task.createdAt || Date.now())}
                             </td>
 
                             <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>

@@ -27,6 +27,7 @@ import {
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { flowsService } from '../services/flowsService';
+import { formatDate, formatDateTime } from '../utils/dateUtils';
 
 export default function Flows() {
   const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
@@ -586,13 +587,7 @@ export default function Flows() {
 
                           {/* Last Updated */}
                           <td className="py-3.5 px-4 text-gray-500 text-[11px]">
-                            {flow.updatedAt
-                              ? new Date(flow.updatedAt).toLocaleDateString(undefined, {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                })
-                              : 'Recently'}
+                            {flow.updatedAt ? formatDate(flow.updatedAt) : 'Recently'}
                           </td>
 
                           {/* Actions */}
@@ -813,10 +808,10 @@ export default function Flows() {
                             <td className="py-3.5 px-4 text-gray-500 text-[11px]">
                               {b.scheduledAt ? (
                                 <span className="text-blue-600 font-medium">
-                                  {new Date(b.scheduledAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  {formatDateTime(b.scheduledAt)}
                                 </span>
                               ) : (
-                                new Date(b.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                                formatDate(b.createdAt)
                               )}
                             </td>
                             <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -946,7 +941,7 @@ export default function Flows() {
                         <span className="text-gray-500">Created Date</span>
                         <span className="text-gray-700">
                           {selectedFlow.createdAt
-                            ? new Date(selectedFlow.createdAt).toLocaleString()
+                            ? formatDateTime(selectedFlow.createdAt)
                             : 'Verified'}
                         </span>
                       </div>
@@ -954,7 +949,7 @@ export default function Flows() {
                         <span className="text-gray-500">Last Updated / Published</span>
                         <span className="text-gray-700">
                           {selectedFlow.updatedAt
-                            ? new Date(selectedFlow.updatedAt).toLocaleString()
+                            ? formatDateTime(selectedFlow.updatedAt)
                             : 'Current'}
                         </span>
                       </div>

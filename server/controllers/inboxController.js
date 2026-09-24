@@ -1,5 +1,6 @@
 import { db, query } from '../config/db.js';
 import { metaWhatsAppService, isWithin24HourWindow } from '../services/metaWhatsAppService.js';
+import { toUtcIsoString } from '../utils/dateUtils.js';
 
 export const inboxController = {
   // GET /api/inbox/conversations
@@ -160,22 +161,27 @@ export const inboxController = {
           responseWindow: conv.last_inbound_at
             ? (isWithin24HourWindow(conv.last_inbound_at) ? 'active' : 'expired')
             : (conv.response_window || 'active'),
-          lastInboundAt: conv.last_inbound_at,
+          lastInboundAt: conv.last_inbound_at ? toUtcIsoString(conv.last_inbound_at) : null,
           isWithin24h: isWithin24HourWindow(conv.last_inbound_at),
           isSpam: conv.is_spam || false,
-          updatedAt: conv.updated_at,
-          createdAt: conv.created_at,
-          messages: msgsResult.rows.map((m) => ({
-            id: m.id,
-            sender: m.sender,
-            text: m.text,
-            time: m.time,
-            timestamp: m.timestamp || m.created_at,
-            metaMessageId: m.meta_message_id || null,
-            status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
-            errorMessage: m.error_message || null,
-            messageType: m.message_type || 'text',
-          })),
+          updatedAt: toUtcIsoString(conv.updated_at),
+          createdAt: toUtcIsoString(conv.created_at),
+          messages: msgsResult.rows.map((m) => {
+            const rawTime = m.created_at || m.timestamp;
+            const isoString = toUtcIsoString(rawTime);
+            return {
+              id: m.id,
+              sender: m.sender,
+              text: m.text,
+              time: m.time || isoString,
+              timestamp: isoString,
+              createdAt: isoString,
+              metaMessageId: m.meta_message_id || null,
+              status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
+              errorMessage: m.error_message || null,
+              messageType: m.message_type || 'text',
+            };
+          }),
         });
       }
 
@@ -195,7 +201,8 @@ export const inboxController = {
 
       const convId = `cnv_${Date.now()}`;
       const msgId = `m_${Date.now()}`;
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const now = new Date();
+      const isoNow = now.toISOString();
       const initialText = initialMessage || `Hi ${name.trim()}, thank you for connecting with ARCO Communication!`;
 
       const newConv = await db.insert('conversations', {
@@ -209,6 +216,8 @@ export const inboxController = {
         tag: 'New Contact',
         status_filter: 'open',
         assignee: 'Me',
+        created_at: now,
+        updated_at: now,
       });
 
       const newMsg = await db.insert('messages', {
@@ -216,7 +225,9 @@ export const inboxController = {
         conversation_id: convId,
         sender: 'me',
         text: initialText,
-        time: timeStr,
+        time: isoNow,
+        timestamp: now,
+        created_at: now,
         status: 'sent',
         message_type: 'text',
       });
@@ -234,12 +245,16 @@ export const inboxController = {
           tag: newConv.tag,
           statusFilter: newConv.status_filter,
           assignee: newConv.assignee,
+          createdAt: isoNow,
+          updatedAt: isoNow,
           messages: [
             {
               id: newMsg.id,
               sender: newMsg.sender,
               text: newMsg.text,
-              time: newMsg.time,
+              time: isoNow,
+              timestamp: isoNow,
+              createdAt: isoNow,
               status: newMsg.status || 'sent',
               messageType: newMsg.message_type || 'text',
             },
@@ -266,8 +281,9 @@ export const inboxController = {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
+      const now = new Date();
+      const isoNow = now.toISOString();
       const msgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const cleanText = text.trim();
 
       let metaMessageId = null;
@@ -301,7 +317,9 @@ export const inboxController = {
         conversation_id: id,
         sender: sender || 'me',
         text: cleanText,
-        time: timeStr,
+        time: isoNow,
+        timestamp: now,
+        created_at: now,
         meta_message_id: metaMessageId,
         status: msgStatus,
         error_message: errorMessage,
@@ -311,6 +329,7 @@ export const inboxController = {
       await db.update('conversations', id, {
         last_message_time: 'Just now',
         reply_status: 'replied_manually',
+        updated_at: now,
       });
 
       res.json({
@@ -319,8 +338,9 @@ export const inboxController = {
           id: newMsg.id,
           sender: newMsg.sender,
           text: newMsg.text,
-          time: newMsg.time,
-          timestamp: newMsg.timestamp || newMsg.created_at,
+          time: isoNow,
+          timestamp: isoNow,
+          createdAt: isoNow,
           metaMessageId: newMsg.meta_message_id,
           status: newMsg.status,
           errorMessage: newMsg.error_message,
@@ -421,11 +441,11 @@ export const inboxController = {
           assignee: conv.assignee || contact?.owner || 'Me',
           replyStatus: conv.reply_status || 'replied_manually',
           responseWindow: dynamicWindow,
-          lastInboundAt: conv.last_inbound_at,
+          lastInboundAt: conv.last_inbound_at ? toUtcIsoString(conv.last_inbound_at) : null,
           isWithin24h: is24h,
           isSpam: conv.is_spam || false,
-          updatedAt: conv.updated_at,
-          createdAt: conv.created_at,
+          updatedAt: toUtcIsoString(conv.updated_at),
+          createdAt: toUtcIsoString(conv.created_at),
           contact: contact
             ? {
                 id: contact.id,
@@ -455,17 +475,22 @@ export const inboxController = {
                 owner: conv.assignee || 'Me',
                 segment: 'Default',
               },
-          messages: msgsResult.rows.map((m) => ({
-            id: m.id,
-            sender: m.sender,
-            text: m.text,
-            time: m.time,
-            timestamp: m.timestamp || m.created_at,
-            metaMessageId: m.meta_message_id || null,
-            status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
-            errorMessage: m.error_message || null,
-            messageType: m.message_type || 'text',
-          })),
+          messages: msgsResult.rows.map((m) => {
+            const rawTime = m.created_at || m.timestamp;
+            const isoString = toUtcIsoString(rawTime);
+            return {
+              id: m.id,
+              sender: m.sender,
+              text: m.text,
+              time: m.time || isoString,
+              timestamp: isoString,
+              createdAt: isoString,
+              metaMessageId: m.meta_message_id || null,
+              status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
+              errorMessage: m.error_message || null,
+              messageType: m.message_type || 'text',
+            };
+          }),
         },
       });
     } catch (error) {

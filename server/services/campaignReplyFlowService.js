@@ -19,18 +19,19 @@ function matchesButton(configuredButton, incomingText, incomingId) {
 async function persistOutboundReply({ conversationId, text, metaMessageId }) {
   if (!conversationId || !text) return;
   try {
+    const now = new Date();
     const newMsgId = `m_crf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeIso = now.toISOString();
 
     await query(
       `INSERT INTO messages (
-         id, conversation_id, sender, text, time, meta_message_id,
+         id, conversation_id, sender, text, time, timestamp, meta_message_id,
          status, error_message, message_type, created_at
        ) VALUES (
-         $1, $2, 'agent', $3, $4, $5,
-         'sent', NULL, 'text', CURRENT_TIMESTAMP
+         $1, $2, 'agent', $3, $4, $5, $6,
+         'sent', NULL, 'text', $7
        )`,
-      [newMsgId, conversationId, text, timeStr, metaMessageId || null]
+      [newMsgId, conversationId, text, timeIso, now, metaMessageId || null, now]
     );
 
     await query(

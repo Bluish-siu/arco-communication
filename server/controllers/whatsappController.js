@@ -8,6 +8,7 @@ import {
   isWhatsAppOpted,
 } from '../services/metaWhatsAppService.js';
 import { processCampaign } from '../services/campaignDispatcher.js';
+import { parseMetaWebhookTimestamp, toUtcIsoString } from '../utils/dateUtils.js';
 /**
  * Normalizes an incoming WhatsApp message payload to extract clean text,
  * type, and interactive details (button_reply, list_reply, template buttons).
@@ -224,9 +225,7 @@ export const whatsappController = {
                 change?.contacts?.find((c) => c.wa_id === fromRaw)?.profile?.name ||
                 change?.contacts?.[0]?.profile?.name ||
                 null;
-              const timestamp = message.timestamp
-                ? new Date(parseInt(message.timestamp, 10) * 1000)
-                : new Date();
+              const timestamp = parseMetaWebhookTimestamp(message.timestamp);
 
               // Deduplication against messages table by meta_message_id
               const existingMsg = await query(
@@ -310,7 +309,7 @@ export const whatsappController = {
                 [fromPhone, fromRaw, clean10]
               );
 
-            const timeStr = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const timeIso = timestamp.toISOString();
 
             if (convRes.rows.length > 0) {
               conv = convRes.rows[0];
@@ -376,17 +375,18 @@ export const whatsappController = {
             const newMsgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             await query(
               `INSERT INTO messages (
-                 id, conversation_id, sender, text, time, meta_message_id,
+                 id, conversation_id, sender, text, time, timestamp, meta_message_id,
                  status, error_message, message_type, created_at
                ) VALUES (
-                 $1, $2, 'contact', $3, $4, $5,
-                 'delivered', NULL, $6, $7
+                 $1, $2, 'contact', $3, $4, $5, $6,
+                 'delivered', NULL, $7, $8
                )`,
               [
                 newMsgId,
                 conv.id,
                 messageText,
-                timeStr,
+                timeIso,
+                timestamp,
                 messageId,
                 messageType,
                 timestamp,
@@ -541,7 +541,7 @@ export const whatsappController = {
           for (const st of statuses) {
             const wamid = st.id;
             const statusVal = st.status; // 'sent' | 'delivered' | 'read' | 'failed'
-            const timestamp = st.timestamp ? new Date(parseInt(st.timestamp, 10) * 1000) : new Date();
+            const timestamp = parseMetaWebhookTimestamp(st.timestamp);
             const recipientPhone = st.recipient_id || '';
             const errMsg = st.errors?.[0]?.message || st.errors?.[0]?.title || null;
             const errCode = st.errors?.[0]?.code ? String(st.errors[0].code) : null;
@@ -1506,9 +1506,9 @@ export const whatsappController = {
           replied,
           failed,
           progressPercent,
-          scheduledFor: row.scheduled_for,
-          createdAt: row.created_at,
-          completedAt: row.completed_at,
+          scheduledFor: row.scheduled_for ? toUtcIsoString(row.scheduled_for) : null,
+          createdAt: row.created_at ? toUtcIsoString(row.created_at) : null,
+          completedAt: row.completed_at ? toUtcIsoString(row.completed_at) : null,
         };
       });
 
@@ -1597,10 +1597,10 @@ export const whatsappController = {
           readRate: `${readRate}%`,
           templatePayload: payload,
           variableMapping: typeof row.variable_mapping === 'string' ? JSON.parse(row.variable_mapping || '{}') : row.variable_mapping,
-          scheduledFor: row.scheduled_for,
-          createdAt: row.created_at,
-          sentAt: row.sent_at,
-          completedAt: row.completed_at,
+          scheduledFor: row.scheduled_for ? toUtcIsoString(row.scheduled_for) : null,
+          createdAt: row.created_at ? toUtcIsoString(row.created_at) : null,
+          sentAt: row.sent_at ? toUtcIsoString(row.sent_at) : null,
+          completedAt: row.completed_at ? toUtcIsoString(row.completed_at) : null,
         },
       });
     } catch (error) {
@@ -1665,7 +1665,14 @@ export const whatsappController = {
 
       res.json({
         success: true,
-        data: dataRes.rows,
+        data: dataRes.rows.map((r) => ({
+          ...r,
+          sent_at: r.sent_at ? toUtcIsoString(r.sent_at) : null,
+          delivered_at: r.delivered_at ? toUtcIsoString(r.delivered_at) : null,
+          read_at: r.read_at ? toUtcIsoString(r.read_at) : null,
+          failed_at: r.failed_at ? toUtcIsoString(r.failed_at) : null,
+          created_at: r.created_at ? toUtcIsoString(r.created_at) : null,
+        })),
         statusCounts,
         total,
         page,

@@ -43,6 +43,7 @@ import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { contactsService } from '../services/contactsService';
 import { segmentsService } from '../services/segmentsService';
+import { formatDate } from '../utils/dateUtils';
 import SelectSegmentDropdown from '../components/contacts/SelectSegmentDropdown';
 import TagFilterDropdown from '../components/contacts/TagFilterDropdown';
 import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
@@ -425,7 +426,7 @@ export default function Contacts() {
       c.status,
       c.whatsappOpted ? 'true' : 'false',
       c.value,
-      new Date(c.createdAt).toLocaleDateString(),
+      c.createdAt ? formatDate(c.createdAt) : '—',
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -942,7 +943,7 @@ export default function Contacts() {
                           {/* Created Date */}
                           {visibleColumns.createdAt && (
                             <td className="py-3.5 px-4 text-slate-500 font-medium text-[11px]">
-                              {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}
+                              {c.createdAt ? formatDate(c.createdAt) : '—'}
                             </td>
                           )}
 
