@@ -33,8 +33,9 @@ export default function CampaignReports() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const handleReportGenerated = (reportData) => {
-    showToast('Report generated successfully. Report has been sent to your email address.');
+  const handleReportGenerated = (reportData, customMessage) => {
+    const recipient = reportData?.recipientEmail || userEmail;
+    showToast(customMessage || `Report sent successfully to ${recipient}`);
     setRecentReports((prev) => [reportData, ...prev]);
   };
 

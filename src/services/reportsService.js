@@ -25,4 +25,13 @@ export const reportsService = {
     });
     return res;
   },
+
+  // POST /api/analytics/campaign-reports/email
+  emailReport: async (payload) => {
+    const res = await apiRequest('/analytics/campaign-reports/email', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res;
+  },
 };

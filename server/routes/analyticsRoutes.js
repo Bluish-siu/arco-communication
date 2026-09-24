@@ -17,5 +17,6 @@ router.get('/export', analyticsController.exportAnalytics);
 // Custom Campaign Reports endpoints (Replicating Interakt Analytics)
 router.get('/campaign-reports/campaigns', analyticsController.getCampaignsForReports);
 router.post('/campaign-reports/generate', analyticsController.generateCampaignReport);
+router.post('/campaign-reports/email', analyticsController.generateCampaignReport);
 
 export default router;

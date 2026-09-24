@@ -150,39 +150,27 @@ export default function GenerateReportModal({
         },
         campaignType,
         campaignIds: selectedCampaignIds,
-        email: userEmail,
       };
 
-      const res = await reportsService.generateReport(payload);
+      const res = await reportsService.emailReport(payload);
 
-      // Auto-trigger CSV download for convenience if CSV exists
-      if (res?.data?.csv) {
-        const blob = new Blob([res.data.csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute(
-          'download',
-          `${res.data.reportType}_campaign_report_${new Date().toISOString().slice(0, 10)}.csv`
-        );
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      const recipient = res?.recipientEmail || res?.data?.recipientEmail || userEmail;
+      const successMsg = res?.message || `Report sent successfully to ${recipient}`;
 
       if (onReportGenerated) {
-        onReportGenerated(res.data);
+        onReportGenerated(res.data, successMsg);
       }
 
       onClose();
     } catch (err) {
-      setErrorMessage(err.message || 'Unable to generate report. Please try again.');
+      const errorMsg = err.response?.data?.message || err.message || 'Unable to send report. Please try again.';
+      setErrorMessage(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const isFormValid = Boolean(reportType && !dateError && (!dateRangeType === 'custom' || (customFrom && customTo)));
+  const isFormValid = Boolean(reportType && !dateError && (dateRangeType !== 'custom' || (customFrom && customTo)));
 
   return (
     <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
@@ -404,7 +392,7 @@ export default function GenerateReportModal({
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Generating Report...</span>
+                    <span>Generating & Sending...</span>
                   </>
                 ) : (
                   <>

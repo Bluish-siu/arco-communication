@@ -22,6 +22,18 @@ export const config = {
   shopifyRedirectUri: process.env.SHOPIFY_REDIRECT_URI || 'http://localhost:5000/api/integrations/shopify/callback',
   shopifyWebhookBaseUrl: process.env.SHOPIFY_WEBHOOK_BASE_URL || 'https://arco-backend-ecbl.onrender.com',
   dbPath: path.join(__dirname, '../data/database.json'),
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+  },
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT, 10) || 587,
+    secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || (process.env.SMTP_USER ? `"ARCO Communication" <${process.env.SMTP_USER}>` : '"ARCO Communication" <no-reply@arco.com>'),
+  },
 };
 
 // Validate critical security secrets in production

@@ -1,4 +1,5 @@
 import { db, query } from '../config/db.js';
+import { emailService } from '../services/emailService.js';
 
 export const analyticsController = {
   // GET /api/analytics/dashboard
@@ -286,49 +287,87 @@ export const analyticsController = {
     }
   },
 
-  // POST /api/analytics/campaign-reports/generate
+  // POST /api/analytics/campaign-reports/generate & POST /api/analytics/campaign-reports/email
   generateCampaignReport: async (req, res, next) => {
     try {
-      const { reportType, dateRange, campaignType, campaignIds, email } = req.body;
-      const targetEmail = email || req.user?.email || 'owner@arco.com';
+      const { reportType, dateRange, campaignType, campaignIds } = req.body;
 
-      if (!reportType) {
-        return res.status(400).json({ success: false, message: 'Report type is required' });
+      // 1. Authoritative Server-side Recipient Resolution (Zero Trust for client-provided emails)
+      let targetEmail = req.user?.email;
+      const userId = req.user?.id;
+
+      if (!targetEmail && userId) {
+        const userRes = await query('SELECT email, business_setup FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length > 0) {
+          targetEmail = userRes.rows[0].email || userRes.rows[0].business_setup?.email;
+        }
       }
 
-      // Calculate Date Range Boundaries
-      const now = new Date();
+      if (!targetEmail && req.user?.phone) {
+        const userRes = await query('SELECT email, business_setup FROM users WHERE phone = $1', [req.user.phone]);
+        if (userRes.rows.length > 0) {
+          targetEmail = userRes.rows[0].email || userRes.rows[0].business_setup?.email;
+        }
+      }
+
+      if (!targetEmail || typeof targetEmail !== 'string' || !targetEmail.includes('@')) {
+        return res.status(400).json({
+          success: false,
+          message: 'No verified email address is associated with your authenticated account. Please update your profile with a valid email.',
+        });
+      }
+
+      // 2. Validate Report Type
+      if (!reportType || !['summary', 'detailed', 'ctwa'].includes(reportType)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid report type is required ("summary", "detailed", or "ctwa")',
+        });
+      }
+
+      // 3. Calculate Date Range Boundaries & Format Date Range Label
       let startDate = new Date();
       let endDate = new Date();
-
       const rangeType = dateRange?.type || 'last7days';
+      let dateRangeLabel = 'Last 7 days';
 
       switch (rangeType) {
         case 'today':
           startDate.setHours(0, 0, 0, 0);
           endDate.setHours(23, 59, 59, 999);
+          dateRangeLabel = 'Today';
           break;
         case 'yesterday':
           startDate.setDate(startDate.getDate() - 1);
           startDate.setHours(0, 0, 0, 0);
           endDate.setDate(endDate.getDate() - 1);
           endDate.setHours(23, 59, 59, 999);
+          dateRangeLabel = 'Yesterday';
           break;
         case 'last7days':
           startDate.setDate(startDate.getDate() - 7);
           startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          dateRangeLabel = 'Last 7 days';
           break;
         case 'last30days':
           startDate.setDate(startDate.getDate() - 30);
           startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          dateRangeLabel = 'Last 30 days';
           break;
         case 'custom':
-          if (!dateRange.from || !dateRange.to) {
+          if (!dateRange?.from || !dateRange?.to) {
             return res.status(400).json({ success: false, message: 'Custom date range requires From and To dates' });
           }
           startDate = new Date(dateRange.from);
+          startDate.setHours(0, 0, 0, 0);
           endDate = new Date(dateRange.to);
           endDate.setHours(23, 59, 59, 999);
+
+          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            return res.status(400).json({ success: false, message: 'Invalid dates provided for custom date range' });
+          }
 
           if (startDate > endDate) {
             return res.status(400).json({ success: false, message: 'From date cannot be after To date' });
@@ -338,17 +377,27 @@ export const analyticsController = {
           if (diffDays > 31) {
             return res.status(400).json({ success: false, message: 'Custom date range cannot exceed 31 days' });
           }
+          dateRangeLabel = `${dateRange.from} to ${dateRange.to}`;
           break;
         default:
           startDate.setDate(startDate.getDate() - 7);
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          dateRangeLabel = 'Last 7 days';
       }
 
+      // 4. Query Campaigns with Filters and Date Range Boundaries
       let sql = `
         SELECT id, name, type, channel, category, status, recipients, failure_count, scheduled_for, created_at
         FROM campaigns
         WHERE 1=1
       `;
       const params = [];
+
+      params.push(startDate.toISOString());
+      sql += ` AND created_at >= $${params.length}`;
+      params.push(endDate.toISOString());
+      sql += ` AND created_at <= $${params.length}`;
 
       if (campaignType && campaignType.toLowerCase() !== 'all') {
         params.push(campaignType.toLowerCase());
@@ -365,31 +414,35 @@ export const analyticsController = {
       const campResult = await query(sql, params);
       const campaigns = campResult.rows;
 
+      const dateStr = new Date().toISOString().slice(0, 10);
+      let reportTitle = '';
+      let filename = '';
+      let csv = '';
+      let reportData = {};
+
       if (reportType === 'ctwa') {
+        reportTitle = 'CTWA Ad Campaign Detailed Report';
+        filename = `arco-ctwa-detailed-report-${dateStr}.csv`;
         const ctwaCampaigns = campaigns.filter((c) => c.category === 'CTWA' || (c.name && c.name.toLowerCase().includes('ctwa')));
         
-        let csv = 'Campaign Name,Campaign Type,Ad ID,Impressions,Clicks,Conversations Started,Cost,Status\n';
+        csv = 'Campaign Name,Campaign Type,Ad ID,Impressions,Clicks,Conversations Started,Cost,Status\n';
         ctwaCampaigns.forEach((c) => {
           csv += `"${c.name}","${c.type}","ad_${c.id}",${(c.recipients || 100) * 3},${c.recipients || 100},${Math.round((c.recipients || 100) * 0.8)},"₹${((c.recipients || 100) * 1.5).toFixed(2)}","${c.status}"\n`;
         });
 
-        return res.json({
-          success: true,
-          message: 'Report generated successfully. Report has been sent to your email address.',
-          data: {
-            reportType: 'ctwa',
-            reportTitle: 'CTWA Ad Campaign Detailed Report',
-            recipientEmail: targetEmail,
-            generatedAt: new Date().toISOString(),
-            dateRange: { from: startDate.toISOString(), to: endDate.toISOString(), type: rangeType },
-            totalRecords: ctwaCampaigns.length,
-            rows: ctwaCampaigns,
-            csv,
-          },
-        });
-      }
-
-      if (reportType === 'detailed') {
+        reportData = {
+          reportType: 'ctwa',
+          reportTitle,
+          recipientEmail: targetEmail,
+          generatedAt: new Date().toISOString(),
+          dateRange: { from: startDate.toISOString(), to: endDate.toISOString(), type: rangeType, label: dateRangeLabel },
+          totalRecords: ctwaCampaigns.length,
+          rows: ctwaCampaigns,
+          csv,
+        };
+      } else if (reportType === 'detailed') {
+        reportTitle = 'Campaign Detailed Report';
+        filename = `arco-campaign-detailed-report-${dateStr}.csv`;
         const contactsRes = await query('SELECT id, name, phone, email, status FROM contacts LIMIT 50');
         const sampleContacts = contactsRes.rows.length > 0 ? contactsRes.rows : [
           { name: 'Ramesh Sharma', phone: '+919876543210', email: 'ramesh@example.com' },
@@ -398,7 +451,7 @@ export const analyticsController = {
         ];
 
         const detailedRows = [];
-        let csv = 'Campaign Name,Customer Name,Customer Phone,Attempted,Sent,Delivered,Read,Clicks,Failed,Status,Date\n';
+        csv = 'Campaign Name,Customer Name,Customer Phone,Attempted,Sent,Delivered,Read,Clicks,Failed,Status,Date\n';
 
         campaigns.forEach((camp) => {
           const count = Math.min(sampleContacts.length, 10);
@@ -425,72 +478,67 @@ export const analyticsController = {
           }
         });
 
-        return res.json({
-          success: true,
-          message: 'Report generated successfully. Report has been sent to your email address.',
-          data: {
-            reportType: 'detailed',
-            reportTitle: 'Campaign Detailed Report',
-            recipientEmail: targetEmail,
-            generatedAt: new Date().toISOString(),
-            dateRange: { from: startDate.toISOString(), to: endDate.toISOString(), type: rangeType },
-            totalRecords: detailedRows.length,
-            rows: detailedRows,
-            csv,
-          },
-        });
-      }
-
-      let totalAttempted = 0;
-      let totalSent = 0;
-      let totalDelivered = 0;
-      let totalRead = 0;
-      let totalFailed = 0;
-
-      const summaryRows = campaigns.map((camp) => {
-        const attempted = parseInt(camp.recipients || 0, 10);
-        const sent = attempted;
-        const failed = parseInt(camp.failure_count || (camp.status === 'Failed' ? attempted : 0), 10);
-        const delivered = Math.max(0, sent - failed);
-        const read = Math.round(delivered * 0.72);
-
-        totalAttempted += attempted;
-        totalSent += sent;
-        totalDelivered += delivered;
-        totalRead += read;
-        totalFailed += failed;
-
-        return {
-          id: camp.id,
-          name: camp.name,
-          type: camp.type === 'onetime' ? 'OneTime' : camp.type === 'ongoing' ? 'Ongoing' : 'API Campaign',
-          channel: camp.channel || 'whatsapp',
-          category: camp.category || 'Marketing',
-          status: camp.status || 'Completed',
-          attempts: attempted,
-          sent,
-          delivered,
-          read,
-          failed,
-          scheduledFor: camp.scheduled_for,
-          createdAt: camp.created_at,
-        };
-      });
-
-      let csv = 'Campaign Name,Campaign Type,Attempts,Sent,Delivered,Read,Failed,Status,Created At\n';
-      summaryRows.forEach((r) => {
-        csv += `"${r.name}","${r.type}",${r.attempts},${r.sent},${r.delivered},${r.read},${r.failed},"${r.status}","${r.createdAt}"\n`;
-      });
-
-      return res.json({
-        success: true,
-        message: 'Report generated successfully. Report has been sent to your email address.',
-        data: {
-          reportType: 'summary',
-          reportTitle: 'Campaign Summary Report',
+        reportData = {
+          reportType: 'detailed',
+          reportTitle,
           recipientEmail: targetEmail,
           generatedAt: new Date().toISOString(),
-          dateRange: { from: startDate.toISOString(), to: endDate.toISOString(), type: rangeType },
+          dateRange: { from: startDate.toISOString(), to: endDate.toISOString(), type: rangeType, label: dateRangeLabel },
+          totalRecords: detailedRows.length,
+          rows: detailedRows,
+          csv,
+        };
+      } else {
+        // summary (default)
+        reportTitle = 'Campaign Summary Report';
+        filename = `arco-campaign-summary-report-${dateStr}.csv`;
+        let totalAttempted = 0;
+        let totalSent = 0;
+        let totalDelivered = 0;
+        let totalRead = 0;
+        let totalFailed = 0;
+
+        const summaryRows = campaigns.map((camp) => {
+          const attempted = parseInt(camp.recipients || 0, 10);
+          const sent = attempted;
+          const failed = parseInt(camp.failure_count || (camp.status === 'Failed' ? attempted : 0), 10);
+          const delivered = Math.max(0, sent - failed);
+          const read = Math.round(delivered * 0.72);
+
+          totalAttempted += attempted;
+          totalSent += sent;
+          totalDelivered += delivered;
+          totalRead += read;
+          totalFailed += failed;
+
+          return {
+            id: camp.id,
+            name: camp.name,
+            type: camp.type === 'onetime' ? 'OneTime' : camp.type === 'ongoing' ? 'Ongoing' : 'API Campaign',
+            channel: camp.channel || 'whatsapp',
+            category: camp.category || 'Marketing',
+            status: camp.status || 'Completed',
+            attempts: attempted,
+            sent,
+            delivered,
+            read,
+            failed,
+            scheduledFor: camp.scheduled_for,
+            createdAt: camp.created_at,
+          };
+        });
+
+        csv = 'Campaign Name,Campaign Type,Attempts,Sent,Delivered,Read,Failed,Status,Created At\n';
+        summaryRows.forEach((r) => {
+          csv += `"${r.name}","${r.type}",${r.attempts},${r.sent},${r.delivered},${r.read},${r.failed},"${r.status}","${r.createdAt}"\n`;
+        });
+
+        reportData = {
+          reportType: 'summary',
+          reportTitle,
+          recipientEmail: targetEmail,
+          generatedAt: new Date().toISOString(),
+          dateRange: { from: startDate.toISOString(), to: endDate.toISOString(), type: rangeType, label: dateRangeLabel },
           totalRecords: summaryRows.length,
           totals: {
             totalCampaigns: summaryRows.length,
@@ -504,7 +552,35 @@ export const analyticsController = {
           },
           rows: summaryRows,
           csv,
-        },
+        };
+      }
+
+      // 5. Send Report Email with CSV Attachment
+      try {
+        await emailService.sendCampaignReportEmail({
+          to: targetEmail,
+          reportTitle,
+          dateRangeLabel,
+          filename,
+          csvContent: csv,
+          recordCount: reportData.totalRecords,
+        });
+      } catch (emailErr) {
+        console.error('[CAMPAIGN REPORT EMAIL ERROR]:', emailErr);
+        const isConfigErr = emailErr.message?.includes('not configured');
+        return res.status(502).json({
+          success: false,
+          message: isConfigErr
+            ? 'Email service is not yet configured on this server. Please configure RESEND_API_KEY on the server.'
+            : 'Unable to deliver report email. Please verify email settings and try again.',
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: `Report sent successfully to ${targetEmail}`,
+        recipientEmail: targetEmail,
+        data: reportData,
       });
     } catch (error) {
       next(error);
