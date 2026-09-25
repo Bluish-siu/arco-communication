@@ -10,9 +10,6 @@ import {
   FileText,
   Headphones,
   Sparkles,
-  ShoppingBag,
-  Bot,
-  HelpCircle,
 } from 'lucide-react';
 import Container from '../../components/common/Container';
 import { useOnboarding } from '../../context/OnboardingContext';

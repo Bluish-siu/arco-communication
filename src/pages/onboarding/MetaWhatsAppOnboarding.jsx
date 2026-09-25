@@ -8,15 +8,7 @@ import {
   AlertCircle,
   ArrowRight,
   ArrowLeft,
-  Sparkles,
-  ExternalLink,
   RotateCw,
-  Clock,
-  Layers,
-  ChevronRight,
-  LogOut,
-  Settings,
-  HelpCircle,
   X,
   Check,
 } from 'lucide-react';
@@ -41,7 +33,7 @@ const MetaIcon = ({ className }) => (
 export default function MetaWhatsAppOnboarding() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, businessSetup, completeOnboarding } = useOnboarding();
+  const { businessSetup, completeOnboarding } = useOnboarding();
 
   // Step state: 1 (Business Portfolio), 2 (WABA), 3 (Phone Number), 4 (Meta Auth/Complete), 5 (Connected Success)
   const [step, setStep] = useState(1);
@@ -86,6 +78,7 @@ export default function MetaWhatsAppOnboarding() {
           setSelectedBusiness(businessList[0]);
         }
       } catch (err) {
+        console.warn('[MetaOnboarding] Failed to load Meta Business accounts:', err.message || err);
         setError('Failed to load Meta Business accounts. Please try again.');
       } finally {
         setLoading(false);
@@ -108,6 +101,7 @@ export default function MetaWhatsAppOnboarding() {
           setSelectedWaba(null);
         }
       } catch (err) {
+        console.warn('[MetaOnboarding] Failed to load WhatsApp Business Accounts:', err.message || err);
         setError('Failed to load WhatsApp Business Accounts.');
       } finally {
         setLoading(false);
@@ -130,6 +124,7 @@ export default function MetaWhatsAppOnboarding() {
           setSelectedPhone(null);
         }
       } catch (err) {
+        console.warn('[MetaOnboarding] Failed to load WhatsApp Business phone numbers:', err.message || err);
         setError('Failed to load WhatsApp Business phone numbers.');
       } finally {
         setLoading(false);

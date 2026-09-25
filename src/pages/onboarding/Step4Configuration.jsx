@@ -3,9 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   ArrowLeft,
-  CheckCircle2,
-  HelpCircle,
-  Sparkles,
   ShieldCheck,
 } from 'lucide-react';
 import Container from '../../components/common/Container';

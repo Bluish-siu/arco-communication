@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
-  Layers,
   Code2,
   ShoppingBag,
   CreditCard,

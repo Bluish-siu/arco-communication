@@ -5,7 +5,6 @@ import {
   Sparkles,
   Play,
   CheckCircle2,
-  Building2,
   ChevronDown,
 } from 'lucide-react';
 import Container from '../../components/common/Container';
