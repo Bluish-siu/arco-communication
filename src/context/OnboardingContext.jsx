@@ -169,6 +169,28 @@ export function OnboardingProvider({ children }) {
     return authResult;
   };
 
+  const demoLogin = async () => {
+    const authResult = await authService.demoLogin();
+    if (!authResult || !authResult.token) {
+      return authResult;
+    }
+    const userObj = authResult.user || {};
+    setData((prev) => ({
+      ...prev,
+      user: {
+        id: userObj.id,
+        email: userObj.email,
+        phone: userObj.phone,
+        name: userObj.name || 'Shraddha',
+        isAuthenticated: true,
+      },
+      isCompleted: true,
+      ...(userObj.business_setup ? { businessSetup: userObj.business_setup } : {}),
+    }));
+
+    return authResult;
+  };
+
   const setAuthenticatedUser = (userData, token) => {
     if (token) {
       try {
@@ -201,8 +223,13 @@ export function OnboardingProvider({ children }) {
     try {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem('arco_auth_token');
+      localStorage.removeItem('token');
+      sessionStorage.clear();
     } catch (e) {
       console.error('Failed to clear onboarding state:', e);
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
     }
   };
 
@@ -290,6 +317,7 @@ export function OnboardingProvider({ children }) {
         trialDaysRemaining,
         updateSubscription,
         login,
+        demoLogin,
         setAuthenticatedUser,
         logout,
         updateBusinessSetup,

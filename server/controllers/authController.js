@@ -113,6 +113,63 @@ export const authController = {
       res.status(500).json({ success: false, error: error.message || 'Phone authentication failed' });
     }
   },
+  // POST /api/auth/demo-login (Authoritative instant demo session for testing / presentations)
+  demoLogin: async (req, res, next) => {
+    try {
+      let user = await db.findOne('users', 'email = $1', ['dshraddha875@gmail.com']);
+      if (!user) {
+        user = await db.findOne('users', "role = 'admin'", []);
+      }
+      if (!user) {
+        user = await db.findOne('users', "id LIKE 'usr_%'", []);
+      }
+
+      const effectiveUser = user || {
+        id: 'usr_demo_admin',
+        name: 'Shraddha',
+        email: 'shraddha@arco.com',
+        role: 'admin',
+        company_name: 'ARCO Communication',
+        onboarding_completed: true,
+        trial_days_remaining: 14,
+      };
+
+      const token = jwt.sign(
+        {
+          id: effectiveUser.id,
+          email: effectiveUser.email,
+          role: effectiveUser.role || 'admin',
+          name: effectiveUser.name,
+        },
+        config.jwtSecret,
+        { expiresIn: config.jwtExpiresIn }
+      );
+
+      return res.json({
+        success: true,
+        message: 'Demo login successful',
+        data: {
+          user: {
+            id: effectiveUser.id,
+            name: effectiveUser.name,
+            email: effectiveUser.email,
+            companyName: effectiveUser.company_name || 'ARCO Communication',
+            role: effectiveUser.role || 'admin',
+            trialDaysRemaining: effectiveUser.trial_days_remaining ?? 14,
+            onboardingCompleted: true,
+            business_setup: effectiveUser.business_setup || {
+              companyName: 'ARCO Communication',
+              channel: 'Both',
+            },
+          },
+          token,
+          targetRoute: '/dashboard',
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
   // POST /api/auth/login
   login: async (req, res, next) => {
     try {

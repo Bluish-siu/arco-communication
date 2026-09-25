@@ -11,6 +11,7 @@ import {
   Lock,
   Edit2,
   Smartphone,
+  Sparkles,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -37,10 +38,11 @@ const COUNTRY_CODES = [
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login } = useOnboarding();
+  const { login, demoLogin } = useOnboarding();
 
   // Auth Modes: 'default' | 'phone_number' | 'phone_otp'
   const [authMode, setAuthMode] = useState('default');
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
 
   // Standard Email/Password Form
   const [email, setEmail] = useState('');
@@ -103,6 +105,25 @@ export default function Login() {
       navigate('/dashboard');
     } else {
       navigate('/onboarding');
+    }
+  };
+
+  // 1-Click Instant Demo Login (For Presentations, Evaluations, and Team Testing)
+  const handleDemoAccess = async () => {
+    setError('');
+    setIsDemoLoading(true);
+    try {
+      const res = await demoLogin();
+      if (res?.token) {
+        const redirectParam = searchParams.get('redirect');
+        navigate(redirectParam ? decodeURIComponent(redirectParam) : '/dashboard');
+      } else {
+        setError(res?.error || 'Failed to start demo session. Please try again.');
+      }
+    } catch (err) {
+      setError(err.message || 'Demo session failed.');
+    } finally {
+      setIsDemoLoading(false);
     }
   };
 
@@ -349,8 +370,28 @@ export default function Login() {
           {/* VIEW 1: DEFAULT SOCIAL & EMAIL LOGIN */}
           {/* ========================================================================= */}
           {authMode === 'default' && (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               
+              {/* 0. Instant 1-Click Demo Login */}
+              <button
+                type="button"
+                disabled={isDemoLoading}
+                onClick={handleDemoAccess}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-100 hover:from-amber-100 hover:to-orange-100 transition-all font-bold text-xs sm:text-sm text-amber-950 shadow-xs group cursor-pointer disabled:opacity-70"
+              >
+                <div className="flex items-center gap-2.5">
+                  {isDemoLoading ? (
+                    <RefreshCw className="w-4 h-4 text-amber-700 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                  )}
+                  <span>{isDemoLoading ? 'Launching Demo Workspace...' : 'Explore Demo Account (1-Click)'}</span>
+                </div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded border border-amber-400">
+                  Instant Access
+                </span>
+              </button>
+
               {/* 1. Google Social Login */}
               <button
                 type="button"

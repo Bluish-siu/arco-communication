@@ -1,6 +1,20 @@
 import { apiRequest } from './api';
 
 export const authService = {
+  demoLogin: async () => {
+    try {
+      const res = await apiRequest('/auth/demo-login', {
+        method: 'POST',
+      });
+      if (res.data?.token) {
+        localStorage.setItem('arco_auth_token', res.data.token);
+      }
+      return res.data;
+    } catch (err) {
+      return { error: err.message };
+    }
+  },
+
   login: async (email, password) => {
     try {
       const res = await apiRequest('/auth/login', {

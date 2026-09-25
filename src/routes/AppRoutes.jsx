@@ -78,94 +78,96 @@ import Analytics from '../pages/products/Analytics';
 import DeveloperPlatform from '../pages/products/DeveloperPlatform';
 import VoiceAI from '../pages/products/VoiceAI';
 
+import ProtectedRoute from '../components/auth/ProtectedRoute';
+
 export default function AppRoutes() {
   return (
     <Routes>
       {/* Standalone Authentication & Unified Meta WhatsApp Onboarding */}
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
-      <Route path="/onboarding" element={<Onboarding />} />
-      <Route path="/onboarding/meta-whatsapp" element={<MetaWhatsAppOnboarding />} />
+      <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+      <Route path="/onboarding/meta-whatsapp" element={<ProtectedRoute><MetaWhatsAppOnboarding /></ProtectedRoute>} />
       <Route path="/auth/meta/callback" element={<Navigate to="/onboarding/meta-whatsapp" replace />} />
       <Route path="/auth/google/callback" element={<GoogleCallback />} />
-      <Route path="/onboarding/industry" element={<Step1Industry />} />
-      <Route path="/onboarding/objectives" element={<Step2Objectives />} />
-      <Route path="/onboarding/integrations" element={<Step3Integrations />} />
-      <Route path="/onboarding/configuration" element={<Step4Configuration />} />
+      <Route path="/onboarding/industry" element={<ProtectedRoute><Step1Industry /></ProtectedRoute>} />
+      <Route path="/onboarding/objectives" element={<ProtectedRoute><Step2Objectives /></ProtectedRoute>} />
+      <Route path="/onboarding/integrations" element={<ProtectedRoute><Step3Integrations /></ProtectedRoute>} />
+      <Route path="/onboarding/configuration" element={<ProtectedRoute><Step4Configuration /></ProtectedRoute>} />
       
       {/* Core Workspace Hubs */}
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/inbox" element={<Inbox />} />
-      <Route path="/campaigns" element={<Campaigns />} />
-      <Route path="/campaigns/create" element={<CreateCampaign />} />
-      <Route path="/notification" element={<Campaigns />} />
-      <Route path="/notification/create-campaign" element={<CreateCampaign />} />
-      <Route path="/campaigns/:id" element={<CampaignDetails />} />
-      <Route path="/analytics/campaign-reports" element={<CampaignReports />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/inbox" element={<ProtectedRoute><Inbox /></ProtectedRoute>} />
+      <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
+      <Route path="/campaigns/create" element={<ProtectedRoute><CreateCampaign /></ProtectedRoute>} />
+      <Route path="/notification" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
+      <Route path="/notification/create-campaign" element={<ProtectedRoute><CreateCampaign /></ProtectedRoute>} />
+      <Route path="/campaigns/:id" element={<ProtectedRoute><CampaignDetails /></ProtectedRoute>} />
+      <Route path="/analytics/campaign-reports" element={<ProtectedRoute><CampaignReports /></ProtectedRoute>} />
       <Route path="/market/campaign-reports" element={<Navigate to="/analytics/campaign-reports" replace />} />
-      <Route path="/analytics/overview" element={<ConversationAnalyticsOverview />} />
-      <Route path="/analytics/agent-performance" element={<AgentPerformance />} />
-      <Route path="/analytics/ad-performance" element={<AdPerformance />} />
-      <Route path="/ctwa/facebook" element={<CtwaFacebook />} />
-      <Route path="/ctwa/facebook/create" element={<CreateFacebookPage />} />
-      <Route path="/automation/chat-assignment" element={<ChatAssignment />} />
+      <Route path="/analytics/overview" element={<ProtectedRoute><ConversationAnalyticsOverview /></ProtectedRoute>} />
+      <Route path="/analytics/agent-performance" element={<ProtectedRoute><AgentPerformance /></ProtectedRoute>} />
+      <Route path="/analytics/ad-performance" element={<ProtectedRoute><AdPerformance /></ProtectedRoute>} />
+      <Route path="/ctwa/facebook" element={<ProtectedRoute><CtwaFacebook /></ProtectedRoute>} />
+      <Route path="/ctwa/facebook/create" element={<ProtectedRoute><CreateFacebookPage /></ProtectedRoute>} />
+      <Route path="/automation/chat-assignment" element={<ProtectedRoute><ChatAssignment /></ProtectedRoute>} />
       <Route path="/chat-assignment" element={<Navigate to="/automation/chat-assignment" replace />} />
-      <Route path="/contacts" element={<Contacts />} />
+      <Route path="/contacts" element={<ProtectedRoute><Contacts /></ProtectedRoute>} />
 
       {/* Sales CRM Workspace Routes */}
-      <Route path="/sales-pipeline" element={<SalesPipeline />} />
-      <Route path="/sales-crm-reports" element={<SalesCrmReports />} />
+      <Route path="/sales-pipeline" element={<ProtectedRoute><SalesPipeline /></ProtectedRoute>} />
+      <Route path="/sales-crm-reports" element={<ProtectedRoute><SalesCrmReports /></ProtectedRoute>} />
       <Route path="/sales-crm/reports" element={<Navigate to="/sales-crm-reports" replace />} />
-      <Route path="/sales-crm-tasks" element={<Tasks />} />
-      <Route path="/tasks" element={<Tasks />} />
+      <Route path="/sales-crm-tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
+      <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
 
       {/* WhatsApp Commerce Workspace Routes */}
-      <Route path="/commerce-settings" element={<CommerceSettings />} />
-      <Route path="/commerce/catalog" element={<CommerceCatalog />} />
+      <Route path="/commerce-settings" element={<ProtectedRoute><CommerceSettings /></ProtectedRoute>} />
+      <Route path="/commerce/catalog" element={<ProtectedRoute><CommerceCatalog /></ProtectedRoute>} />
       <Route path="/catalog" element={<Navigate to="/commerce/catalog" replace />} />
-      <Route path="/checkout-bot" element={<CheckoutBot />} />
+      <Route path="/checkout-bot" element={<ProtectedRoute><CheckoutBot /></ProtectedRoute>} />
       <Route path="/work-flows/autocheckout" element={<Navigate to="/checkout-bot" replace />} />
-      <Route path="/commerce/order-panel" element={<OrderPanel />} />
+      <Route path="/commerce/order-panel" element={<ProtectedRoute><OrderPanel /></ProtectedRoute>} />
       <Route path="/order-panel" element={<Navigate to="/commerce/order-panel" replace />} />
       {/* Market Templates & Segments Workspace Routes */}
-      <Route path="/templates/list" element={<Templates />} />
-      <Route path="/templates/new" element={<NewTemplate />} />
-      <Route path="/templates/:id/edit" element={<NewTemplate />} />
-      <Route path="/templates/:id" element={<NewTemplate />} />
+      <Route path="/templates/list" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+      <Route path="/templates/new" element={<ProtectedRoute><NewTemplate /></ProtectedRoute>} />
+      <Route path="/templates/:id/edit" element={<ProtectedRoute><NewTemplate /></ProtectedRoute>} />
+      <Route path="/templates/:id" element={<ProtectedRoute><NewTemplate /></ProtectedRoute>} />
       <Route path="/templates" element={<Navigate to="/templates/list?channel_type=whatsapp&segment=library" replace />} />
-      <Route path="/segments" element={<Segments />} />
-      <Route path="/flows" element={<Flows />} />
-      <Route path="/flows/broadcast" element={<CreateFlowBroadcast />} />
-      <Route path="/flows/broadcasts/:id" element={<FlowBroadcastDetails />} />
+      <Route path="/segments" element={<ProtectedRoute><Segments /></ProtectedRoute>} />
+      <Route path="/flows" element={<ProtectedRoute><Flows /></ProtectedRoute>} />
+      <Route path="/flows/broadcast" element={<ProtectedRoute><CreateFlowBroadcast /></ProtectedRoute>} />
+      <Route path="/flows/broadcasts/:id" element={<ProtectedRoute><FlowBroadcastDetails /></ProtectedRoute>} />
       <Route path="/market/flows" element={<Navigate to="/flows" replace />} />
 
       {/* Integrations Marketplace Route */}
-      <Route path="/integrations" element={<Integrations />} />
+      <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
       <Route path="/onboarding/integrations-hub" element={<Navigate to="/integrations" replace />} />
 
       {/* WhatsApp Widget Workspace Routes */}
-      <Route path="/widget" element={<WhatsAppWidget />} />
-      <Route path="/widget/manage" element={<WhatsAppWidget />} />
-      <Route path="/widget/install" element={<WhatsAppWidget />} />
+      <Route path="/widget" element={<ProtectedRoute><WhatsAppWidget /></ProtectedRoute>} />
+      <Route path="/widget/manage" element={<ProtectedRoute><WhatsAppWidget /></ProtectedRoute>} />
+      <Route path="/widget/install" element={<ProtectedRoute><WhatsAppWidget /></ProtectedRoute>} />
 
       {/* Automation Workspace Routes (Interakt Functional Replica) */}
-      <Route path="/automation/inbox-setting" element={<BasicAutomations />} />
+      <Route path="/automation/inbox-setting" element={<ProtectedRoute><BasicAutomations /></ProtectedRoute>} />
       <Route path="/automation/inbox-settings" element={<Navigate to="/automation/inbox-setting" replace />} />
-      <Route path="/automation/custom-reply" element={<CustomAutoReply />} />
+      <Route path="/automation/custom-reply" element={<ProtectedRoute><CustomAutoReply /></ProtectedRoute>} />
       <Route path="/automation/custom-replies" element={<Navigate to="/automation/custom-reply" replace />} />
-      <Route path="/automation/workflows" element={<Workflows />} />
-      <Route path="/automation/workflows/:id" element={<Workflows />} />
-      <Route path="/automation/ai-intent-matching" element={<AiIntentMatching />} />
+      <Route path="/automation/workflows" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
+      <Route path="/automation/workflows/:id" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
+      <Route path="/automation/ai-intent-matching" element={<ProtectedRoute><AiIntentMatching /></ProtectedRoute>} />
       <Route path="/automation/ai-intent" element={<Navigate to="/automation/ai-intent-matching" replace />} />
-      <Route path="/automation/whatsapp-ai-agent" element={<WhatsAppAiAgent />} />
-      <Route path="/automation/quick-flows" element={<InstagramQuickflows />} />
+      <Route path="/automation/whatsapp-ai-agent" element={<ProtectedRoute><WhatsAppAiAgent /></ProtectedRoute>} />
+      <Route path="/automation/quick-flows" element={<ProtectedRoute><InstagramQuickflows /></ProtectedRoute>} />
       <Route path="/automation/quickflows" element={<Navigate to="/automation/quick-flows" replace />} />
-      <Route path="/automation/my-call-genie" element={<VoiceAiCallGenie />} />
+      <Route path="/automation/my-call-genie" element={<ProtectedRoute><VoiceAiCallGenie /></ProtectedRoute>} />
       <Route path="/automation/voice-ai" element={<Navigate to="/automation/my-call-genie" replace />} />
-      <Route path="/automation/whatsapp-forms/view" element={<WhatsAppForms />} />
-      <Route path="/automation/whatsapp-forms/create" element={<WhatsAppForms initialTab="create" />} />
+      <Route path="/automation/whatsapp-forms/view" element={<ProtectedRoute><WhatsAppForms /></ProtectedRoute>} />
+      <Route path="/automation/whatsapp-forms/create" element={<ProtectedRoute><WhatsAppForms initialTab="create" /></ProtectedRoute>} />
       <Route path="/automation/whatsapp-forms" element={<Navigate to="/automation/whatsapp-forms/view" replace />} />
-      <Route path="/automation/interactive-list" element={<InteractiveLists />} />
+      <Route path="/automation/interactive-list" element={<ProtectedRoute><InteractiveLists /></ProtectedRoute>} />
       <Route path="/automation/interaktive-list" element={<Navigate to="/automation/interactive-list" replace />} />
       <Route path="/automation" element={<Navigate to="/automation/inbox-setting" replace />} />
 
