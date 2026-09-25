@@ -52,6 +52,7 @@ export const campaignController = {
         headerVariables,
         headerText,
         buttonPayloads,
+        userId: req.user?.id,
       });
 
       if (!result.success) {

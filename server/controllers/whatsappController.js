@@ -870,18 +870,50 @@ export const whatsappController = {
   // POST /api/whatsapp/send-template
   sendTemplate: async (req, res, next) => {
     try {
-      const { templateName, recipientPhone, variables } = req.body;
-      if (!templateName || !recipientPhone) {
+      const {
+        templateName,
+        recipientPhone,
+        phone,
+        to,
+        languageCode,
+        language,
+        variables,
+        components,
+        headerVariables,
+        headerText,
+        headerImageUrl,
+        headerMediaUrl,
+        buttonPayloads,
+      } = req.body;
+
+      const targetPhone = recipientPhone || phone || to;
+      if (!templateName || !targetPhone) {
         return res.status(400).json({ success: false, error: 'templateName and recipientPhone are required' });
       }
 
-      const dispatchResult = {
-        messageId: `wamid_${Date.now()}`,
-        status: 'sent',
-        recipientPhone,
-        templateName,
-        timestamp: new Date().toISOString(),
-      };
+      const dispatchResult = await metaWhatsAppService.sendTemplateMessage({
+        to: targetPhone,
+        templateName: String(templateName).trim(),
+        languageCode: languageCode || language || 'en_US',
+        variables: variables || {},
+        components: components || [],
+        headerVariables: headerVariables || [],
+        headerText,
+        headerImageUrl,
+        headerMediaUrl,
+        buttonPayloads: buttonPayloads || [],
+        userId: req.user?.id,
+      });
+
+      if (!dispatchResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: dispatchResult.error || 'Failed to dispatch template message via Meta WhatsApp Cloud API',
+          message: dispatchResult.message || dispatchResult.error,
+          errorCode: dispatchResult.errorCode,
+          missingFields: dispatchResult.missingFields,
+        });
+      }
 
       res.json({ success: true, data: dispatchResult });
     } catch (error) {
