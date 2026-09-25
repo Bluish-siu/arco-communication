@@ -11,6 +11,7 @@ export const crmController = {
         tag,
         tags,
         stage,
+        segment,
         source,
         channel,
         whatsapp_opted,
@@ -72,6 +73,35 @@ export const crmController = {
           sql += ` AND created_at >= CURRENT_DATE - INTERVAL '30 days'`;
         } else if (dateRange === 'quarter' || dateRange === 'This Quarter') {
           sql += ` AND created_at >= CURRENT_DATE - INTERVAL '90 days'`;
+        }
+      }
+
+      // 6b. Segment Filter
+      if (segment && segment !== 'all') {
+        params.push(segment);
+        sql += ` AND segment = $${params.length}`;
+      }
+
+      // 6c. Stage / Status Filter
+      if (stage && stage !== 'all') {
+        const s = String(stage).toLowerCase().trim();
+        if (s === 'newlead' || s === 'new lead' || s === 'open' || s === 'open lead') {
+          sql += ` AND (status IN ('New Lead', 'Open', 'Open Lead') OR status IS NULL)`;
+        } else if (s === 'qualification' || s === 'qualified') {
+          sql += ` AND status IN ('Qualification', 'Qualified')`;
+        } else if (s === 'needsanalysis' || s === 'needs analysis') {
+          sql += ` AND status = 'Needs Analysis'`;
+        } else if (s === 'proposal') {
+          sql += ` AND status = 'Proposal'`;
+        } else if (s === 'negotiation' || s === 'in discussion') {
+          sql += ` AND status IN ('Negotiation', 'In Discussion')`;
+        } else if (s === 'closedwon' || s === 'closed won' || s === 'won') {
+          sql += ` AND status IN ('Closed Won', 'Won')`;
+        } else if (s === 'closedlost' || s === 'closed lost' || s === 'lost') {
+          sql += ` AND status IN ('Closed Lost', 'Lost')`;
+        } else {
+          params.push(stage);
+          sql += ` AND LOWER(status) = LOWER($${params.length})`;
         }
       }
 

@@ -1208,7 +1208,7 @@ export const campaignController = {
   // GET /api/campaigns/meta-templates
   getMetaTemplates: async (req, res, next) => {
     try {
-      const result = await metaWhatsAppService.getWhatsAppTemplates();
+      const result = await metaWhatsAppService.getWhatsAppTemplates(req.user?.id);
       if (!result.success) {
         return res.status(result.error === 'WHATSAPP_NOT_CONNECTED' ? 400 : 502).json(result);
       }

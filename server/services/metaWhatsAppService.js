@@ -543,7 +543,7 @@ export const metaWhatsAppService = {
         let customErrorMsg = data.error?.message || `Meta API HTTP ${response.status}`;
         if (data.error?.code === 132001) {
           try {
-            const allTmplsRes = await metaWhatsAppService.getWhatsAppTemplates();
+            const allTmplsRes = await metaWhatsAppService.getWhatsAppTemplates(userId);
             const matchingTmpl = allTmplsRes.data?.find((t) => t.name === templateName);
             if (matchingTmpl && matchingTmpl.status === 'PENDING') {
               customErrorMsg = `Template "${templateName}" is currently PENDING review by Meta. Meta Cloud API only permits sending messages after the template status changes to APPROVED.`;
