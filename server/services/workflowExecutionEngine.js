@@ -198,6 +198,26 @@ async function persistOutboundReply({ conversationId, text, metaMessageId }) {
   }
 }
 
+const BLOCKED_LEGACY_WORKFLOW_IDS = new Set([
+  'wf_ai_proj_1',
+  'wf_ai_tech_2',
+  'wf_ai_onb_3',
+]);
+
+export function isBlockedLegacyWorkflow(workflow) {
+  if (!workflow) return false;
+  const id = String(workflow.id || '').trim();
+  const name = String(workflow.name || '').toLowerCase().trim();
+  return (
+    BLOCKED_LEGACY_WORKFLOW_IDS.has(id) ||
+    id.startsWith('wf_ai_') ||
+    name.includes('technical_support') ||
+    name.includes('technical support') ||
+    name.includes('project_progress') ||
+    name.includes('client_onboarding')
+  );
+}
+
 /**
  * Unified Multi-Node Workflow Execution Engine
  */
@@ -215,6 +235,17 @@ export const workflowExecutionEngine = {
     const userId = workflow?.user_id || context.userId || 'usr_1';
     const isSimulation = context.isSimulation !== false;
     const channel = context.channel || 'whatsapp';
+
+    // Block execution of legacy sample / demo workflows
+    if (isBlockedLegacyWorkflow(workflow)) {
+      console.warn(`[workflowExecutionEngine] Blocked execution of legacy sample workflow: "${workflowName}" (${workflowId})`);
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'LEGACY_SAMPLE_BLOCKED: Sample and demo workflows are permanently disabled',
+        executionSteps: [],
+      };
+    }
 
     // Tenant Security Enforcement: Tenant B cannot execute Tenant A's private workflow
     if (workflow?.user_id && context.userId && workflow.user_id !== context.userId) {
@@ -756,6 +787,11 @@ export const workflowExecutionEngine = {
       );
 
       for (const wf of wfRes.rows) {
+        // Explicitly block legacy sample / demo workflows (e.g. wf_ai_tech_2, wf_ai_proj_1, wf_ai_onb_3)
+        if (isBlockedLegacyWorkflow(wf)) {
+          continue;
+        }
+
         const keywords = (
           wf.trigger_config?.keywords ||
           [wf.trigger_config?.keyword]

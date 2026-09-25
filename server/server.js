@@ -6,7 +6,7 @@ import { requestLogger } from './middleware/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { globalApiLimiter } from './middleware/rateLimiter.js';
 import apiRoutes from './routes/index.js';
-import { testDbConnection } from './config/db.js';
+import { testDbConnection, query } from './config/db.js';
 import { initInboxTwoWaySchema } from './config/initInboxTwoWaySchema.js';
 import { initOrderCurrencySchema } from './config/initOrderPanelTables.js';
 import { initCampaignReplyFlowsSchema } from './config/initCampaignReplyFlowsSchema.js';
@@ -118,6 +118,21 @@ const server = app.listen(PORT, HOST, async () => {
     await initDelayedAutomationSchema();
     await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
+
+    // Purge legacy demo / sample workflows and bot auto-replies from production DB
+    try {
+      await query(`
+        DELETE FROM workflows 
+        WHERE id IN ('wf_ai_proj_1', 'wf_ai_tech_2', 'wf_ai_onb_3') 
+           OR id LIKE 'wf_ai_%' 
+           OR name ILIKE '%technical_support%' 
+           OR name ILIKE '%Technical Support%';
+      `);
+      console.log('[Server Startup] Purged legacy sample workflows from database');
+    } catch (cleanErr) {
+      console.warn('[Server Startup] Could not purge legacy workflows:', cleanErr.message);
+    }
+
     startCampaignScheduler(20000);
     startBasicAutomationScheduler(20000);
   } catch (schemaErr) {

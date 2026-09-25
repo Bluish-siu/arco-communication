@@ -578,9 +578,10 @@ export const whatsappController = {
             }
 
             // F. Inbound WhatsApp Workflow Engine Evaluation (if not handled by campaign reply flow)
+            let wfResult = null;
             if (!postCampaignHandled) {
               try {
-                const wfResult = await workflowExecutionEngine.evaluateInboundWhatsAppMessage({
+                wfResult = await workflowExecutionEngine.evaluateInboundWhatsAppMessage({
                   message,
                   contact,
                   conv,
