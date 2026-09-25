@@ -11,8 +11,8 @@ export const authService = {
         localStorage.setItem('arco_auth_token', res.data.token);
       }
       return res.data;
-    } catch {
-      return null;
+    } catch (err) {
+      return { error: err.message };
     }
   },
 

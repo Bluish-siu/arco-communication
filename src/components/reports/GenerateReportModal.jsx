@@ -24,8 +24,6 @@ export default function GenerateReportModal({
   userEmail = 'owner@arco.com',
   onReportGenerated,
 }) {
-  if (!isOpen) return null;
-
   // Report Type: 'summary' | 'detailed' | 'ctwa' | ''
   const [reportType, setReportType] = useState('summary');
   const [tooltipText, setTooltipText] = useState(null);
@@ -171,6 +169,8 @@ export default function GenerateReportModal({
   };
 
   const isFormValid = Boolean(reportType && !dateError && (dateRangeType !== 'custom' || (customFrom && customTo)));
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">

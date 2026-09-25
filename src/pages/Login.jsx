@@ -95,6 +95,10 @@ export default function Login() {
       return;
     }
     const res = await login(email.trim(), password.trim());
+    if (!res || !res.token) {
+      setError(res?.error || 'Passwordless email login is disabled for security. Please sign in using Google Sign-In or Phone OTP below.');
+      return;
+    }
     if (res?.user?.onboardingCompleted) {
       navigate('/dashboard');
     } else {

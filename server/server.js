@@ -17,6 +17,7 @@ import { initShopifySyncJobsTable } from './config/initShopifySyncJobsTable.js';
 import { initFlowSchema } from './config/initFlowTables.js';
 import { initWhatsAppTemplatesSchema } from './config/initWhatsAppTemplatesTables.js';
 import { initDelayedAutomationSchema } from './config/initDelayedAutomationTables.js';
+import { initMetaIntegrationsTable } from './config/initMetaTable.js';
 import { startBasicAutomationScheduler } from './services/basicAutomationEngine.js';
 
 const app = express();
@@ -26,20 +27,21 @@ app.use(helmet());
 
 // Production-safe environment-driven CORS configuration
 const getAllowedOrigins = () => {
-  const localOrigins = [
+  const defaultOrigins = [
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
+    'https://arco-communication.vercel.app',
   ];
 
   if (process.env.CORS_ORIGIN) {
     const envOrigins = process.env.CORS_ORIGIN.split(',')
       .map((o) => o.trim())
       .filter(Boolean);
-    return Array.from(new Set([...localOrigins, ...envOrigins]));
+    return Array.from(new Set([...defaultOrigins, ...envOrigins]));
   }
-  return localOrigins;
+  return defaultOrigins;
 };
 
 const allowedOrigins = getAllowedOrigins();
@@ -49,11 +51,16 @@ app.use(cors({
     // Allow requests with no origin (e.g. server-to-server, curl, mobile apps, same-origin)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin) || (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:'))) {
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:')) ||
+      origin.endsWith('.vercel.app');
+
+    if (isAllowed) {
       return callback(null, true);
     }
 
-    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    return callback(null, false);
   },
   credentials: true,
 }));
@@ -116,6 +123,7 @@ const server = app.listen(PORT, HOST, async () => {
     await initFlowSchema();
     await initWhatsAppTemplatesSchema();
     await initDelayedAutomationSchema();
+    await initMetaIntegrationsTable();
     await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
 

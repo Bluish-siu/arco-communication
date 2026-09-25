@@ -141,6 +141,9 @@ export function OnboardingProvider({ children }) {
   const login = async (email, password) => {
     // Sync with backend
     const authResult = await authService.login(email, password);
+    if (!authResult || !authResult.token) {
+      return authResult;
+    }
     const userObj = authResult?.user || {
       email,
       name: email.split('@')[0] || 'Business Owner',
