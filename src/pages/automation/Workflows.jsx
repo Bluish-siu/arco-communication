@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Layers,
@@ -16,12 +16,10 @@ import {
   Search,
   RefreshCw,
   X,
-  ArrowDown,
   MessageSquare,
   HelpCircle,
   UserCheck,
   Tag,
-  Clock,
   Save,
   CheckSquare,
   MoreVertical,
@@ -44,9 +42,6 @@ import {
   ExternalLink,
   Target,
   Code,
-  Webhook,
-  ZoomIn,
-  ZoomOut,
   Maximize2,
   Lock,
   Unlock,
@@ -461,7 +456,6 @@ export default function Workflows() {
   const [selectedEditingNodeId, setSelectedEditingNodeId] = useState(null);
   const [nodeMenuId, setNodeMenuId] = useState(null);
   const [isVariablesSectionOpen, setIsVariablesSectionOpen] = useState(false);
-  const [isQuickReplySectionOpen, setIsQuickReplySectionOpen] = useState(true);
   const [listConfigNodeId, setListConfigNodeId] = useState(null);
   const [activeTraitDropdownKey, setActiveTraitDropdownKey] = useState(null);
   const [activeOperatorDropdownKey, setActiveOperatorDropdownKey] = useState(null);
@@ -477,7 +471,6 @@ export default function Workflows() {
     variables: false,
   });
   const [isTestingWebhook, setIsTestingWebhook] = useState(false);
-  const [webhookTestResult, setWebhookTestResult] = useState(null);
   const [activeVariablePickerTarget, setActiveVariablePickerTarget] = useState(null);
 
   const toggleWebhookAccordion = (key) => {
@@ -545,7 +538,7 @@ export default function Workflows() {
     setTimeout(() => setToastMessage(''), 3500);
   };
 
-  const loadWorkflows = async () => {
+  const loadWorkflows = useCallback(async () => {
     try {
       setLoading(true);
       const params = {};
@@ -572,11 +565,11 @@ export default function Workflows() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery, routeWorkflowId]);
 
   useEffect(() => {
     loadWorkflows();
-  }, [searchQuery, routeWorkflowId]);
+  }, [loadWorkflows]);
 
   // Left click on background to start canvas pan
   const handleCanvasMouseDown = (e) => {
@@ -768,6 +761,7 @@ export default function Workflows() {
       edges: Array.isArray(wf.edges) ? wf.edges : [],
     });
     setActiveMenuId(null);
+    navigate(`/automation/workflows/${wf.id}`);
   };
 
   // Open Trigger Configuration Modal
@@ -1023,7 +1017,10 @@ export default function Workflows() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setActiveWorkflow(null)}
+              onClick={() => {
+                setActiveWorkflow(null);
+                navigate('/automation/workflows');
+              }}
               className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 text-xs font-semibold px-2 py-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
