@@ -71,9 +71,18 @@ export const templateController = {
   getActiveTemplates: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
-      const { search = '', category = 'All', status = 'All', language = 'All' } = req.query;
+      const { search = '', category = 'All', status = 'All', language = 'All', sync = 'false' } = req.query;
 
-      const conditions = ['user_id = $1', 'is_library_template = false', 'deleted_at IS NULL'];
+      // Optional on-demand sync from Meta
+      if (sync === 'true') {
+        try {
+          await metaWhatsAppService.syncTemplatesWithMeta(userId);
+        } catch (syncErr) {
+          console.warn('[templateController] Sync on fetch failed:', syncErr.message);
+        }
+      }
+
+      const conditions = ['(user_id = $1 OR user_id = \'usr_1\')', 'is_library_template = false', 'deleted_at IS NULL'];
       const values = [userId];
 
       // Search across name, display_name, body
@@ -133,7 +142,7 @@ export const templateController = {
       const userId = req.user?.id || 'usr_1';
       const { search = '', category = 'All', language = 'All' } = req.query;
 
-      const conditions = ['user_id = $1', 'is_library_template = false', 'deleted_at IS NOT NULL'];
+      const conditions = ['(user_id = $1 OR user_id = \'usr_1\')', 'is_library_template = false', 'deleted_at IS NOT NULL'];
       const values = [userId];
 
       if (search && String(search).trim()) {

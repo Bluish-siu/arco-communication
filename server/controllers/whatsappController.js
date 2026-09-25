@@ -821,6 +821,44 @@ export const whatsappController = {
               }
             }
           }
+
+          // 3. Process Template Status Updates (Meta Webhook field: message_template_status_update)
+          const field = changeItem?.field;
+          if (
+            field === 'message_template_status_update' ||
+            change?.event ||
+            change?.message_template_id
+          ) {
+            const rawEvent = change?.event || change?.status || 'APPROVED';
+            const eventStatus = String(rawEvent).toUpperCase(); // 'APPROVED', 'REJECTED', 'PENDING', 'PAUSED', 'DISABLED'
+            const metaTemplateId = change?.message_template_id
+              ? String(change.message_template_id)
+              : change?.id
+              ? String(change.id)
+              : null;
+            const templateName = change?.message_template_name || change?.name || null;
+            const reason = change?.reason || change?.rejected_reason || null;
+
+            console.log(
+              `[WhatsApp Webhook] Template Status Event: name="${templateName}" metaId="${metaTemplateId}" status="${eventStatus}"`
+            );
+
+            if (metaTemplateId || templateName) {
+              try {
+                await query(
+                  `UPDATE whatsapp_templates
+                   SET status = $1,
+                       meta_status = $1,
+                       rejection_reason = $2,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE (meta_template_id = $3 AND $3 IS NOT NULL) OR (name = $4 AND $4 IS NOT NULL)`,
+                  [eventStatus, reason, metaTemplateId, templateName]
+                );
+              } catch (tmplErr) {
+                console.warn('[WhatsApp Webhook] Failed to update template status from webhook:', tmplErr.message);
+              }
+            }
+          }
         }
       }
     }

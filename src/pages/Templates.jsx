@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   FileText,
@@ -46,6 +46,8 @@ export default function Templates() {
 
   // Data States
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncedRef = useRef(false);
   const [libraryData, setLibraryData] = useState({});
   const [activeTemplates, setActiveTemplates] = useState([]);
   const [deletedTemplates, setDeletedTemplates] = useState([]);
@@ -149,18 +151,43 @@ export default function Templates() {
     loadData();
   }, [currentSegment, searchTerm, selectedStatus, selectedCategories]);
 
+  // Auto-sync with Meta WhatsApp Cloud API when navigating to Active tab
+  useEffect(() => {
+    if (currentSegment === 'active' && !syncedRef.current) {
+      syncedRef.current = true;
+      (async () => {
+        try {
+          setIsSyncing(true);
+          const syncRes = await templateService.syncTemplates();
+          if (syncRes && syncRes.success && syncRes.syncedCount > 0) {
+            await loadData();
+          }
+        } catch (e) {
+          console.warn('[Templates] Auto-sync with Meta safely completed:', e);
+        } finally {
+          setIsSyncing(false);
+        }
+      })();
+    }
+  }, [currentSegment]);
+
   // Synchronize templates with Meta WhatsApp Graph API
   const handleSyncWithMeta = async () => {
-    setLoading(true);
+    setIsSyncing(true);
     try {
       const syncRes = await templateService.syncTemplates();
       if (syncRes && syncRes.success) {
-        showToast(`Synced ${syncRes.syncedCount || 0} templates from Meta WhatsApp Business Platform`);
+        showToast(
+          `Successfully synchronized ${syncRes.syncedCount || 0} template(s) with Meta WhatsApp Business Platform`
+        );
       } else if (syncRes && syncRes.error) {
         showToast(syncRes.error, 'error');
       }
     } catch (e) {
       console.warn('Sync failed:', e);
+      showToast('Sync with Meta failed. Please check connection.', 'error');
+    } finally {
+      setIsSyncing(false);
     }
     await loadData();
   };
@@ -249,6 +276,7 @@ export default function Templates() {
     const s = String(status || '').toUpperCase();
     switch (s) {
       case 'APPROVED':
+      case 'ACTIVE':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'PENDING':
       case 'PENDING REVIEW':
@@ -583,7 +611,7 @@ export default function Templates() {
                     className="h-8 w-8 rounded border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 cursor-pointer shadow-2xs"
                     title="Synchronize & Refresh from Meta WhatsApp"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing || loading ? 'animate-spin text-[#0d3b30]' : ''}`} />
                   </button>
                 </div>
 
@@ -656,6 +684,8 @@ export default function Templates() {
                                     ? 'PENDING REVIEW'
                                     : tmpl.status === 'REJECTED'
                                     ? 'REJECTED BY META'
+                                    : tmpl.status === 'APPROVED' || tmpl.status === 'ACTIVE'
+                                    ? 'APPROVED'
                                     : tmpl.status || 'DRAFT'}
                                 </span>
                               </td>

@@ -1601,22 +1601,127 @@ export const metaWhatsAppService = {
       for (const mt of metaTemplates) {
         const metaId = mt.id;
         const metaName = mt.name;
-        const metaStatus = mt.status; // 'APPROVED', 'PENDING', 'REJECTED', 'PAUSED', 'DISABLED'
+        const metaStatus = (mt.status || 'APPROVED').toUpperCase(); // 'APPROVED', 'PENDING', 'REJECTED', 'PAUSED', 'DISABLED'
         const rejectionReason = mt.rejected_reason || null;
+        const metaCategory = (mt.category || 'MARKETING').toUpperCase();
+        const metaLanguage = mt.language || 'en_US';
 
-        const updateRes = await query(
+        // Extract template components
+        const components = Array.isArray(mt.components) ? mt.components : [];
+        const headerComp = components.find((c) => c.type === 'HEADER');
+        const bodyComp = components.find((c) => c.type === 'BODY');
+        const footerComp = components.find((c) => c.type === 'FOOTER');
+        const buttonsComp = components.find((c) => c.type === 'BUTTONS');
+
+        const headerType = headerComp ? (headerComp.format || 'TEXT').toUpperCase() : 'NONE';
+        const headerText = headerComp?.text || null;
+        const bodyText = bodyComp?.text || '';
+        const footerText = footerComp?.text || null;
+        const buttons = buttonsComp?.buttons || [];
+
+        // 1. Attempt update on existing templates for this tenant/workspace
+        const effectiveUserId = creds.tenantId || userId || 'usr_1';
+        let updateRes = await query(
           `UPDATE whatsapp_templates 
            SET meta_status = $1, 
                status = $1, 
                meta_template_id = $2, 
                waba_id = $3, 
                rejection_reason = $4, 
+               category = COALESCE(NULLIF(category, 'MARKETING'), $7),
+               language = COALESCE(language, $8),
+               body = CASE WHEN body IS NULL OR body = '' THEN $9 ELSE body END,
+               footer = CASE WHEN footer IS NULL OR footer = '' THEN $10 ELSE footer END,
+               buttons = CASE WHEN buttons IS NULL OR buttons = '[]'::jsonb THEN $11::jsonb ELSE buttons END,
                updated_at = CURRENT_TIMESTAMP 
-           WHERE (name = $5 OR meta_template_id = $2) AND user_id = $6`,
-          [metaStatus, metaId, creds.wabaId, rejectionReason, metaName, creds.tenantId || userId || 'usr_1']
+           WHERE (name = $5 OR meta_template_id = $2) AND (user_id = $6 OR user_id = 'usr_1' OR user_id IS NULL)`,
+          [
+            metaStatus,
+            metaId,
+            creds.wabaId,
+            rejectionReason,
+            metaName,
+            effectiveUserId,
+            metaCategory,
+            metaLanguage,
+            bodyText,
+            footerText,
+            JSON.stringify(buttons),
+          ]
         );
 
-        if (updateRes.rowCount > 0) {
+        // 2. If no row matched tenant filter, try matching any template with same name or meta ID
+        if (updateRes.rowCount === 0) {
+          updateRes = await query(
+            `UPDATE whatsapp_templates 
+             SET meta_status = $1, 
+                 status = $1, 
+                 meta_template_id = $2, 
+                 waba_id = $3, 
+                 rejection_reason = $4, 
+                 category = COALESCE(NULLIF(category, 'MARKETING'), $6),
+                 language = COALESCE(language, $7),
+                 body = CASE WHEN body IS NULL OR body = '' THEN $8 ELSE body END,
+                 footer = CASE WHEN footer IS NULL OR footer = '' THEN $9 ELSE footer END,
+                 buttons = CASE WHEN buttons IS NULL OR buttons = '[]'::jsonb THEN $10::jsonb ELSE buttons END,
+                 updated_at = CURRENT_TIMESTAMP 
+             WHERE name = $5 OR meta_template_id = $2`,
+            [
+              metaStatus,
+              metaId,
+              creds.wabaId,
+              rejectionReason,
+              metaName,
+              metaCategory,
+              metaLanguage,
+              bodyText,
+              footerText,
+              JSON.stringify(buttons),
+            ]
+          );
+        }
+
+        // 3. If template does not exist locally (created directly on Meta WhatsApp Manager), insert it!
+        if (updateRes.rowCount === 0) {
+          const cleanDisplayName = metaName
+            .split('_')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+            .join(' ');
+          const newTmplId = `tmpl_meta_${metaId}`;
+
+          await query(
+            `INSERT INTO whatsapp_templates (
+               id, workspace_id, user_id, name, display_name, category, language,
+               status, meta_status, meta_template_id, waba_id, rejection_reason,
+               header_type, header_text, header_media_url, body, footer,
+               buttons, variables, is_library_template, created_by, created_at, updated_at
+             ) VALUES (
+               $1, 'ws_default', $2, $3, $4, $5, $6,
+               $7, $7, $8, $9, $10,
+               $11, $12, NULL, $13, $14,
+               $15::jsonb, $16::jsonb, false, 'Meta WhatsApp', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+             )`,
+            [
+              newTmplId,
+              effectiveUserId,
+              metaName,
+              cleanDisplayName,
+              metaCategory,
+              metaLanguage,
+              metaStatus,
+              metaId,
+              creds.wabaId,
+              rejectionReason,
+              headerType,
+              headerText,
+              bodyText || `Template ${cleanDisplayName}`,
+              footerText,
+              JSON.stringify(buttons),
+              JSON.stringify([]),
+            ]
+          );
+          syncedCount++;
+        } else {
           syncedCount += updateRes.rowCount;
         }
       }

@@ -351,6 +351,7 @@ async function reportAsyncTest(name, fn) {
     const req = {
       params: { id: convId },
       body: { text: 'Hello from test agent!', sender: 'me' },
+      user: { id: 'usr_1', role: 'admin' },
     };
     const res = {
       json: (data) => { jsonResult = data; },
