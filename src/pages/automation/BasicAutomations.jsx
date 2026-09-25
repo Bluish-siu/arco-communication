@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Clock,
@@ -7,20 +7,13 @@ import {
   X,
   Play,
   Share2,
-  ChevronRight,
   ChevronDown,
   Info,
   Mail,
-  MessageSquare,
-  AlertCircle,
-  HelpCircle,
   Save,
   Check,
-  ExternalLink,
-  ShoppingBag,
-  ListFilter,
-  FileText,
   Search,
+  Loader2,
 } from 'lucide-react';
 import DashboardSidebar from '../../components/dashboard/DashboardSidebar';
 import AutomationSubNav from '../../components/automation/AutomationSubNav';
@@ -151,7 +144,7 @@ export default function BasicAutomations() {
     setTimeout(() => setToastMessage(''), 3500);
   };
 
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
       const res = await automationService.getSettings();
@@ -206,7 +199,7 @@ export default function BasicAutomations() {
           setAvailableForms(formsRes.forms.map((f) => ({ id: f.form_id || f.id, title: f.title || f.name })));
         }
       } catch (e) {
-        console.warn('Using default WhatsApp forms list');
+        console.warn('Using default WhatsApp forms list:', e?.message || e);
       }
 
     } catch (err) {
@@ -214,11 +207,11 @@ export default function BasicAutomations() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadSettings();
-  }, []);
+  }, [loadSettings]);
 
   // Save Working Hours Schedule
   const handleSaveWorkingHours = async () => {
@@ -288,6 +281,7 @@ export default function BasicAutomations() {
       try {
         JSON.parse(oooFlowData);
       } catch (e) {
+        console.warn('Invalid JSON format in oooFlowData:', e?.message || e);
         showToast('Invalid JSON in flow_data. Please provide valid JSON like {}', 'error');
         return;
       }
@@ -391,6 +385,7 @@ export default function BasicAutomations() {
       try {
         JSON.parse(delayedFlowData);
       } catch (e) {
+        console.warn('Invalid JSON format in delayedFlowData:', e?.message || e);
         showToast('Invalid JSON in flow_data. Please provide valid JSON like {}', 'error');
         return;
       }
@@ -506,7 +501,13 @@ export default function BasicAutomations() {
             </div>
 
             {/* 3 Full-Width Stacked Automation Cards */}
-            <div className="space-y-5 pt-1">
+            {loading ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center flex flex-col items-center justify-center space-y-3 shadow-2xs">
+                <Loader2 className="w-7 h-7 text-emerald-600 animate-spin" />
+                <p className="text-sm font-medium text-slate-600">Loading automation settings...</p>
+              </div>
+            ) : (
+              <div className="space-y-5 pt-1">
               
               {/* ========================================================================= */}
               {/* CARD 1: OUT OF OFFICE MESSAGE */}
@@ -1632,6 +1633,7 @@ export default function BasicAutomations() {
               </div>
 
             </div>
+            )}
 
           </div>
         </div>
