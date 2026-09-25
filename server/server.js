@@ -16,6 +16,8 @@ import { initShopifyEventsTable } from './config/initShopifyEventsTable.js';
 import { initShopifySyncJobsTable } from './config/initShopifySyncJobsTable.js';
 import { initFlowSchema } from './config/initFlowTables.js';
 import { initWhatsAppTemplatesSchema } from './config/initWhatsAppTemplatesTables.js';
+import { initDelayedAutomationSchema } from './config/initDelayedAutomationTables.js';
+import { startBasicAutomationScheduler } from './services/basicAutomationEngine.js';
 
 const app = express();
 
@@ -113,9 +115,11 @@ const server = app.listen(PORT, HOST, async () => {
     await initShopifySyncJobsTable();
     await initFlowSchema();
     await initWhatsAppTemplatesSchema();
+    await initDelayedAutomationSchema();
     await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
     startCampaignScheduler(20000);
+    startBasicAutomationScheduler(20000);
   } catch (schemaErr) {
     console.warn('[Server Startup Schema Warning]:', schemaErr.message);
   }

@@ -55,34 +55,7 @@ export default function WorkflowSetupModal({
           }
         })
         .catch(() => {
-          // Fallback mock list for standalone testing
-          const fallback = [
-            {
-              id: 'wf_ai_proj_1',
-              name: 'ai_project_progress_notifications_7i',
-              description: 'Automated project progress notifications and milestone updates',
-              initialMsg: 'Hello! Here is your latest project sprint status and delivery timeline.',
-            },
-            {
-              id: 'wf_ai_tech_2',
-              name: 'ai_technical_support_ticketing_ja',
-              description: 'Technical issue reporting, auto-ticket creation and engineer assignment',
-              initialMsg: 'Welcome to ARCO Technical Support. Please select your issue category.',
-            },
-            {
-              id: 'wf_ai_onb_3',
-              name: 'ai_automated_client_onboarding_je',
-              description: 'Interactive step-by-step customer onboarding with documentation',
-              initialMsg: "Welcome aboard! Let's guide you through your account onboarding in 3 quick steps.",
-            },
-          ];
-          setWorkflowsList(fallback);
-          if (!currentConfig.workflowId) {
-            setSelectedWorkflowId(fallback[0].id);
-            setSelectedWorkflowName(fallback[0].name);
-            setSelectedWorkflowDesc(fallback[0].description);
-            setWorkflowInitialMsg(fallback[0].initialMsg);
-          }
+          setWorkflowsList([]);
         })
         .finally(() => setLoading(false));
     }

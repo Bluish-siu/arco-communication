@@ -1,6 +1,7 @@
 import { db, query } from '../config/db.js';
 import { workflowExecutionEngine } from '../services/workflowExecutionEngine.js';
 import { toUtcIsoString } from '../utils/dateUtils.js';
+import { basicAutomationEngine } from '../services/basicAutomationEngine.js';
 
 export const automationController = {
   // =========================================================================
@@ -50,7 +51,10 @@ export const automationController = {
   updateSettings: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
-      const { workingHours, outOfOffice, welcomeMessage, delayedResponse } = req.body;
+      const workingHours = req.body.workingHours !== undefined ? req.body.workingHours : req.body.working_hours;
+      const outOfOffice = req.body.outOfOffice !== undefined ? req.body.outOfOffice : req.body.out_of_office;
+      const welcomeMessage = req.body.welcomeMessage !== undefined ? req.body.welcomeMessage : req.body.welcome_message;
+      const delayedResponse = req.body.delayedResponse !== undefined ? req.body.delayedResponse : req.body.delayed_response;
 
       let settings = await db.findOne('automation_settings', 'user_id = $1', [userId]);
       const updatePayload = {};
@@ -334,149 +338,6 @@ export const automationController = {
     try {
       const userId = req.user?.id || 'usr_1';
       const { search, status } = req.query;
-
-      // Ensure standard Interakt workflows exist with rich starter templates
-      const standardWorkflows = [
-        {
-          id: 'wf_ai_proj_1',
-          name: 'ai_project_progress_notifications_7i',
-          trigger: 'User sends a WhatsApp message',
-          action: 'Workflow',
-          user_id: userId,
-          executions: 0,
-          description: 'Automated project progress notifications, sprint status updates and client check-ins',
-          trigger_config: { keywords: ['progress', 'project status', 'milestone', 'update'], triggerX: 60, triggerY: 100 },
-          nodes: [
-            {
-              id: 'node_1',
-              type: 'plain_message',
-              label: 'Plain Message',
-              x: 480,
-              y: 100,
-              data: { text: 'Hello! 🚀 Here is the current progress update on your active project sprint. All milestones are currently on schedule.' }
-            },
-            {
-              id: 'node_2',
-              type: 'message_buttons',
-              label: 'Message + Buttons',
-              x: 880,
-              y: 100,
-              data: { text: 'Would you like to view detailed milestone reports or schedule a sync with your team lead?', buttons: ['View Milestone Report', 'Book Sprint Review', 'Contact Project Lead'] }
-            },
-            {
-              id: 'node_3',
-              type: 'assign_agent',
-              label: 'Assign Chat to Agent',
-              x: 1280,
-              y: 100,
-              data: { agent: 'Engineering Project Manager', queue: 'High Priority' }
-            }
-          ],
-          edges: [
-            { id: 'edge_trigger_node_1', source: 'trigger', target: 'node_1' },
-            { id: 'edge_node_1_node_2', source: 'node_1', target: 'node_2' },
-            { id: 'edge_node_2_node_3', source: 'node_2', target: 'node_3' }
-          ]
-        },
-        {
-          id: 'wf_ai_tech_2',
-          name: 'ai_technical_support_ticketing_ja',
-          trigger: 'User sends a WhatsApp message',
-          action: 'Workflow',
-          user_id: userId,
-          executions: 0,
-          description: 'Technical issue reporting, auto-ticket creation, priority classification, and engineer assignment',
-          trigger_config: { keywords: ['support', 'bug', 'issue', 'ticket', 'help'], triggerX: 60, triggerY: 100 },
-          nodes: [
-            {
-              id: 'node_1',
-              type: 'plain_message',
-              label: 'Plain Message',
-              x: 480,
-              y: 100,
-              data: { text: 'Welcome to ARCO Technical Support 🛠️. We are here to help resolve any technical or API inquiries.' }
-            },
-            {
-              id: 'node_2',
-              type: 'message_buttons',
-              label: 'Message + Buttons',
-              x: 880,
-              y: 100,
-              data: { text: 'Please select the category that best describes your inquiry:', buttons: ['Cloud API Integration', 'Webhook & Webhooks', 'Billing & Tokens', 'Speak to Engineer'] }
-            },
-            {
-              id: 'node_3',
-              type: 'update_tag',
-              label: 'Update Field / Tag',
-              x: 1280,
-              y: 100,
-              data: { tag: 'Technical Support Ticket' }
-            }
-          ],
-          edges: [
-            { id: 'edge_trigger_node_1', source: 'trigger', target: 'node_1' },
-            { id: 'edge_node_1_node_2', source: 'node_1', target: 'node_2' },
-            { id: 'edge_node_2_node_3', source: 'node_2', target: 'node_3' }
-          ]
-        },
-        {
-          id: 'wf_ai_onb_3',
-          name: 'ai_automated_client_onboarding_je',
-          trigger: 'User sends a WhatsApp message',
-          action: 'Workflow',
-          user_id: userId,
-          executions: 0,
-          description: 'Interactive step-by-step customer onboarding with documentation and live support handover',
-          trigger_config: { keywords: ['onboard', 'welcome', 'new client', 'get started'], triggerX: 60, triggerY: 100 },
-          nodes: [
-            {
-              id: 'node_1',
-              type: 'plain_message',
-              label: 'Plain Message',
-              x: 480,
-              y: 100,
-              data: { text: "Welcome aboard! 🎉 We are excited to partner with you. Let's guide you through your account onboarding in 3 quick steps." }
-            },
-            {
-              id: 'node_2',
-              type: 'message_buttons',
-              label: 'Message + Buttons',
-              x: 880,
-              y: 100,
-              data: { text: 'Ready to configure your WhatsApp Cloud API channel and connect your brand catalog?', buttons: ['Start Step 1: Connect Phone', 'Explore Documentation', 'Request Assisted Setup'] }
-            }
-          ],
-          edges: [
-            { id: 'edge_trigger_node_1', source: 'trigger', target: 'node_1' },
-            { id: 'edge_node_1_node_2', source: 'node_1', target: 'node_2' }
-          ]
-        },
-      ];
-      for (const wf of standardWorkflows) {
-        await query(
-          `INSERT INTO workflows (id, user_id, name, "trigger", action, executions, status, description, trigger_config, nodes, edges, is_published, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, true, '2026-09-04T08:00:00.000Z', '2026-09-04T08:00:00.000Z')
-           ON CONFLICT (id) DO UPDATE SET 
-             name = EXCLUDED.name, 
-             "trigger" = CASE WHEN workflows.trigger = '--' THEN EXCLUDED."trigger" ELSE workflows.trigger END,
-             action = EXCLUDED.action,
-             nodes = CASE WHEN workflows.nodes IS NULL OR jsonb_array_length(workflows.nodes) = 0 THEN EXCLUDED.nodes ELSE workflows.nodes END,
-             edges = CASE WHEN workflows.edges IS NULL OR jsonb_array_length(workflows.edges) = 0 THEN EXCLUDED.edges ELSE workflows.edges END,
-             trigger_config = CASE WHEN workflows.trigger_config IS NULL OR workflows.trigger_config = '{}'::jsonb THEN EXCLUDED.trigger_config ELSE workflows.trigger_config END`,
-          [
-            wf.id,
-            wf.user_id,
-            wf.name,
-            wf.trigger,
-            wf.action,
-            wf.executions,
-            wf.description,
-            JSON.stringify(wf.trigger_config),
-            JSON.stringify(wf.nodes),
-            JSON.stringify(wf.edges)
-          ]
-        );
-      }
 
       let sql = 'SELECT * FROM workflows WHERE (user_id = $1 OR user_id IS NULL)';
       const params = [userId];
@@ -1922,11 +1783,83 @@ export const automationController = {
         });
       }
 
-      // Priority 5: Default Welcome / Delayed message
-      const autoSettings = await db.findOne('automation_settings', 'user_id = $1', [userId]);
-      const defaultMsg = autoSettings?.welcome_message?.message || 'Thank you for reaching out to ARCO Communication. An executive will connect shortly.';
+      // Priority 5: Basic Automations Evaluation (Working Hours, Out of Office, Welcome, Delayed Response)
+      const evaluation = await basicAutomationEngine.evaluateBasicAutomations({
+        userId,
+        phone: contact_phone,
+        messageText: message,
+        isNewConversation: true,
+        referenceDate: new Date(),
+      });
 
-      logs.push({ step: '2. Fallback: Default Welcome Automation', details: defaultMsg });
+      logs.push({
+        step: '2. Working Hours Evaluation',
+        details: `${evaluation.workingHours.reason} (${evaluation.workingHours.currentTime || 'now'}, ${evaluation.workingHours.timeZone || 'UTC'})`,
+      });
+
+      if (evaluation.outOfOffice.triggered) {
+        logs.push({
+          step: '3. Priority 5 Matched: Out of Office Auto Reply',
+          details: `Reason: ${evaluation.outOfOffice.reason}`,
+        });
+
+        return res.json({
+          success: true,
+          matched: true,
+          type: 'out_of_office',
+          name: 'Out of Office Message',
+          response: evaluation.outOfOffice.message,
+          executionLogs: logs,
+          isSimulation: simulation,
+          details: evaluation,
+        });
+      }
+
+      if (evaluation.welcome.triggered) {
+        logs.push({
+          step: '3. Priority 5 Matched: Welcome Message',
+          details: `Reason: ${evaluation.welcome.reason}`,
+        });
+
+        if (evaluation.delayedResponse.triggered) {
+          logs.push({
+            step: '4. Delayed Response Scheduled',
+            details: evaluation.delayedResponse.reason,
+          });
+        }
+
+        return res.json({
+          success: true,
+          matched: true,
+          type: 'welcome_message',
+          name: 'Welcome Message',
+          response: evaluation.welcome.message,
+          executionLogs: logs,
+          isSimulation: simulation,
+          details: evaluation,
+        });
+      }
+
+      if (evaluation.delayedResponse.triggered) {
+        logs.push({
+          step: '3. Delayed Response Scheduled',
+          details: evaluation.delayedResponse.reason,
+        });
+
+        return res.json({
+          success: true,
+          matched: true,
+          type: 'delayed_response',
+          name: 'Delayed Response Message',
+          response: evaluation.delayedResponse.message,
+          executionLogs: logs,
+          isSimulation: simulation,
+          details: evaluation,
+        });
+      }
+
+      const defaultMsg = evaluation.welcome.message || 'Thank you for reaching out to ARCO Communication. An executive will connect shortly.';
+      logs.push({ step: '3. Fallback: Default Welcome Automation', details: defaultMsg });
 
       return res.json({
         success: true,
@@ -1936,6 +1869,7 @@ export const automationController = {
         response: defaultMsg,
         executionLogs: logs,
         isSimulation: simulation,
+        details: evaluation,
       });
     } catch (error) {
       next(error);

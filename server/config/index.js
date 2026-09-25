@@ -34,6 +34,7 @@ export const config = {
     pass: process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '',
     from: process.env.SMTP_FROM || (process.env.SMTP_USER ? `"ARCO Communication" <${process.env.SMTP_USER}>` : '"ARCO Communication" <no-reply@arco.com>'),
   },
+  metaAppSecret: process.env.META_APP_SECRET || '',
 };
 
 // Validate critical security secrets in production
@@ -41,5 +42,9 @@ if (config.nodeEnv === 'production') {
   if (!process.env.JWT_SECRET) {
     console.error('[SECURITY CRITICAL] JWT_SECRET must be explicitly defined in production environment.');
     throw new Error('FATAL: JWT_SECRET must be defined in production environment.');
+  }
+  if (!process.env.META_APP_SECRET) {
+    console.error('[SECURITY CRITICAL] META_APP_SECRET must be explicitly defined in production environment.');
+    throw new Error('FATAL: META_APP_SECRET must be defined in production environment.');
   }
 }

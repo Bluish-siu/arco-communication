@@ -284,6 +284,26 @@ export const taskController = {
         return res.status(404).json({ success: false, error: 'Task not found' });
       }
 
+      // IDOR Authorization: Agents can only update their own or unassigned tasks
+      const task = existing.rows[0];
+      const userRole = (req.user?.role || 'agent').toLowerCase();
+      if (userRole === 'agent') {
+        const assignedTo = (task.assigned_to || '').trim().toLowerCase();
+        const userName = (req.user?.name || '').trim().toLowerCase();
+        const userEmail = (req.user?.email || '').trim().toLowerCase();
+        const userId = String(req.user?.id || '').trim().toLowerCase();
+
+        const isUnassigned = !assignedTo || ['unassigned', 'me', 'all', ''].includes(assignedTo);
+        const isSelf = assignedTo === userName || assignedTo === userEmail || assignedTo === userId;
+
+        if (!isUnassigned && !isSelf) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You are not authorized to update a task assigned to another agent',
+          });
+        }
+      }
+
       const updates = [];
       const values = [];
 
@@ -342,6 +362,31 @@ export const taskController = {
         return res.status(400).json({ success: false, error: 'Status is required' });
       }
 
+      const existing = await query('SELECT * FROM tasks WHERE id = $1', [id]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Task not found' });
+      }
+
+      // IDOR Authorization: Agents can only update status of their own or unassigned tasks
+      const task = existing.rows[0];
+      const userRole = (req.user?.role || 'agent').toLowerCase();
+      if (userRole === 'agent') {
+        const assignedTo = (task.assigned_to || '').trim().toLowerCase();
+        const userName = (req.user?.name || '').trim().toLowerCase();
+        const userEmail = (req.user?.email || '').trim().toLowerCase();
+        const userId = String(req.user?.id || '').trim().toLowerCase();
+
+        const isUnassigned = !assignedTo || ['unassigned', 'me', 'all', ''].includes(assignedTo);
+        const isSelf = assignedTo === userName || assignedTo === userEmail || assignedTo === userId;
+
+        if (!isUnassigned && !isSelf) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You are not authorized to update status of a task assigned to another agent',
+          });
+        }
+      }
+
       const result = await query(
         `UPDATE tasks 
          SET status = $1, updated_at = CURRENT_TIMESTAMP 
@@ -349,10 +394,6 @@ export const taskController = {
          RETURNING *`,
         [status, id]
       );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Task not found' });
-      }
 
       res.json({
         success: true,
@@ -368,6 +409,31 @@ export const taskController = {
   delete: async (req, res, next) => {
     try {
       const { id } = req.params;
+
+      const existing = await query('SELECT * FROM tasks WHERE id = $1', [id]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Task not found' });
+      }
+
+      // IDOR Authorization: Agents can only delete their own tasks; managers/admins can delete any
+      const task = existing.rows[0];
+      const userRole = (req.user?.role || 'agent').toLowerCase();
+      if (userRole === 'agent') {
+        const assignedTo = (task.assigned_to || '').trim().toLowerCase();
+        const userName = (req.user?.name || '').trim().toLowerCase();
+        const userEmail = (req.user?.email || '').trim().toLowerCase();
+        const userId = String(req.user?.id || '').trim().toLowerCase();
+
+        const isSelf = assignedTo === userName || assignedTo === userEmail || assignedTo === userId;
+
+        if (!isSelf) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You are not authorized to delete a task assigned to another agent',
+          });
+        }
+      }
+
       const result = await query('DELETE FROM tasks WHERE id = $1 RETURNING *', [id]);
 
       if (result.rows.length === 0) {

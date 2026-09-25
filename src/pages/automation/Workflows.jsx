@@ -424,35 +424,7 @@ export default function Workflows() {
   const navigate = useNavigate();
   const { id: routeWorkflowId } = useParams();
 
-  const [workflows, setWorkflows] = useState([
-    {
-      id: 'wf_ai_proj_1',
-      name: 'ai_project_progress_notifications_7i',
-      trigger: '--',
-      action: 'Workflow',
-      executions: 0,
-      created_at: '2026-09-04T08:00:00.000Z',
-      updated_at: '2026-09-04T08:00:00.000Z',
-    },
-    {
-      id: 'wf_ai_tech_2',
-      name: 'ai_technical_support_ticketing_ja',
-      trigger: '--',
-      action: 'Workflow',
-      executions: 0,
-      created_at: '2026-09-04T08:00:00.000Z',
-      updated_at: '2026-09-04T08:00:00.000Z',
-    },
-    {
-      id: 'wf_ai_onb_3',
-      name: 'ai_automated_client_onboarding_je',
-      trigger: '--',
-      action: 'Workflow',
-      executions: 0,
-      created_at: '2026-09-04T08:00:00.000Z',
-      updated_at: '2026-09-04T08:00:00.000Z',
-    },
-  ]);
+  const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState('');

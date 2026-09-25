@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { db, query } from '../config/db.js';
 import { evaluateAssignmentInternal } from './chatAssignmentController.js';
 import { campaignReplyFlowService } from '../services/campaignReplyFlowService.js';
@@ -6,9 +7,11 @@ import {
   metaWhatsAppService,
   normalizeRecipientPhone,
   isWhatsAppOpted,
+  appendAppSecretProof,
 } from '../services/metaWhatsAppService.js';
 import { processCampaign } from '../services/campaignDispatcher.js';
 import { parseMetaWebhookTimestamp, toUtcIsoString } from '../utils/dateUtils.js';
+import { basicAutomationEngine } from '../services/basicAutomationEngine.js';
 /**
  * Normalizes an incoming WhatsApp message payload to extract clean text,
  * type, and interactive details (button_reply, list_reply, template buttons).
@@ -165,6 +168,85 @@ export const whatsappController = {
     }
   },
 
+  // POST /api/whatsapp/webhook Signature Verification (X-Hub-Signature-256)
+  verifyWebhookSignature: (req, res, next) => {
+    try {
+      const signatureHeader = req.headers['x-hub-signature-256'] || req.headers['X-Hub-Signature-256'];
+      if (!signatureHeader || typeof signatureHeader !== 'string') {
+        return res.status(401).json({
+          success: false,
+          error: 'Missing X-Hub-Signature-256 signature header',
+        });
+      }
+
+      const appSecret = process.env.META_APP_SECRET;
+      if (!appSecret) {
+        console.error('[Meta Webhook] Signature verification failed: META_APP_SECRET is not configured on server');
+        return res.status(500).json({
+          success: false,
+          error: 'Webhook verification secret is not configured on server',
+        });
+      }
+
+      const parts = signatureHeader.split('=');
+      if (parts.length !== 2 || parts[0].toLowerCase() !== 'sha256') {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid X-Hub-Signature-256 format. Expected sha256=<hash>',
+        });
+      }
+
+      const signatureHash = parts[1].trim();
+
+      // Ensure raw request body is used for signature calculation before JSON parsing alterations
+      let rawPayload = req.rawBody;
+      if (!rawPayload) {
+        if (Buffer.isBuffer(req.body)) {
+          rawPayload = req.body;
+        } else if (typeof req.body === 'string') {
+          rawPayload = Buffer.from(req.body, 'utf8');
+        } else if (req.body && typeof req.body === 'object') {
+          rawPayload = Buffer.from(JSON.stringify(req.body), 'utf8');
+        } else {
+          rawPayload = Buffer.from('', 'utf8');
+        }
+      }
+
+      const expectedHash = crypto
+        .createHmac('sha256', appSecret)
+        .update(rawPayload)
+        .digest('hex');
+
+      const sigBuffer = Buffer.from(signatureHash, 'utf8');
+      const expBuffer = Buffer.from(expectedHash, 'utf8');
+
+      if (sigBuffer.length !== expBuffer.length || !crypto.timingSafeEqual(sigBuffer, expBuffer)) {
+        // Safe logging: do NOT log META_APP_SECRET or complete webhook signature
+        const masked = signatureHash.length > 8
+          ? `${signatureHash.slice(0, 4)}...${signatureHash.slice(-4)}`
+          : '***';
+        console.warn(`[Meta Webhook] Signature mismatch. Provided prefix: ${masked}`);
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid webhook signature',
+        });
+      }
+
+      next();
+    } catch (err) {
+      console.error('[Meta Webhook] Signature verification error:', err.message);
+      return res.status(401).json({
+        success: false,
+        error: 'Webhook signature verification failed',
+      });
+    }
+  },
+
+  // Alias for flexible route wiring
+  verifySignature: function (req, res, next) {
+    return this.verifyWebhookSignature(req, res, next);
+  },
+
   // GET /api/whatsapp/webhook (Meta Webhook Verification Handshake)
   verifyWebhook: (req, res) => {
     try {
@@ -310,6 +392,8 @@ export const whatsappController = {
               );
 
             const timeIso = timestamp.toISOString();
+            const isNewConversation = convRes.rows.length === 0;
+            const previousLastInbound = convRes.rows.length > 0 ? convRes.rows[0].last_inbound_at : null;
 
             if (convRes.rows.length > 0) {
               conv = convRes.rows[0];
@@ -531,6 +615,27 @@ export const whatsappController = {
               }
             } catch (botErr) {
               console.warn('[Checkout Bot Webhook Session Error]:', botErr.message);
+            }
+
+            // H. Basic Automations (Working Hours, Out of Office, Welcome, Delayed Response)
+            try {
+              await basicAutomationEngine.handleInboundMessage({
+                phoneNumberId: change?.metadata?.phone_number_id || null,
+                wabaId: entry?.id || null,
+                contact,
+                conv,
+                isNewConversation,
+                previousLastInbound,
+                messageText,
+                triggeringWamid: messageId,
+                fromPhone,
+                clean10,
+                referenceDate: timestamp || new Date(),
+                postCampaignHandled,
+                workflowHandled: wfResult?.handled,
+              });
+            } catch (autoErr) {
+              console.warn('[WhatsApp Webhook] Basic Automation evaluation warning:', autoErr.message);
             }
           }
         }
@@ -938,7 +1043,8 @@ export const whatsappController = {
       let metaFlows = [];
       if (creds.isConfigured && creds.wabaId) {
         try {
-          const wabaFlowsUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/flows`;
+          const rawWabaFlowsUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/flows`;
+          const wabaFlowsUrl = appendAppSecretProof(rawWabaFlowsUrl, creds.accessToken);
           const wabaFlowsResp = await fetch(wabaFlowsUrl, {
             headers: { Authorization: `Bearer ${creds.accessToken}` },
           });
@@ -1154,7 +1260,8 @@ export const whatsappController = {
       // Attempt to register/create Flow in Meta WABA if connected
       if (creds.isConfigured && creds.wabaId) {
         try {
-          const createUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/flows`;
+          const rawCreateUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/flows`;
+          const createUrl = appendAppSecretProof(rawCreateUrl, creds.accessToken);
           const resp = await fetch(createUrl, {
             method: 'POST',
             headers: {

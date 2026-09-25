@@ -168,8 +168,8 @@ async function runAllTests() {
       enabled: true,
       triggerType: 'On button click',
       triggerButton: 'Start Flow',
-      workflowId: 'wf_ai_proj_1',
-      workflowName: 'ai_project_progress_notifications_7i',
+      workflowId: 'wf_test_crf_1',
+      workflowName: 'test_project_progress_workflow',
     },
   };
 
@@ -406,14 +406,14 @@ async function runAllTests() {
     // Ensure workflow exists in database
     await pool.query(
       `INSERT INTO workflows (id, user_id, name, "trigger", action, executions, status, description, nodes, edges, is_published)
-       VALUES ('wf_ai_proj_1', 'usr_1', 'ai_project_progress_notifications_7i', 'User message', 'Workflow', 0, 'active', 'Project updates',
+       VALUES ('wf_test_crf_1', 'usr_1', 'test_project_progress_workflow', 'User message', 'Workflow', 0, 'active', 'Project updates',
                '[{"id": "node_1", "type": "plain_message", "data": {"text": "Welcome to Project Notifications"}}]'::jsonb,
                '[]'::jsonb, true)
        ON CONFLICT (id) DO UPDATE SET status = 'active'`,
       []
     );
 
-    const prevExecutionsRes = await pool.query('SELECT executions FROM workflows WHERE id = $1', ['wf_ai_proj_1']);
+    const prevExecutionsRes = await pool.query('SELECT executions FROM workflows WHERE id = $1', ['wf_test_crf_1']);
     const prevExecutions = parseInt(prevExecutionsRes.rows[0].executions || '0', 10);
 
     const contactRes = await pool.query('SELECT * FROM contacts WHERE id = $1', [testContactId]);
@@ -437,7 +437,7 @@ async function runAllTests() {
     assert.strictEqual(result.flow.flowType, 'send_workflow');
 
     // Verify executions incremented
-    const afterExecutionsRes = await pool.query('SELECT executions FROM workflows WHERE id = $1', ['wf_ai_proj_1']);
+    const afterExecutionsRes = await pool.query('SELECT executions FROM workflows WHERE id = $1', ['wf_test_crf_1']);
     const afterExecutions = parseInt(afterExecutionsRes.rows[0].executions || '0', 10);
     assert.strictEqual(afterExecutions, prevExecutions + 1, 'Workflow executions count must be incremented by 1');
 
@@ -788,6 +788,7 @@ async function runAllTests() {
     await pool.query('DELETE FROM campaigns WHERE id = $1', [testCampaignId]);
     await pool.query('DELETE FROM contacts WHERE id = $1', [testContactId]);
     await pool.query('DELETE FROM conversations WHERE id = $1', [testConvId]);
+    await pool.query('DELETE FROM workflows WHERE id = $1', ['wf_test_crf_1']);
   });
 
   console.log('\n========================================================================');

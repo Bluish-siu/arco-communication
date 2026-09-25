@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { integrationController } from '../controllers/integrationController.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { verifyShopifyIdToken } from '../middleware/shopifyAuth.js';
 
 const router = Router();
@@ -15,13 +15,13 @@ router.get('/shopify/callback', integrationController.handleShopifyCallback);
 router.get('/', authenticateToken, integrationController.getIntegrations);
 router.get('/shopify/status', authenticateToken, integrationController.getShopifyStatus);
 router.get('/shopify/oauth-url', authenticateToken, integrationController.getShopifyOAuthUrl);
-router.post('/shopify/connect', authenticateToken, integrationController.connectShopify);
-router.post('/shopify/disconnect', authenticateToken, integrationController.disconnectShopify);
-router.post('/shopify/reconcile-webhooks', authenticateToken, integrationController.reconcileShopifyWebhooks);
+router.post('/shopify/connect', authenticateToken, requireAdmin, integrationController.connectShopify);
+router.post('/shopify/disconnect', authenticateToken, requireAdmin, integrationController.disconnectShopify);
+router.post('/shopify/reconcile-webhooks', authenticateToken, requireAdmin, integrationController.reconcileShopifyWebhooks);
 
 // Historical Bulk Synchronization Endpoints
-router.post('/shopify/sync', authenticateToken, integrationController.startShopifySync);
+router.post('/shopify/sync', authenticateToken, requireAdmin, integrationController.startShopifySync);
 router.get('/shopify/sync/status', authenticateToken, integrationController.getShopifySyncStatus);
-router.post('/shopify/sync/:jobId/cancel', authenticateToken, integrationController.cancelShopifySync);
+router.post('/shopify/sync/:jobId/cancel', authenticateToken, requireAdmin, integrationController.cancelShopifySync);
 
 export default router;

@@ -547,8 +547,8 @@ export default function CreateCampaign() {
       enabled: false,
       triggerType: 'On button click',
       triggerButton: 'Start Flow',
-      workflowId: 'wf_ai_proj_1',
-      workflowName: 'ai_project_progress_notifications_7i',
+      workflowId: '',
+      workflowName: '',
     },
   });
 

@@ -97,8 +97,9 @@ export const settingsController = {
           `SELECT meta_business_id, waba_id, phone_number_id, display_phone_number, business_name, status,
                   number_type, country, verification_status, messaging_limit
            FROM meta_integrations 
-           WHERE status = 'connected' 
-           ORDER BY updated_at DESC LIMIT 1`
+           WHERE user_id = $1 AND status = 'connected' 
+           ORDER BY updated_at DESC LIMIT 1`,
+          [userId]
         );
         if (metaRes.rows.length > 0) {
           const row = metaRes.rows[0];
@@ -113,6 +114,15 @@ export const settingsController = {
             messagingLimit: row.messaging_limit || (row.verification_status === 'verified' ? '1,000 msgs/day' : '250 msgs/day'),
             wabaId: row.waba_id,
             phoneNumberId: row.phone_number_id,
+          };
+        } else if (process.env.META_PHONE_NUMBER_ID && process.env.META_ACCESS_TOKEN && process.env.META_ACCESS_TOKEN !== 'your_meta_access_token_here') {
+          // Fall back to business-wide environment configuration if present
+          whatsappStatus = {
+            ...whatsappStatus,
+            connected: true,
+            phoneNumberId: process.env.META_PHONE_NUMBER_ID,
+            wabaId: process.env.META_WABA_ID || null,
+            displayPhoneNumber: process.env.META_DISPLAY_PHONE_NUMBER || '+91 98765 43210',
           };
         }
       } catch {

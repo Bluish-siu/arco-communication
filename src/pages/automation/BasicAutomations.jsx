@@ -227,7 +227,7 @@ export default function BasicAutomations() {
         ...settings,
         workingHours: {
           enabled: isWorkingHoursEnabled,
-          timezone: 'Asia/Kolkata',
+          timezone: settings?.working_hours?.timezone || 'Asia/Kolkata',
           days: workingDays,
           startTime,
           endTime,

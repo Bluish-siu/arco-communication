@@ -1,7 +1,11 @@
 import crypto from 'crypto';
 import { query } from '../config/db.js';
+import { generateAppSecretProof, appendAppSecretProof, sanitizeMetaUrl } from '../utils/metaCrypto.js';
+
+import { encryptToken, decryptToken } from '../utils/crypto.js';
 
 export { encryptToken, decryptToken } from '../utils/crypto.js';
+export { generateAppSecretProof, appendAppSecretProof, sanitizeMetaUrl } from '../utils/metaCrypto.js';
 
 // Clean phone number to E.164 without leading '+'
 export function formatPhoneNumber(phone) {
@@ -232,42 +236,9 @@ export const metaWhatsAppService = {
       };
     }
 
-    // 2. Check general PostgreSQL database meta_integrations table
-    try {
-      const res = await query(
-        `SELECT id, user_id, meta_business_id, waba_id, phone_number_id, display_phone_number,
-                access_token_encrypted, status
-         FROM meta_integrations
-         WHERE status = 'connected'
-         ORDER BY updated_at DESC LIMIT 1`
-      );
-
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        const decryptedToken = decryptToken(row.access_token_encrypted);
-        const effectiveToken = decryptedToken || row.access_token_encrypted;
-
-        const isDbConfigured = Boolean(
-          effectiveToken &&
-          effectiveToken !== 'meta_valid_token_session' &&
-          row.phone_number_id
-        );
-
-        return {
-          isConfigured: isDbConfigured,
-          source: 'database',
-          tenantId: row.user_id || userId || 'default',
-          accessToken: effectiveToken,
-          phoneNumberId: row.phone_number_id,
-          wabaId: row.waba_id,
-          displayPhoneNumber: row.display_phone_number,
-          version,
-          missingFields: isDbConfigured ? [] : ['access_token'],
-        };
-      }
-    } catch (err) {
-      console.warn('[metaWhatsAppService] Database lookup for credentials failed:', err.message);
-    }
+    // If neither explicit user DB integration nor valid environment configuration exists,
+    // do NOT fall back to an arbitrary connected integration belonging to another user.
+    // Return a safe, controlled unconfigured response.
 
     const missingFields = [];
     if (!envToken || envToken === 'your_meta_access_token_here') missingFields.push('META_ACCESS_TOKEN');
@@ -287,8 +258,8 @@ export const metaWhatsAppService = {
   },
 
   // 2. Verify connection with Meta Graph API
-  verifyConnection: async () => {
-    const creds = await metaWhatsAppService.getCredentials();
+  verifyConnection: async (userId = null) => {
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         isConnected: false,
@@ -299,7 +270,8 @@ export const metaWhatsAppService = {
     }
 
     try {
-      const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}?fields=id,verified_name,display_phone_number,quality_rating,code_verification_status`;
+      const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}?fields=id,verified_name,display_phone_number,quality_rating,code_verification_status`;
+      const url = appendAppSecretProof(rawUrl, creds.accessToken);
       const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${creds.accessToken}`,
@@ -538,12 +510,13 @@ export const metaWhatsAppService = {
     };
 
     const headerType = formattedComponents.find((c) => c.type === 'header')?.parameters?.[0]?.type?.toUpperCase() || (foundTmpl?.components?.find((c) => c.type === 'HEADER')?.format || 'NONE');
-    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
-      // Diagnostic Log Entry for Outgoing Request (Requirement 16 - No tokens exposed)
+      // Diagnostic Log Entry for Outgoing Request (No secrets or proofs exposed)
       console.log(
-        `[Meta Cloud API Outgoing Request] Phone Number ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | Template: "${templateName}" | Language: "${effectiveLanguage}" | Header Type: ${headerType} | Endpoint: ${url}`
+        `[Meta Cloud API Outgoing Request] Phone Number ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | Template: "${templateName}" | Language: "${effectiveLanguage}" | Header Type: ${headerType} | Endpoint: ${sanitizeMetaUrl(url)}`
       );
 
       const response = await fetch(url, {
@@ -653,7 +626,7 @@ export const metaWhatsAppService = {
   },
 
   // 4. Send Free-Form WhatsApp Text Message via Meta Cloud API (during 24-hour service window)
-  sendTextMessage: async ({ to, text, previewUrl = false }) => {
+  sendTextMessage: async ({ to, text, previewUrl = false, userId = null }) => {
     if (!to) {
       return { success: false, error: 'Recipient phone number is required' };
     }
@@ -669,7 +642,7 @@ export const metaWhatsAppService = {
       };
     }
 
-    const creds = await metaWhatsAppService.getCredentials();
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         success: false,
@@ -679,7 +652,8 @@ export const metaWhatsAppService = {
       };
     }
 
-    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -773,7 +747,7 @@ export const metaWhatsAppService = {
   },
 
   // 4b. Send Interactive List Message via Meta Cloud API (within 24-hour service window)
-  sendInteractiveListMessage: async ({ to, headerText, bodyText, footerText, buttonText = 'Select an option', sections = [] }) => {
+  sendInteractiveListMessage: async ({ to, headerText, bodyText, footerText, buttonText = 'Select an option', sections = [], userId = null }) => {
     if (!to) {
       return { success: false, error: 'Recipient phone number is required' };
     }
@@ -789,7 +763,7 @@ export const metaWhatsAppService = {
       };
     }
 
-    const creds = await metaWhatsAppService.getCredentials();
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         success: false,
@@ -817,7 +791,8 @@ export const metaWhatsAppService = {
       },
     };
 
-    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -898,7 +873,7 @@ export const metaWhatsAppService = {
   },
 
   // 4c. Send Catalog Message via Meta Cloud API (within 24-hour service window)
-  sendCatalogMessage: async ({ to, bodyText = 'Explore our catalog', footerText, catalogParameters = {} }) => {
+  sendCatalogMessage: async ({ to, bodyText = 'Explore our catalog', footerText, catalogParameters = {}, userId = null }) => {
     if (!to) {
       return { success: false, error: 'Recipient phone number is required' };
     }
@@ -911,7 +886,7 @@ export const metaWhatsAppService = {
       };
     }
 
-    const creds = await metaWhatsAppService.getCredentials();
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         success: false,
@@ -921,7 +896,8 @@ export const metaWhatsAppService = {
       };
     }
 
-    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -1021,7 +997,8 @@ export const metaWhatsAppService = {
       };
     }
 
-    const url = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates?limit=100`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates?limit=100`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
       console.log(`[Meta Cloud API] Fetching message templates from WABA ID ${creds.wabaId}...`);
@@ -1437,7 +1414,8 @@ export const metaWhatsAppService = {
       if (!buffer || fileLength === 0) return null;
 
       // Create Meta Resumable Upload session
-      const createSessionUrl = `https://graph.facebook.com/${creds.version}/app/uploads?file_length=${fileLength}&file_type=${encodeURIComponent(mimeType)}`;
+      const rawSessionUrl = `https://graph.facebook.com/${creds.version}/app/uploads?file_length=${fileLength}&file_type=${encodeURIComponent(mimeType)}`;
+      const createSessionUrl = appendAppSecretProof(rawSessionUrl, creds.accessToken);
       const sessionRes = await fetch(createSessionUrl, {
         method: 'POST',
         headers: {
@@ -1451,7 +1429,8 @@ export const metaWhatsAppService = {
       }
 
       // Upload binary payload
-      const uploadUrl = `https://graph.facebook.com/${creds.version}/${sessionData.id}`;
+      const rawUploadUrl = `https://graph.facebook.com/${creds.version}/${sessionData.id}`;
+      const uploadUrl = appendAppSecretProof(rawUploadUrl, creds.accessToken);
       const uploadRes = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
@@ -1511,11 +1490,12 @@ export const metaWhatsAppService = {
     }
 
     // 4. Send POST request to Meta Graph API
-    const url = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
       console.log(
-        `[Meta Cloud API Template Submit] WABA ID: ${creds.wabaId} | Template Name: "${metaPayload.name}" | Category: "${metaPayload.category}" | Language: "${metaPayload.language}" | Endpoint: ${url}`
+        `[Meta Cloud API Template Submit] WABA ID: ${creds.wabaId} | Template Name: "${metaPayload.name}" | Category: "${metaPayload.category}" | Language: "${metaPayload.language}" | Endpoint: ${sanitizeMetaUrl(url)}`
       );
 
       const response = await fetch(url, {
@@ -1595,7 +1575,8 @@ export const metaWhatsAppService = {
       };
     }
 
-    const url = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates?limit=100`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.wabaId}/message_templates?limit=100`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
       console.log(`[Meta Cloud API] Syncing message templates from WABA ID ${creds.wabaId}...`);
@@ -1672,7 +1653,8 @@ export const metaWhatsAppService = {
     }
 
     const cleanFlowId = String(flowId).trim();
-    const url = `https://graph.facebook.com/${creds.version}/${cleanFlowId}?fields=id,name,status,categories,validation_errors,json_version,data_api_version,endpoint_uri,preview`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${cleanFlowId}?fields=id,name,status,categories,validation_errors,json_version,data_api_version,endpoint_uri,preview`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
       console.log(`[Meta Cloud API] Fetching Flow ${cleanFlowId} from Meta Graph API (${creds.version})...`);
@@ -1729,12 +1711,12 @@ export const metaWhatsAppService = {
   },
 
   // 7. Fetch Meta WhatsApp Flow Assets (Screens / JSON definition)
-  getFlowAssets: async (flowId) => {
+  getFlowAssets: async (flowId, userId = null) => {
     if (!flowId) {
       return { success: false, error: 'Flow ID is required' };
     }
 
-    const creds = await metaWhatsAppService.getCredentials();
+    const creds = await metaWhatsAppService.getCredentials(userId);
     if (!creds.isConfigured) {
       return {
         success: false,
@@ -1745,7 +1727,8 @@ export const metaWhatsAppService = {
     }
 
     const cleanFlowId = String(flowId).trim();
-    const url = `https://graph.facebook.com/${creds.version}/${cleanFlowId}/assets`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${cleanFlowId}/assets`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
       const response = await fetch(url, {
@@ -1883,7 +1866,8 @@ export const metaWhatsAppService = {
       interactive: interactivePayload,
     };
 
-    const url = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+    const url = appendAppSecretProof(rawUrl, creds.accessToken);
 
     try {
       console.log(

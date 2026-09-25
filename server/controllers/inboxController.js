@@ -1,6 +1,7 @@
 import { db, query } from '../config/db.js';
 import { metaWhatsAppService, isWithin24HourWindow } from '../services/metaWhatsAppService.js';
 import { toUtcIsoString } from '../utils/dateUtils.js';
+import { basicAutomationEngine } from '../services/basicAutomationEngine.js';
 
 export const inboxController = {
   // GET /api/inbox/conversations
@@ -281,6 +282,26 @@ export const inboxController = {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
+      // Server-side Object Authorization (IDOR Protection)
+      // Agents cannot send messages on conversations assigned to another specific agent.
+      const userRole = (req.user?.role || 'agent').toLowerCase();
+      if (userRole === 'agent') {
+        const assignee = (conv.assignee || '').trim().toLowerCase();
+        const userName = (req.user?.name || '').trim().toLowerCase();
+        const userEmail = (req.user?.email || '').trim().toLowerCase();
+        const userId = String(req.user?.id || '').trim().toLowerCase();
+
+        const isUnassignedOrOpen = !assignee || ['unassigned', 'me', 'all'].includes(assignee);
+        const isAssignedToUser = assignee === userName || assignee === userEmail || assignee === userId;
+
+        if (!isUnassignedOrOpen && !isAssignedToUser) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You are not authorized to send messages on a conversation assigned to another agent',
+          });
+        }
+      }
+
       const now = new Date();
       const isoNow = now.toISOString();
       const msgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -296,6 +317,7 @@ export const inboxController = {
           const sendResult = await metaWhatsAppService.sendTextMessage({
             to: conv.phone,
             text: cleanText,
+            userId: req.user?.id,
           });
 
           if (sendResult?.success) {
@@ -331,6 +353,13 @@ export const inboxController = {
         reply_status: 'replied_manually',
         updated_at: now,
       });
+
+      // Cancel any pending delayed response automation jobs for this conversation
+      try {
+        await basicAutomationEngine.cancelPendingDelayedJobs(id, 'Agent replied manually via Inbox');
+      } catch (cancelErr) {
+        console.warn('[inboxController] Error cancelling pending delayed jobs:', cancelErr.message);
+      }
 
       res.json({
         success: true,
@@ -522,6 +551,25 @@ export const inboxController = {
       const conv = await db.findOne('conversations', 'id = $1', [id]);
       if (!conv) {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+
+      // Server-side Object Authorization (IDOR Protection)
+      const userRole = (req.user?.role || 'agent').toLowerCase();
+      if (userRole === 'agent') {
+        const assignee = (conv.assignee || '').trim().toLowerCase();
+        const userName = (req.user?.name || '').trim().toLowerCase();
+        const userEmail = (req.user?.email || '').trim().toLowerCase();
+        const userId = String(req.user?.id || '').trim().toLowerCase();
+
+        const isUnassignedOrOpen = !assignee || ['unassigned', 'me', 'all'].includes(assignee);
+        const isAssignedToUser = assignee === userName || assignee === userEmail || assignee === userId;
+
+        if (!isUnassignedOrOpen && !isAssignedToUser) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You are not authorized to update a conversation assigned to another agent',
+          });
+        }
       }
 
       // Build conversation update fields

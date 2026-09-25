@@ -70,14 +70,23 @@ export const metaController = {
   // GET /api/meta/status
   getStatus: async (req, res, next) => {
     try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized: Authentication required',
+        });
+      }
+
       const result = await query(
-        `SELECT id, meta_business_id, waba_id, phone_number_id, display_phone_number,
+        `SELECT id, user_id, meta_business_id, waba_id, phone_number_id, display_phone_number,
                 business_name, status, number_type, country, verification_status,
                 verification_method, gst_number, gst_file_name, gst_file_url, website_url,
                 business_email, messaging_limit, is_meta_verified, updated_at
          FROM meta_integrations
-         WHERE status = 'connected'
-         ORDER BY updated_at DESC LIMIT 1`
+         WHERE user_id = $1 AND status = 'connected'
+         ORDER BY updated_at DESC LIMIT 1`,
+        [userId]
       );
 
       if (result.rows.length > 0) {
@@ -110,36 +119,11 @@ export const metaController = {
         });
       }
 
-      // Check if configured via environment variables
-      const creds = await metaWhatsAppService.getCredentials();
-      if (creds.isConfigured && creds.source === 'env') {
-        return res.json({
-          success: true,
-          data: {
-            connected: true,
-            id: 'meta_int_env',
-            phoneNumberId: creds.phoneNumberId,
-            wabaId: creds.wabaId,
-            displayPhoneNumber: creds.displayPhoneNumber,
-            businessName: 'ARCO WhatsApp Cloud API',
-            numberType: 'wa_business',
-            country: 'India',
-            verificationStatus: 'verified',
-            messagingLimit: '1,000 msgs/day',
-            isMetaVerified: true,
-            qualityRating: 'GREEN (High)',
-            status: 'Connected',
-            source: 'env',
-          },
-        });
-      }
-
-      res.json({
+      return res.json({
         success: true,
         data: {
           connected: false,
           status: 'Not Connected',
-          missingFields: creds.missingFields,
         },
       });
     } catch (error) {
@@ -452,7 +436,12 @@ export const metaController = {
   // POST /api/meta/disconnect
   disconnect: async (req, res, next) => {
     try {
-      await query(`UPDATE meta_integrations SET status = 'disconnected', updated_at = CURRENT_TIMESTAMP`);
+      const userId = req.user?.id;
+      if (userId) {
+        await query(`UPDATE meta_integrations SET status = 'disconnected', updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`, [userId]);
+      } else {
+        await query(`UPDATE meta_integrations SET status = 'disconnected', updated_at = CURRENT_TIMESTAMP`);
+      }
 
       const currentIntegrations = await db.getObject('integrations');
       await db.updateObject('integrations', {

@@ -758,8 +758,12 @@ export const workflowExecutionEngine = {
       for (const wf of wfRes.rows) {
         const keywords = (
           wf.trigger_config?.keywords ||
-          [wf.trigger_config?.keyword, wf.trigger]
-        ).filter((k) => k && typeof k === 'string' && k.trim() && k.trim() !== '--');
+          [wf.trigger_config?.keyword]
+        ).filter((k) => k && typeof k === 'string' && k.trim() && k.trim() !== '--' && k.trim() !== 'User sends a WhatsApp message');
+
+        if (!keywords || keywords.length === 0) {
+          continue;
+        }
 
         const matchType = wf.trigger_config?.match_type || 'contains';
         const match = keywords.some((k) => {

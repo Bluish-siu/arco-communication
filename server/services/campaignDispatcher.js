@@ -230,6 +230,7 @@ export async function dispatchBatch(campaign, recipients) {
 
       if (metaResult.success) {
         sentCount++;
+        const sentWamid = metaResult.wamid || metaResult.metaMessageId || metaResult.data?.wamid || `wamid_${Date.now()}`;
         await query(
           `UPDATE campaign_recipients
            SET status = 'sent',
@@ -239,8 +240,67 @@ export async function dispatchBatch(campaign, recipients) {
                error_code = NULL,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $2`,
-          [metaResult.wamid || metaResult.metaMessageId || metaResult.data?.wamid || `wamid_${Date.now()}`, recipient.id]
+          [sentWamid, recipient.id]
         );
+
+        // Record outbound campaign message in Inbox conversations & messages
+        try {
+          const rawPhone = recipient.phone || '';
+          const fromPhone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+          const cleanDigits = String(rawPhone).replace(/\D/g, '');
+          const clean10 = cleanDigits.slice(-10);
+
+          let convId = null;
+          const convRes = await query(
+            `SELECT id FROM conversations
+             WHERE (phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+               AND channel = 'whatsapp'
+             LIMIT 1`,
+            [fromPhone, rawPhone, clean10]
+          );
+
+          const contactName = recipient.name || `WhatsApp User (${clean10})`;
+
+          if (convRes.rows.length > 0) {
+            convId = convRes.rows[0].id;
+          } else {
+            convId = `cnv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+            await query(
+              `INSERT INTO conversations (
+                 id, name, channel, status, phone, unread_count, last_message_time,
+                 tag, status_filter, assignee, reply_status, response_window,
+                 is_spam, created_at, updated_at
+               ) VALUES (
+                 $1, $2, 'whatsapp', 'Online', $3, 0, 'Just now',
+                 'Campaign Lead', 'open', 'Unassigned', 'replied', 'active',
+                 false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+               )`,
+              [convId, contactName, fromPhone]
+            );
+          }
+
+          const campaignMsgText = templatePayload.body_text ||
+            (campaign.template_name ? `[Campaign Template: ${campaign.template_name}]` : `[Campaign: ${campaign.name}]`);
+
+          const msgId = `m_cmp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          await query(
+            `INSERT INTO messages (
+               id, conversation_id, sender, text, time, timestamp, meta_message_id,
+               status, message_type, created_at
+             ) VALUES (
+               $1, $2, 'agent', $3, $4, CURRENT_TIMESTAMP, $5,
+               'sent', 'template', CURRENT_TIMESTAMP
+             )`,
+            [msgId, convId, campaignMsgText, new Date().toISOString(), sentWamid]
+          );
+
+          await query(
+            `UPDATE conversations SET last_message_time = 'Just now', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [convId]
+          );
+        } catch (convSyncErr) {
+          console.warn('[campaignDispatcher] Inbox conversation sync warning:', convSyncErr.message);
+        }
       } else {
         failedCount++;
         const metaErrorCode = String(metaResult.errorCode || 'META_API_ERROR');

@@ -144,20 +144,10 @@ export default function GreetingFlowModal({
           if (match) setSelectedWorkflow(match);
         }
       } else {
-        // Fallback standard workflows matching screenshot
-        const fallback = [
-          { id: 'wf_1', name: 'ai_performance_analytics_dashboard_vf' },
-          { id: 'wf_2', name: 'ai_ai-powered_customer_support_tg' },
-          { id: 'wf_3', name: 'ai_automated_client_onboarding_cw' },
-        ];
-        setWorkflows(fallback);
+        setWorkflows([]);
       }
     } catch {
-      setWorkflows([
-        { id: 'wf_1', name: 'ai_performance_analytics_dashboard_vf' },
-        { id: 'wf_2', name: 'ai_ai-powered_customer_support_tg' },
-        { id: 'wf_3', name: 'ai_automated_client_onboarding_cw' },
-      ]);
+      setWorkflows([]);
     } finally {
       setLoadingWorkflows(false);
     }
