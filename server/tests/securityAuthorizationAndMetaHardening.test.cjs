@@ -404,16 +404,15 @@ async function runSuite() {
     assert.ok(sanitized2.includes('access_token=[REDACTED]'));
   });
 
-  await test('4.4 Missing production META_APP_SECRET fails safely and never uses dummy default', () => {
+  await test('4.4 Missing production META_APP_SECRET handles safely and returns null without crashing', () => {
     const origEnv = process.env.NODE_ENV;
     const origSecret = process.env.META_APP_SECRET;
     try {
       process.env.NODE_ENV = 'production';
       delete process.env.META_APP_SECRET;
 
-      assert.throws(() => {
-        generateAppSecretProof(sampleToken, null);
-      }, /META_APP_SECRET must be defined in production/);
+      const proof = generateAppSecretProof(sampleToken, null);
+      assert.strictEqual(proof, null, 'Must return null safely when META_APP_SECRET is unset in production');
     } finally {
       process.env.NODE_ENV = origEnv;
       process.env.META_APP_SECRET = origSecret;

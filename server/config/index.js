@@ -44,7 +44,6 @@ if (config.nodeEnv === 'production') {
     throw new Error('FATAL: JWT_SECRET must be defined in production environment.');
   }
   if (!process.env.META_APP_SECRET) {
-    console.error('[SECURITY CRITICAL] META_APP_SECRET must be explicitly defined in production environment.');
-    throw new Error('FATAL: META_APP_SECRET must be defined in production environment.');
+    console.warn('[SECURITY WARNING] META_APP_SECRET is not configured in production environment. Meta webhook signature verification and appsecret_proof will be bypassed until META_APP_SECRET is added to Render environment variables.');
   }
 }

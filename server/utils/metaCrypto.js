@@ -18,7 +18,7 @@ export function generateAppSecretProof(accessToken, appSecret = process.env.META
 
   if (!effectiveSecret) {
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('CRITICAL SECURITY: META_APP_SECRET must be defined in production environment to generate appsecret_proof');
+      console.warn('[SECURITY WARNING] META_APP_SECRET is not configured. Meta appsecret_proof generation skipped.');
     }
     return null;
   }

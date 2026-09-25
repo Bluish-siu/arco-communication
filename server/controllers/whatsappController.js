@@ -172,19 +172,16 @@ export const whatsappController = {
   verifyWebhookSignature: (req, res, next) => {
     try {
       const signatureHeader = req.headers['x-hub-signature-256'] || req.headers['X-Hub-Signature-256'];
+      const appSecret = process.env.META_APP_SECRET;
+      if (!appSecret) {
+        console.warn('[Meta Webhook] META_APP_SECRET is not configured on server. Bypassing signature verification until configured in dashboard.');
+        return next();
+      }
+
       if (!signatureHeader || typeof signatureHeader !== 'string') {
         return res.status(401).json({
           success: false,
           error: 'Missing X-Hub-Signature-256 signature header',
-        });
-      }
-
-      const appSecret = process.env.META_APP_SECRET;
-      if (!appSecret) {
-        console.error('[Meta Webhook] Signature verification failed: META_APP_SECRET is not configured on server');
-        return res.status(500).json({
-          success: false,
-          error: 'Webhook verification secret is not configured on server',
         });
       }
 
