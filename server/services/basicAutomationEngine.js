@@ -152,6 +152,36 @@ export const basicAutomationEngine = {
   },
 
   /**
+   * Fetches and parses automation settings for a given user.
+   */
+  getAutomationSettings: async (userId) => {
+    try {
+      const res = await query('SELECT * FROM automation_settings WHERE user_id = $1 LIMIT 1', [userId]);
+      if (res.rows.length === 0) return null;
+      const row = res.rows[0];
+      const safeParse = (val) => {
+        if (!val) return {};
+        if (typeof val === 'object') return val;
+        try {
+          return JSON.parse(val);
+        } catch {
+          return {};
+        }
+      };
+      return {
+        ...row,
+        working_hours: safeParse(row.working_hours),
+        out_of_office: safeParse(row.out_of_office),
+        welcome_message: safeParse(row.welcome_message),
+        delayed_response: safeParse(row.delayed_response),
+      };
+    } catch (err) {
+      console.warn('[basicAutomationEngine] Error fetching automation settings:', err.message);
+      return null;
+    }
+  },
+
+  /**
    * Checks whether an automation has already executed for this exact WAMID and automation type.
    */
   hasExecutedForWamid: async (userId, triggeringWamid, automationType) => {
@@ -370,7 +400,7 @@ export const basicAutomationEngine = {
     let oooReason = '';
     let oooMessage = oooConfig.message || '';
 
-    if (!oooConfig.enabled) {
+    if (!oooConfig || oooConfig.enabled !== true) {
       oooReason = 'Out of Office is disabled in settings';
     } else if (whResult.withinWorkingHours) {
       oooReason = 'Inside working hours';
@@ -384,7 +414,7 @@ export const basicAutomationEngine = {
     let welcomeReason = '';
     let welcomeMessage = welcomeConfig.message || '';
 
-    if (!welcomeConfig.enabled) {
+    if (!welcomeConfig || welcomeConfig.enabled !== true) {
       welcomeReason = 'Welcome message is disabled in settings';
     } else {
       // Determine if customer qualifies:
@@ -429,7 +459,7 @@ export const basicAutomationEngine = {
 
     let delayedScheduledAt = new Date(referenceDate.getTime() + delayTotalMinutes * 60 * 1000);
 
-    if (!delayedConfig.enabled) {
+    if (!delayedConfig || delayedConfig.enabled !== true) {
       delayedReason = 'Delayed response is disabled in settings';
     } else {
       delayedTriggered = true;
@@ -648,6 +678,22 @@ export const basicAutomationEngine = {
 
       for (const job of dueRes.rows) {
         try {
+          // 0. Verify delayed_response is still enabled in user's automation_settings
+          const settings = await basicAutomationEngine.getAutomationSettings(job.user_id);
+          if (!settings || !settings.delayed_response?.enabled) {
+            await query(
+              `UPDATE delayed_automation_jobs
+               SET status = 'cancelled',
+                   cancellation_reason = 'Delayed response is disabled in automation settings',
+                   cancelled_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [job.id]
+            );
+            console.log(`[basicAutomationEngine] Cancelled delayed job ${job.id}: delayed response is disabled in settings.`);
+            continue;
+          }
+
           // Check if conversation has received an agent reply since job was scheduled
           const replyCheck = await query(
             `SELECT id, created_at, sender FROM messages

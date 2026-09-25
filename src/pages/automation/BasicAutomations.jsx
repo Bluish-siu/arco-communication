@@ -77,7 +77,7 @@ export default function BasicAutomations() {
   const [oooTitle, setOooTitle] = useState('Out of Office Message');
   const [isEditingOooTitle, setIsEditingOooTitle] = useState(false);
   const [oooMessage, setOooMessage] = useState(DEFAULT_OOO_MESSAGE);
-  const [oooEnabled, setOooEnabled] = useState(true);
+  const [oooEnabled, setOooEnabled] = useState(false);
   const [oooActionType, setOooActionType] = useState('whatsapp_form');
   const [oooCollectionId, setOooCollectionId] = useState('col_all');
   
@@ -98,7 +98,7 @@ export default function BasicAutomations() {
   // CARD 2: Welcome message edit state
   // ==========================================
   const [welcomeTitle, setWelcomeTitle] = useState('Welcome Message');
-  const [welcomeEnabled, setWelcomeEnabled] = useState(true);
+  const [welcomeEnabled, setWelcomeEnabled] = useState(false);
   const [welcomeSendWithOoo, setWelcomeSendWithOoo] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState('Welcome to ARCO Communication! How can our team assist your business today?');
   const [isGreetingFlowModalOpen, setIsGreetingFlowModalOpen] = useState(false);
@@ -111,7 +111,7 @@ export default function BasicAutomations() {
   const [delayedHours, setDelayedHours] = useState(0);
   const [delayedMinutes, setDelayedMinutes] = useState(10);
   const [delayedMessage, setDelayedMessage] = useState(DEFAULT_DELAYED_MESSAGE);
-  const [delayedEnabled, setDelayedEnabled] = useState(true);
+  const [delayedEnabled, setDelayedEnabled] = useState(false);
   // actionType: 'product_collections' | 'interactive_list' | 'whatsapp_form' | 'none'
   const [delayedActionType, setDelayedActionType] = useState('interactive_list');
   const [delayedCollectionId, setDelayedCollectionId] = useState('col_all');
@@ -154,13 +154,13 @@ export default function BasicAutomations() {
         setWorkingDays(wh.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
         setStartTime(wh.startTime || '09:00');
         setEndTime(wh.endTime || '18:00');
-        setIsWorkingHoursEnabled(wh.enabled !== false);
+        setIsWorkingHoursEnabled(Boolean(wh.enabled));
 
         // 1. OOO
         const ooo = res.data.out_of_office || {};
         setOooTitle(ooo.title || 'Out of Office Message');
         setOooMessage(ooo.message || DEFAULT_OOO_MESSAGE);
-        setOooEnabled(ooo.enabled !== false);
+        setOooEnabled(Boolean(ooo.enabled));
         setOooActionType(ooo.actionType || 'whatsapp_form');
         setOooCollectionId(ooo.collectionId || 'col_all');
         setOooFormButtonText(ooo.formButtonText || '');
@@ -173,8 +173,8 @@ export default function BasicAutomations() {
         const wm = res.data.welcome_message || {};
         setWelcomeTitle(wm.title || 'Welcome Message');
         setWelcomeMessage(wm.message || 'Welcome to ARCO Communication! How can our team assist your business today?');
-        setWelcomeEnabled(wm.enabled !== false);
-        setWelcomeSendWithOoo(wm.sendWithOoo !== false);
+        setWelcomeEnabled(Boolean(wm.enabled));
+        setWelcomeSendWithOoo(Boolean(wm.sendWithOoo));
 
         // 3. Delayed Response
         const dr = res.data.delayed_response || {};
@@ -182,7 +182,7 @@ export default function BasicAutomations() {
         setDelayedHours(dr.delayHours !== undefined ? dr.delayHours : 0);
         setDelayedMinutes(dr.delayMinutes !== undefined ? dr.delayMinutes : 10);
         setDelayedMessage(dr.message || DEFAULT_DELAYED_MESSAGE);
-        setDelayedEnabled(dr.enabled !== false);
+        setDelayedEnabled(Boolean(dr.enabled));
         setDelayedActionType(dr.actionType || 'interactive_list');
         setDelayedCollectionId(dr.collectionId || 'col_all');
         setDelayedFormButtonText(dr.formButtonText || '');

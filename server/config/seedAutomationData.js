@@ -19,29 +19,29 @@ export async function seedAutomationData() {
           `aset_${userId}`,
           userId,
           JSON.stringify({
-            enabled: true,
+            enabled: false,
             timezone: 'Asia/Kolkata',
             days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
             startTime: '09:00',
             endTime: '18:00'
           }),
           JSON.stringify({
-            enabled: true,
+            enabled: false,
             message: 'Hello! We are currently away outside our regular working hours (9 AM - 6 PM IST). We will get back to you promptly when our office opens!',
             trigger: 'outside_hours',
-            sentCount: 42
+            sentCount: 0
           }),
           JSON.stringify({
-            enabled: true,
+            enabled: false,
             message: 'Welcome to ARCO Communication! How can our team assist you with our AI-powered messaging solutions today?',
             trigger: 'first_message',
-            sentCount: 128
+            sentCount: 0
           }),
           JSON.stringify({
-            enabled: true,
+            enabled: false,
             delayMinutes: 10,
             message: 'Thank you for holding on! Our support agents are currently assisting other high-priority inquiries, but we will be with you shortly.',
-            sentCount: 19
+            sentCount: 0
           })
         ]);
       }

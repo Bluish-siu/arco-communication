@@ -10,29 +10,29 @@ export async function initAutomationTables() {
         id VARCHAR(100) PRIMARY KEY,
         user_id VARCHAR(100) NOT NULL,
         working_hours JSONB DEFAULT '{
-          "enabled": true,
+          "enabled": false,
           "timezone": "Asia/Kolkata",
           "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
           "startTime": "09:00",
           "endTime": "18:00"
         }',
         out_of_office JSONB DEFAULT '{
-          "enabled": true,
+          "enabled": false,
           "message": "Hello! We are currently away outside our regular working hours (9 AM - 6 PM IST). We will get back to you promptly when we return!",
           "trigger": "outside_hours",
-          "sentCount": 42
+          "sentCount": 0
         }',
         welcome_message JSONB DEFAULT '{
-          "enabled": true,
+          "enabled": false,
           "message": "Welcome to ARCO Communication! How can our team assist you today?",
           "trigger": "first_message",
-          "sentCount": 128
+          "sentCount": 0
         }',
         delayed_response JSONB DEFAULT '{
-          "enabled": true,
+          "enabled": false,
           "delayMinutes": 10,
           "message": "Thank you for holding on! Our team is currently attending to other inquiries, but an agent will connect with you shortly.",
-          "sentCount": 19
+          "sentCount": 0
         }',
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
