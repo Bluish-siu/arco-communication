@@ -1619,7 +1619,7 @@ export const metaWhatsAppService = {
         const footerText = footerComp?.text || null;
         const buttons = buttonsComp?.buttons || [];
 
-        // 1. Attempt update on existing templates for this tenant/workspace
+        // 1. Attempt update on existing templates for this workspace
         const effectiveUserId = creds.tenantId || userId || 'usr_1';
         let updateRes = await query(
           `UPDATE whatsapp_templates 
@@ -1633,8 +1633,9 @@ export const metaWhatsAppService = {
                body = CASE WHEN body IS NULL OR body = '' THEN $9 ELSE body END,
                footer = CASE WHEN footer IS NULL OR footer = '' THEN $10 ELSE footer END,
                buttons = CASE WHEN buttons IS NULL OR buttons = '[]'::jsonb THEN $11::jsonb ELSE buttons END,
+               workspace_id = COALESCE(workspace_id, 'ws_default'),
                updated_at = CURRENT_TIMESTAMP 
-           WHERE (name = $5 OR meta_template_id = $2) AND (user_id = $6 OR user_id = 'usr_1' OR user_id IS NULL)`,
+           WHERE (name = $5 OR meta_template_id = $2)`,
           [
             metaStatus,
             metaId,
@@ -1649,37 +1650,6 @@ export const metaWhatsAppService = {
             JSON.stringify(buttons),
           ]
         );
-
-        // 2. If no row matched tenant filter, try matching any template with same name or meta ID
-        if (updateRes.rowCount === 0) {
-          updateRes = await query(
-            `UPDATE whatsapp_templates 
-             SET meta_status = $1, 
-                 status = $1, 
-                 meta_template_id = $2, 
-                 waba_id = $3, 
-                 rejection_reason = $4, 
-                 category = COALESCE(NULLIF(category, 'MARKETING'), $6),
-                 language = COALESCE(language, $7),
-                 body = CASE WHEN body IS NULL OR body = '' THEN $8 ELSE body END,
-                 footer = CASE WHEN footer IS NULL OR footer = '' THEN $9 ELSE footer END,
-                 buttons = CASE WHEN buttons IS NULL OR buttons = '[]'::jsonb THEN $10::jsonb ELSE buttons END,
-                 updated_at = CURRENT_TIMESTAMP 
-             WHERE name = $5 OR meta_template_id = $2`,
-            [
-              metaStatus,
-              metaId,
-              creds.wabaId,
-              rejectionReason,
-              metaName,
-              metaCategory,
-              metaLanguage,
-              bodyText,
-              footerText,
-              JSON.stringify(buttons),
-            ]
-          );
-        }
 
         // 3. If template does not exist locally (created directly on Meta WhatsApp Manager), insert it!
         if (updateRes.rowCount === 0) {

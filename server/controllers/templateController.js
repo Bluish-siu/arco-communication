@@ -71,6 +71,7 @@ export const templateController = {
   getActiveTemplates: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
+      const workspaceId = req.user?.workspace_id || 'ws_default';
       const { search = '', category = 'All', status = 'All', language = 'All', sync = 'false' } = req.query;
 
       // Optional on-demand sync from Meta
@@ -82,8 +83,12 @@ export const templateController = {
         }
       }
 
-      const conditions = ['(user_id = $1 OR user_id = \'usr_1\')', 'is_library_template = false', 'deleted_at IS NULL'];
-      const values = [userId];
+      const conditions = [
+        '(workspace_id = $1 OR workspace_id = \'ws_default\' OR user_id = $2 OR user_id = \'usr_1\')',
+        'is_library_template = false',
+        'deleted_at IS NULL'
+      ];
+      const values = [workspaceId, userId];
 
       // Search across name, display_name, body
       if (search && String(search).trim()) {
@@ -140,10 +145,15 @@ export const templateController = {
   getDeletedTemplates: async (req, res, next) => {
     try {
       const userId = req.user?.id || 'usr_1';
+      const workspaceId = req.user?.workspace_id || 'ws_default';
       const { search = '', category = 'All', language = 'All' } = req.query;
 
-      const conditions = ['(user_id = $1 OR user_id = \'usr_1\')', 'is_library_template = false', 'deleted_at IS NOT NULL'];
-      const values = [userId];
+      const conditions = [
+        '(workspace_id = $1 OR workspace_id = \'ws_default\' OR user_id = $2 OR user_id = \'usr_1\')',
+        'is_library_template = false',
+        'deleted_at IS NOT NULL'
+      ];
+      const values = [workspaceId, userId];
 
       if (search && String(search).trim()) {
         values.push(`%${String(search).trim()}%`);
@@ -348,7 +358,7 @@ export const templateController = {
       updates.push('updated_at = CURRENT_TIMESTAMP');
       values.push(id, userId);
 
-      const sql = `UPDATE whatsapp_templates SET ${updates.join(', ')} WHERE id = $${values.length - 1} AND user_id = $${values.length} RETURNING *`;
+      const sql = `UPDATE whatsapp_templates SET ${updates.join(', ')} WHERE id = $${values.length - 1} AND (user_id = $${values.length} OR user_id = 'usr_1' OR workspace_id = 'ws_default') RETURNING *`;
       const result = await query(sql, values);
 
       if (result.rows.length === 0) {
@@ -372,7 +382,7 @@ export const templateController = {
       const { id } = req.params;
 
       const result = await query(
-        'UPDATE whatsapp_templates SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2 RETURNING *',
+        "UPDATE whatsapp_templates SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND (user_id = $2 OR user_id = 'usr_1' OR workspace_id = 'ws_default') RETURNING *",
         [id, userId]
       );
 
@@ -397,7 +407,7 @@ export const templateController = {
       const { id } = req.params;
 
       const result = await query(
-        'UPDATE whatsapp_templates SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2 RETURNING *',
+        "UPDATE whatsapp_templates SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND (user_id = $2 OR user_id = 'usr_1' OR workspace_id = 'ws_default') RETURNING *",
         [id, userId]
       );
 
@@ -476,7 +486,7 @@ export const templateController = {
 
       // 1. Fetch template from DB (enforcing tenant isolation)
       const tmplRes = await query(
-        'SELECT * FROM whatsapp_templates WHERE id = $1 AND user_id = $2 LIMIT 1',
+        "SELECT * FROM whatsapp_templates WHERE id = $1 AND (user_id = $2 OR user_id = 'usr_1' OR workspace_id = 'ws_default') LIMIT 1",
         [id, userId]
       );
 
@@ -500,7 +510,7 @@ export const templateController = {
            SET meta_status = 'REJECTED', 
                rejection_reason = $1, 
                updated_at = CURRENT_TIMESTAMP 
-           WHERE id = $2 AND user_id = $3 
+           WHERE id = $2 AND (user_id = $3 OR user_id = 'usr_1' OR workspace_id = 'ws_default') 
            RETURNING *`,
           [metaResult.error || 'Template submission rejected by Meta WhatsApp', id, userId]
         );
@@ -524,7 +534,7 @@ export const templateController = {
              waba_id = $4, 
              rejection_reason = NULL, 
              updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $5 AND user_id = $6 
+         WHERE id = $5 AND (user_id = $6 OR user_id = 'usr_1' OR workspace_id = 'ws_default') 
          RETURNING *`,
         [initialMetaStatus, initialMetaStatus, metaResult.metaTemplateId, metaResult.wabaId || null, id, userId]
       );
@@ -597,7 +607,10 @@ export const templateController = {
       const userId = req.user?.id || 'usr_1';
       const { id } = req.params;
 
-      const result = await query('DELETE FROM whatsapp_templates WHERE id = $1 AND user_id = $2 RETURNING id', [id, userId]);
+      const result = await query(
+        "DELETE FROM whatsapp_templates WHERE id = $1 AND (user_id = $2 OR user_id = 'usr_1' OR workspace_id = 'ws_default') RETURNING id",
+        [id, userId]
+      );
 
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Template not found' });
