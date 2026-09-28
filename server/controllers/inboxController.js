@@ -161,7 +161,7 @@ export const inboxController = {
           replyStatus: conv.reply_status || 'replied_manually',
           responseWindow: conv.last_inbound_at
             ? (isWithin24HourWindow(conv.last_inbound_at) ? 'active' : 'expired')
-            : (conv.response_window || 'active'),
+            : 'expired',
           lastInboundAt: conv.last_inbound_at ? toUtcIsoString(conv.last_inbound_at) : null,
           isWithin24h: isWithin24HourWindow(conv.last_inbound_at),
           isSpam: conv.is_spam || false,
@@ -321,7 +321,7 @@ export const inboxController = {
           });
 
           if (sendResult?.success) {
-            metaMessageId = sendResult.messageId || null;
+            metaMessageId = sendResult.wamid || sendResult.metaMessageId || sendResult.messageId || null;
             msgStatus = 'sent';
           } else {
             msgStatus = 'failed';
@@ -452,7 +452,7 @@ export const inboxController = {
       const is24h = isWithin24HourWindow(conv.last_inbound_at);
       const dynamicWindow = conv.last_inbound_at
         ? (is24h ? 'active' : 'expired')
-        : (conv.response_window || 'active');
+        : 'expired';
 
       res.json({
         success: true,
@@ -996,20 +996,33 @@ export const inboxController = {
       // Send to WhatsApp via Meta API
       let metaMessageId = null;
       let msgStatus = 'sent';
+
+      // 1. Dispatch approved Utility template 'order' to guarantee delivery outside 24h customer window
+      try {
+        const tplResult = await metaWhatsAppService.sendTemplateMessage({
+          to: targetPhone,
+          templateName: 'order',
+          userId,
+        });
+        if (tplResult?.success) {
+          metaMessageId = tplResult.wamid || tplResult.metaMessageId || null;
+        }
+      } catch (tplErr) {
+        console.warn('[Shopify Inbox Action Template Dispatch Warning]:', tplErr.message);
+      }
+
+      // 2. Also attempt text dispatch (delivered if within 24h or customer replies)
       try {
         const sendResult = await metaWhatsAppService.sendTextMessage({
           to: targetPhone,
           text: messageText,
           userId,
         });
-        if (sendResult?.success) {
-          metaMessageId = sendResult.messageId || null;
-        } else {
-          msgStatus = 'failed';
+        if (sendResult?.success && !metaMessageId) {
+          metaMessageId = sendResult.wamid || sendResult.metaMessageId || null;
         }
       } catch (err) {
         console.warn('[Shopify Inbox Action WhatsApp Dispatch Warning]:', err.message);
-        msgStatus = 'failed';
       }
 
       // Record message into conversation history if conversation exists
