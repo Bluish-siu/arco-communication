@@ -325,7 +325,21 @@ export const shopifyAutomationService = {
 
     const checkoutId = String(checkout.id);
     const checkoutToken = checkout.token || checkoutId;
-    const customerName = `${checkout.customer?.first_name || checkout.shipping_address?.first_name || ''} ${checkout.customer?.last_name || checkout.shipping_address?.last_name || ''}`.trim() || 'Valued Customer';
+    let customerName = `${checkout.customer?.first_name || checkout.shipping_address?.first_name || ''} ${checkout.customer?.last_name || checkout.shipping_address?.last_name || ''}`.trim();
+    if (!customerName || customerName === 'Valued Customer' || customerName === 'Customer') {
+      try {
+        const contactLookup = await query(
+          "SELECT name FROM contacts WHERE (phone = $1 OR phone = $2 OR phone = $3) AND name IS NOT NULL AND name != 'Customer' AND name != 'Unknown' LIMIT 1",
+          [cleanPhone, `+${cleanPhone}`, cleanPhone.replace(/^\+?91/, '')]
+        );
+        if (contactLookup.rows.length > 0 && contactLookup.rows[0].name) {
+          customerName = contactLookup.rows[0].name;
+        }
+      } catch (e) {
+        console.warn('[Shopify Contact Lookup Warning]:', e.message);
+      }
+    }
+    if (!customerName) customerName = 'Valued Customer';
     const customerEmail = checkout.email || checkout.customer?.email || null;
     const totalPrice = parseFloat(checkout.total_price || checkout.subtotal_price || 0);
     const currency = String(checkout.currency || checkout.presentment_currency || 'INR').toUpperCase();
@@ -538,7 +552,21 @@ export const shopifyAutomationService = {
     }
 
     const orderNumber = String(order.order_number || order.name || order.id);
-    const customerName = `${order.customer?.first_name || order.shipping_address?.first_name || ''} ${order.customer?.last_name || order.shipping_address?.last_name || ''}`.trim() || 'Customer';
+    let customerName = `${order.customer?.first_name || order.shipping_address?.first_name || ''} ${order.customer?.last_name || order.shipping_address?.last_name || ''}`.trim();
+    if (!customerName || customerName === 'Customer' || customerName === 'Shopify Customer') {
+      try {
+        const contactLookup = await query(
+          "SELECT name FROM contacts WHERE (phone = $1 OR phone = $2 OR phone = $3) AND name IS NOT NULL AND name != 'Customer' AND name != 'Unknown' LIMIT 1",
+          [cleanPhone, `+${cleanPhone}`, cleanPhone.replace(/^\+?91/, '')]
+        );
+        if (contactLookup.rows.length > 0 && contactLookup.rows[0].name) {
+          customerName = contactLookup.rows[0].name;
+        }
+      } catch (e) {
+        console.warn('[Shopify Contact Lookup Warning]:', e.message);
+      }
+    }
+    if (!customerName) customerName = 'Customer';
     const totalAmount = parseFloat(order.total_price || 0);
     const shopName = (shopDomain || '').replace('.myshopify.com', '');
 
@@ -654,7 +682,21 @@ export const shopifyAutomationService = {
       userId,
     });
 
-    const shipText = `🚚 Shipment On The Way!\n\nHi there, your order *#${orderNumber}* from *${shopName}* has shipped via *${carrier}* (Tracking: *${trackingNumber}*).\n\nLive tracking: ${trackingUrl}`;
+    let customerName = `${order?.customer?.first_name || order?.shipping_address?.first_name || ''} ${order?.customer?.last_name || order?.shipping_address?.last_name || ''}`.trim();
+    if (!customerName || customerName === 'Customer') {
+      try {
+        const contactLookup = await query(
+          "SELECT name FROM contacts WHERE (phone = $1 OR phone = $2 OR phone = $3) AND name IS NOT NULL AND name != 'Customer' AND name != 'Unknown' LIMIT 1",
+          [cleanPhone, `+${cleanPhone}`, cleanPhone.replace(/^\+?91/, '')]
+        );
+        if (contactLookup.rows.length > 0 && contactLookup.rows[0].name) {
+          customerName = contactLookup.rows[0].name;
+        }
+      } catch (e) {}
+    }
+    const greetingName = customerName || 'there';
+
+    const shipText = `🚚 Shipment On The Way!\n\nHi ${greetingName}, your order *#${orderNumber}* from *${shopName}* has shipped via *${carrier}* (Tracking: *${trackingNumber}*).\n\nLive tracking: ${trackingUrl}`;
     try {
       await metaWhatsAppService.sendTextMessage({ to: cleanPhone, text: shipText, userId });
     } catch (e) {}
