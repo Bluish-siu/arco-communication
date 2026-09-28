@@ -247,6 +247,9 @@ export const shopifyGraphService = {
       'PRODUCTS_UPDATE',
       'ORDERS_CREATE',
       'ORDERS_UPDATED',
+      'ORDERS_FULFILLED',
+      'CHECKOUTS_CREATE',
+      'CHECKOUTS_UPDATE',
     ];
 
     // 1. Query existing webhook subscriptions for this app

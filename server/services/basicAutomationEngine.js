@@ -1,6 +1,7 @@
 import { query, db } from '../config/db.js';
 import { metaWhatsAppService } from './metaWhatsAppService.js';
 import { parseToDate, toUtcIsoString } from '../utils/dateUtils.js';
+import { shopifyAutomationService } from './shopifyAutomationService.js';
 
 /**
  * Normalizes day string or array for comparison.
@@ -678,6 +679,12 @@ export const basicAutomationEngine = {
 
       for (const job of dueRes.rows) {
         try {
+          // Special handling for Shopify Cart Recovery delayed jobs
+          if (job.automation_type === 'shopify_cart_recovery') {
+            await shopifyAutomationService.processCartRecoveryJob(job);
+            continue;
+          }
+
           // 0. Verify delayed_response is still enabled in user's automation_settings
           const settings = await basicAutomationEngine.getAutomationSettings(job.user_id);
           if (!settings || !settings.delayed_response?.enabled) {

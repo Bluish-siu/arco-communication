@@ -1,6 +1,7 @@
 import { query } from '../config/db.js';
 import { metaWhatsAppService, formatPhoneNumber } from '../services/metaWhatsAppService.js';
 import { shopifyEventService } from '../services/shopifyEventService.js';
+import { shopifyAutomationService } from '../services/shopifyAutomationService.js';
 
 export const shopifyWebhookController = {
   /**
@@ -59,8 +60,18 @@ export const shopifyWebhookController = {
       // 4. Acknowledge with HTTP 200 AFTER persistent storage in shopify_events
       res.status(200).json({ success: true, received: true, eventId: persistResult.event?.id });
 
-      // 5. Perform Existing Database Sync
+      // 5. Perform Existing Database Sync & Trigger WhatsApp Automations
       switch (topic) {
+        case 'checkouts/create':
+        case 'checkouts/update':
+          await shopifyAutomationService.handleCheckoutCreatedOrUpdated({
+            shopDomain,
+            checkout: payload,
+            topic,
+            userId,
+          });
+          break;
+
         case 'customers/create':
         case 'customers/update':
           await handleCustomerSync(shopDomain, payload);
@@ -73,13 +84,29 @@ export const shopifyWebhookController = {
 
         case 'orders/create':
           await handleOrderSync(shopDomain, payload, { isNewOrder: true });
+          await shopifyAutomationService.handleOrderCreated({
+            shopDomain,
+            order: payload,
+            userId,
+          });
           break;
 
         case 'orders/updated':
         case 'orders/paid':
-        case 'orders/fulfilled':
         case 'orders/cancelled':
           await handleOrderSync(shopDomain, payload, { isNewOrder: false });
+          break;
+
+        case 'orders/fulfilled':
+        case 'fulfillments/create':
+        case 'fulfillments/update':
+          await handleOrderSync(shopDomain, payload, { isNewOrder: false });
+          await shopifyAutomationService.handleFulfillmentCreated({
+            shopDomain,
+            fulfillment: payload.fulfillment || payload,
+            order: payload,
+            userId,
+          });
           break;
 
         default:
