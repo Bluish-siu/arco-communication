@@ -172,7 +172,7 @@ export const inboxController = {
             const isoString = toUtcIsoString(rawTime);
             return {
               id: m.id,
-              sender: m.sender,
+              sender: (m.sender === 'agent' || m.sender === 'business' || m.sender === 'system') ? 'me' : m.sender,
               text: m.text,
               time: m.time || isoString,
               timestamp: isoString,

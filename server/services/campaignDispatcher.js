@@ -279,8 +279,22 @@ export async function dispatchBatch(campaign, recipients) {
             );
           }
 
-          const campaignMsgText = templatePayload.body_text ||
-            (campaign.template_name ? `[Campaign Template: ${campaign.template_name}]` : `[Campaign: ${campaign.name}]`);
+          let campaignMsgText = templatePayload.body_text || templatePayload.bodyText || null;
+          if (!campaignMsgText && campaign.template_name) {
+            try {
+              const tmplRow = await query(
+                `SELECT body, footer FROM whatsapp_templates WHERE name = $1 LIMIT 1`,
+                [campaign.template_name]
+              );
+              if (tmplRow.rows.length > 0) {
+                const t = tmplRow.rows[0];
+                campaignMsgText = t.body + (t.footer ? `\n\n${t.footer}` : '');
+              }
+            } catch (tErr) {}
+          }
+          if (!campaignMsgText) {
+            campaignMsgText = (campaign.template_name ? `[Campaign Template: ${campaign.template_name}]` : `[Campaign: ${campaign.name}]`);
+          }
 
           const msgId = `m_cmp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
           await query(
@@ -288,7 +302,7 @@ export async function dispatchBatch(campaign, recipients) {
                id, conversation_id, sender, text, time, timestamp, meta_message_id,
                status, message_type, created_at
              ) VALUES (
-               $1, $2, 'agent', $3, $4, CURRENT_TIMESTAMP, $5,
+               $1, $2, 'me', $3, $4, CURRENT_TIMESTAMP, $5,
                'sent', 'template', CURRENT_TIMESTAMP
              )`,
             [msgId, convId, campaignMsgText, new Date().toISOString(), sentWamid]
