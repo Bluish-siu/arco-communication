@@ -547,12 +547,13 @@ export default function CampaignDetails() {
                     <th className="py-3 px-4">Sent At</th>
                     <th className="py-3 px-4">Delivered At</th>
                     <th className="py-3 px-4">Read At</th>
+                    <th className="py-3 px-4">Replied At</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {recipientsList.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">
+                      <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
                         No recipient records matching your filter criteria.
                       </td>
                     </tr>
@@ -579,6 +580,9 @@ export default function CampaignDetails() {
                         </td>
                         <td className="py-3 px-4 text-slate-500 text-[11px]">
                           {rcp.readAt ? formatTime(rcp.readAt) : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500 text-[11px]">
+                          {rcp.repliedAt ? formatTime(rcp.repliedAt) : '—'}
                         </td>
                       </tr>
                     ))

@@ -180,7 +180,7 @@ export const campaignReplyFlowService = {
            FROM campaign_recipients cr
            JOIN campaigns c ON c.id = cr.campaign_id
            WHERE (cr.phone = $1 OR cr.phone = $2 OR cr.phone LIKE '%' || $3)
-             AND cr.status IN ('sent', 'delivered', 'read')
+             AND cr.status IN ('sent', 'delivered', 'read', 'replied')
              AND cr.sent_at >= CURRENT_TIMESTAMP - INTERVAL '72 hours'
            ORDER BY cr.sent_at DESC NULLS LAST
            LIMIT 1`,
@@ -654,17 +654,22 @@ export const campaignReplyFlowService = {
         // Mark recipient row as replied
         await query(
           `UPDATE campaign_recipients
-           SET replied_at = CURRENT_TIMESTAMP,
+           SET replied_at = COALESCE(replied_at, CURRENT_TIMESTAMP),
+               read_at = COALESCE(read_at, CURRENT_TIMESTAMP),
                status = 'replied',
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1 AND replied_at IS NULL`,
+           WHERE id = $1`,
           [matchedRecipient.id]
         );
 
-        // Monotonically recalculate replied count for master campaign
+        // Monotonically recalculate read and replied count for master campaign
         await query(
           `UPDATE campaigns
-           SET replied = (
+           SET read = (
+             SELECT COUNT(*) FROM campaign_recipients 
+             WHERE campaign_id = $1 AND (status IN ('read', 'replied') OR read_at IS NOT NULL)
+           ),
+           replied = (
              SELECT COUNT(*) FROM campaign_recipients 
              WHERE campaign_id = $1 AND (status = 'replied' OR replied_at IS NOT NULL)
            ),

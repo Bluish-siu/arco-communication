@@ -370,9 +370,9 @@ export async function recalculateCampaignStats(campaignId) {
        COUNT(*) FILTER (WHERE status = 'pending') as pending,
        COUNT(*) FILTER (WHERE status = 'processing') as processing,
        COUNT(*) FILTER (WHERE status = 'sent') as sent,
-       COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
-       COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
-       COUNT(*) FILTER (WHERE status = 'replied') as replied,
+       COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered,
+       COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read,
+       COUNT(*) FILTER (WHERE status = 'replied' OR replied_at IS NOT NULL) as replied,
        COUNT(*) FILTER (WHERE status = 'failed') as failed
      FROM campaign_recipients
      WHERE campaign_id = $1`,

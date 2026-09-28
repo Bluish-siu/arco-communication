@@ -556,6 +556,98 @@ export const whatsappController = {
               }
             }
 
+            // E0. Attribution to Campaign Recipient (Read & Replied Metrics Tracking)
+            try {
+              const rawContextId = message.context?.id || null;
+              let matchedRcp = null;
+
+              if (rawContextId) {
+                const rcpContextRes = await query(
+                  `SELECT id, campaign_id, status, read_at, replied_at
+                   FROM campaign_recipients
+                   WHERE meta_message_id = $1
+                   LIMIT 1`,
+                  [rawContextId]
+                );
+                if (rcpContextRes.rows.length > 0) {
+                  matchedRcp = rcpContextRes.rows[0];
+                }
+              }
+
+              if (!matchedRcp) {
+                const rcpPhoneRes = await query(
+                  `SELECT id, campaign_id, status, read_at, replied_at
+                   FROM campaign_recipients
+                   WHERE (phone = $1 OR phone = $2 OR phone = $3 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+                     AND sent_at >= CURRENT_TIMESTAMP - INTERVAL '72 hours'
+                   ORDER BY sent_at DESC NULLS LAST
+                   LIMIT 1`,
+                  [fromPhone, fromRaw, clean10]
+                );
+                if (rcpPhoneRes.rows.length > 0) {
+                  matchedRcp = rcpPhoneRes.rows[0];
+                }
+              }
+
+              if (matchedRcp) {
+                const msgTime = timestamp || new Date();
+                await query(
+                  `UPDATE campaign_recipients
+                   SET status = 'replied',
+                       read_at = COALESCE(read_at, $1),
+                       replied_at = COALESCE(replied_at, $1),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [msgTime, matchedRcp.id]
+                );
+
+                // Recalculate campaign statistics in real-time
+                const campStatsRes = await query(
+                  `SELECT
+                     COUNT(*) as total,
+                     COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
+                     COUNT(*) FILTER (WHERE status = 'sent') as sent,
+                     COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered,
+                     COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read,
+                     COUNT(*) FILTER (WHERE status = 'replied' OR replied_at IS NOT NULL) as replied,
+                     COUNT(*) FILTER (WHERE status = 'failed') as failed
+                   FROM campaign_recipients WHERE campaign_id = $1`,
+                  [matchedRcp.campaign_id]
+                );
+
+                const cStats = campStatsRes.rows[0];
+                const remPending = parseInt(cStats.pending, 10);
+                const failedCnt = parseInt(cStats.failed, 10);
+                const totCnt = parseInt(cStats.total, 10);
+                const cStatus = remPending === 0
+                  ? (failedCnt === totCnt ? 'Failed' : (failedCnt > 0 ? 'Partially Completed' : 'Completed'))
+                  : 'Sending';
+
+                await query(
+                  `UPDATE campaigns
+                   SET delivered = $1,
+                       read = $2,
+                       replied = $3,
+                       failure_count = $4,
+                       status = $5,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $6`,
+                  [
+                    parseInt(cStats.delivered, 10),
+                    parseInt(cStats.read, 10),
+                    parseInt(cStats.replied, 10),
+                    failedCnt,
+                    cStatus,
+                    matchedRcp.campaign_id,
+                  ]
+                );
+
+                console.log(`[WhatsApp Webhook] Campaign recipient ${matchedRcp.id} updated to replied/read for campaign ${matchedRcp.campaign_id}`);
+              }
+            } catch (campAttrErr) {
+              console.warn('[WhatsApp Webhook] Error updating campaign reply metrics:', campAttrErr.message);
+            }
+
             // E. Post-Campaign Reply Flow Evaluation
             let postCampaignHandled = false;
             try {
@@ -781,9 +873,9 @@ export const whatsappController = {
                      COUNT(*) as total,
                      COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
                      COUNT(*) FILTER (WHERE status = 'sent') as sent,
-                     COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
-                     COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
-                     COUNT(*) FILTER (WHERE status = 'replied') as replied,
+                     COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered,
+                     COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read,
+                     COUNT(*) FILTER (WHERE status = 'replied' OR replied_at IS NOT NULL) as replied,
                      COUNT(*) FILTER (WHERE status = 'failed') as failed
                    FROM campaign_recipients WHERE campaign_id = $1`,
                   [rcp.campaign_id]

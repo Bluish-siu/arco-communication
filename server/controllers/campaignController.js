@@ -209,9 +209,9 @@ export const campaignController = {
            COUNT(*) as total,
            COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
            COUNT(*) FILTER (WHERE status = 'sent') as sent,
-           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
-           COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
-           COUNT(*) FILTER (WHERE status = 'replied') as replied,
+           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered,
+           COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read,
+           COUNT(*) FILTER (WHERE status = 'replied' OR replied_at IS NOT NULL) as replied,
            COUNT(*) FILTER (WHERE status = 'failed') as failed
          FROM campaign_recipients 
          WHERE campaign_id = $1`,
@@ -687,11 +687,18 @@ export const campaignController = {
       const params = [id];
 
       if (status && status !== 'all') {
-        if (status.toLowerCase() === 'pending') {
+        const s = status.toLowerCase();
+        if (s === 'pending') {
           sql += ` AND status IN ('pending', 'processing')`;
+        } else if (s === 'delivered') {
+          sql += ` AND (status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL)`;
+        } else if (s === 'read') {
+          sql += ` AND (status IN ('read', 'replied') OR read_at IS NOT NULL)`;
+        } else if (s === 'replied') {
+          sql += ` AND (status = 'replied' OR replied_at IS NOT NULL)`;
         } else {
-          params.push(status.toLowerCase());
-          sql += ` AND LOWER(status) = $${params.length}`;
+          params.push(s);
+          sql += ` AND LOWER(status) = ${params.length}`;
         }
       }
 
@@ -717,9 +724,9 @@ export const campaignController = {
            COUNT(*) as total,
            COUNT(*) FILTER (WHERE status IN ('pending', 'processing')) as pending,
            COUNT(*) FILTER (WHERE status = 'sent') as sent,
-           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied')) as delivered,
-           COUNT(*) FILTER (WHERE status IN ('read', 'replied')) as read,
-           COUNT(*) FILTER (WHERE status = 'replied') as replied,
+           COUNT(*) FILTER (WHERE status IN ('delivered', 'read', 'replied') OR delivered_at IS NOT NULL) as delivered,
+           COUNT(*) FILTER (WHERE status IN ('read', 'replied') OR read_at IS NOT NULL) as read,
+           COUNT(*) FILTER (WHERE status = 'replied' OR replied_at IS NOT NULL) as replied,
            COUNT(*) FILTER (WHERE status = 'failed') as failed
          FROM campaign_recipients
          WHERE campaign_id = $1`,
