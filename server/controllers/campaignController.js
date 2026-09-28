@@ -26,6 +26,8 @@ export const campaignController = {
         variables = {},
         headerVariables = [],
         headerText,
+        headerMediaUrl,
+        headerImageUrl,
         buttonPayloads = [],
       } = req.body;
 
@@ -51,6 +53,8 @@ export const campaignController = {
         variables,
         headerVariables,
         headerText,
+        headerMediaUrl: headerMediaUrl || headerImageUrl,
+        headerImageUrl: headerImageUrl || headerMediaUrl,
         buttonPayloads,
         userId: req.user?.id,
       });

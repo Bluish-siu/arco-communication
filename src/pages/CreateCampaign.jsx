@@ -664,6 +664,7 @@ export default function CreateCampaign() {
         templateLanguage: selectedTemplate.language || 'en_US',
         variables: variableValues,
         headerText: selectedTemplate.headerText,
+        headerMediaUrl: selectedTemplate.headerMediaUrl || selectedTemplate.header_media_url || null,
         buttons: selectedTemplate.buttons,
       };
 

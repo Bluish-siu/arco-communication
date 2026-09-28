@@ -391,13 +391,54 @@ export const metaWhatsAppService = {
 
         // Dynamically inspect HEADER component in current Meta template definition
         const headerComp = foundTmpl.components?.find((c) => c.type === 'HEADER');
-        if (headerComp?.format === 'IMAGE' && !resolvedHeaderImage && headerComp.example?.header_handle?.[0]) {
-          resolvedHeaderImage = headerComp.example.header_handle[0];
-          console.log(`[Meta Cloud API] Auto-resolved IMAGE header handle for "${templateName}"`);
+        if (headerComp && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format) && !resolvedHeaderImage) {
+          if (headerComp.example?.header_handle?.[0]) {
+            resolvedHeaderImage = headerComp.example.header_handle[0];
+            console.log(`[Meta Cloud API] Auto-resolved ${headerComp.format} header handle for "${templateName}"`);
+          }
+        }
+
+        if (headerComp && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format) && !resolvedHeaderImage) {
+          try {
+            const dbTmpl = await query(
+              'SELECT header_media_url FROM whatsapp_templates WHERE (name = $1 OR meta_template_id = $2) AND header_media_url IS NOT NULL LIMIT 1',
+              [templateName, foundTmpl.id || '']
+            );
+            if (dbTmpl.rows.length > 0 && dbTmpl.rows[0].header_media_url) {
+              resolvedHeaderImage = dbTmpl.rows[0].header_media_url;
+              console.log(`[Meta Cloud API] Auto-resolved ${headerComp.format} header URL from DB for "${templateName}"`);
+            }
+          } catch (dbErr) {}
         }
       }
     } catch (e) {
       // Lookup failed - proceed with caution without crashing
+    }
+
+    if (!foundTmpl) {
+      try {
+        const dbT = await query('SELECT * FROM whatsapp_templates WHERE name = $1 LIMIT 1', [templateName]);
+        if (dbT.rows.length > 0) {
+          const row = dbT.rows[0];
+          foundTmpl = {
+            id: row.meta_template_id || row.id,
+            name: row.name,
+            status: row.status,
+            language: row.language,
+            components: [
+              ...(row.header_type && row.header_type !== 'NONE' ? [{
+                type: 'HEADER',
+                format: row.header_type,
+                text: row.header_text,
+                example: row.header_media_url ? { header_handle: [row.header_media_url] } : undefined
+              }] : [])
+            ]
+          };
+          if (!resolvedHeaderImage && row.header_media_url) {
+            resolvedHeaderImage = row.header_media_url;
+          }
+        }
+      } catch (dbLookupErr) {}
     }
 
     // 2. Dynamically build components based on actual template definition
@@ -540,7 +581,11 @@ export const metaWhatsAppService = {
           fbtraceId: data.error?.fbtrace_id,
         }));
 
+        const errorDetails = data.error?.error_data?.details;
         let customErrorMsg = data.error?.message || `Meta API HTTP ${response.status}`;
+        if (errorDetails && !customErrorMsg.includes(errorDetails)) {
+          customErrorMsg = `${customErrorMsg} (${errorDetails})`;
+        }
         if (data.error?.code === 132001) {
           try {
             const allTmplsRes = await metaWhatsAppService.getWhatsAppTemplates(userId);
