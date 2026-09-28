@@ -124,6 +124,15 @@ const server = app.listen(PORT, HOST, async () => {
     await initWhatsAppTemplatesSchema();
     await initDelayedAutomationSchema();
     await initMetaIntegrationsTable();
+    await query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(255);
+      ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+      CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
+      CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+    `).catch((e) => console.warn('[Users Schema Check Notice]:', e.message));
     await migratePlaintextShopifyTokens();
     await recoverStaleProcessing();
 
