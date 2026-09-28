@@ -174,72 +174,7 @@ const DEFAULT_FILTERS = {
   spamChats: false,
 };
 
-const initialConversations = [
-  {
-    id: 'cnv_1',
-    name: 'Rahul Sharma',
-    channel: 'whatsapp',
-    status: 'Online',
-    phone: '+91 98765 43210',
-    unreadCount: 1,
-    lastMessageTime: '10:42 AM',
-    tag: 'Repeat Buyers',
-    label: null,
-    statusFilter: 'open',
-    assignee: 'Me',
-    replyStatus: 'replied_manually',
-    responseWindow: 'active',
-    isSpam: false,
-    updatedAt: new Date().toISOString(),
-    messages: [
-      { id: 'm1', sender: 'them', text: 'Hi, I want to know about your services.', time: '10:40 AM' },
-      { id: 'm2', sender: 'me', text: 'Hello Rahul! Welcome to ARCO Communication. We provide end-to-end WhatsApp marketing, AI bots, and omnichannel support. How can we help your business today?', time: '10:41 AM' },
-      { id: 'm3', sender: 'them', text: 'Can we schedule a quick demo for our sales team?', time: '10:42 AM' },
-    ],
-  },
-  {
-    id: 'cnv_2',
-    name: 'Priya Mehta',
-    channel: 'whatsapp',
-    status: 'Active 15m ago',
-    phone: '+91 98234 56789',
-    unreadCount: 0,
-    lastMessageTime: '09:15 AM',
-    tag: 'High Spenders',
-    label: null,
-    statusFilter: 'open',
-    assignee: 'Me',
-    replyStatus: 'replied_by_bot',
-    responseWindow: 'active',
-    isSpam: false,
-    updatedAt: new Date(Date.now() - 3600000).toISOString(),
-    messages: [
-      { id: 'm1', sender: 'them', text: 'Can you send me the pricing details?', time: '09:12 AM' },
-      { id: 'm2', sender: 'me', text: 'Hi Priya! Our plans start at ₹999/mo for Starter and ₹2,499/mo for Growth with unlimited AI agents. Sending the full plan comparison sheet right away.', time: '09:15 AM' },
-    ],
-  },
-  {
-    id: 'cnv_3',
-    name: 'Gaming World',
-    channel: 'instagram',
-    status: 'Online',
-    phone: '@gamingworld_official',
-    unreadCount: 2,
-    lastMessageTime: 'Yesterday',
-    tag: 'Loyal',
-    label: null,
-    statusFilter: 'open',
-    assignee: 'Unassigned',
-    replyStatus: 'unreplied',
-    responseWindow: 'inactive',
-    isSpam: false,
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    messages: [
-      { id: 'm1', sender: 'them', text: 'We are interested in your WhatsApp automation.', time: 'Yesterday 4:20 PM' },
-      { id: 'm2', sender: 'them', text: 'Specifically for tournament alerts and real-time player leaderboards.', time: 'Yesterday 4:22 PM' },
-    ],
-  },
-];
+const initialConversations = [];
 
 // Resolves display text for inbox preview & bubble, providing friendly fallbacks for legacy '[Message]' records
 function getMessageDisplayText(msg) {
@@ -267,7 +202,8 @@ export default function Inbox() {
   const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
   const userName = businessSetup.companyName || user.name || 'Business Owner';
 
-  const [conversations, setConversations] = useState(initialConversations);
+  const [conversations, setConversations] = useState([]);
+  const [loadingConversations, setLoadingConversations] = useState(true);
   const [availableContacts, setAvailableContacts] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -395,6 +331,8 @@ export default function Inbox() {
       }
     } catch (err) {
       console.warn('Load conversations fallback:', err);
+    } finally {
+      setLoadingConversations(false);
     }
   };
 
@@ -1315,14 +1253,31 @@ export default function Inbox() {
                 </div>
 
                 <span className="text-[10px] font-bold text-slate-400 shrink-0">
-                  {filteredConversations.length} {filteredConversations.length === 1 ? 'Chat' : 'Chats'}
+                  {loadingConversations
+                    ? '...'
+                    : `${filteredConversations.length} ${filteredConversations.length === 1 ? 'Chat' : 'Chats'}`}
                 </span>
               </div>
             </div>
 
             {/* Conversation List Scrollable Area */}
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-              {filteredConversations.length === 0 ? (
+              {loadingConversations ? (
+                <div className="p-3 space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 p-3 rounded-2xl animate-pulse bg-slate-50/70 border border-slate-100"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0" />
+                      <div className="flex-1 space-y-2 min-w-0">
+                        <div className="h-3.5 bg-slate-200 rounded w-2/5" />
+                        <div className="h-2.5 bg-slate-100 rounded w-3/4" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredConversations.length === 0 ? (
                 <div className="p-8 text-center space-y-2 mt-8">
                   <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                     <MessageSquare className="w-5 h-5" />
