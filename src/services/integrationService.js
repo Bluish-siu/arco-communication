@@ -160,4 +160,22 @@ export const integrationService = {
       return {};
     }
   },
+
+  // GET /api/integrations/shopify/widget
+  getShopifyWidgetConfig: async (shop) => {
+    const query = shop ? `?shop=${encodeURIComponent(shop)}` : '';
+    const res = await apiRequest(`/integrations/shopify/widget${query}`);
+    return res.data;
+  },
+
+  // PUT /api/integrations/shopify/widget
+  updateShopifyWidgetConfig: async (updates, shop) => {
+    const query = shop ? `?shop=${encodeURIComponent(shop)}` : '';
+    const res = await apiRequest(`/integrations/shopify/widget${query}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    return res.data;
+  },
 };
+

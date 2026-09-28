@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { integrationController } from '../controllers/integrationController.js';
 import { shopifyAutomationController } from '../controllers/shopifyAutomationController.js';
+import { shopifyWidgetController } from '../controllers/shopifyWidgetController.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { verifyShopifyIdToken } from '../middleware/shopifyAuth.js';
 
@@ -19,6 +20,10 @@ router.get('/shopify/oauth-url', authenticateToken, integrationController.getSho
 router.post('/shopify/connect', authenticateToken, requireAdmin, integrationController.connectShopify);
 router.post('/shopify/disconnect', authenticateToken, requireAdmin, integrationController.disconnectShopify);
 router.post('/shopify/reconcile-webhooks', authenticateToken, requireAdmin, integrationController.reconcileShopifyWebhooks);
+
+// Storefront WhatsApp Chat Widget & Buy on WhatsApp Button
+router.get('/shopify/widget', authenticateToken, shopifyWidgetController.getConfig);
+router.put('/shopify/widget', authenticateToken, shopifyWidgetController.updateConfig);
 
 // Shopify WhatsApp Notification Automation Recipes
 router.get('/shopify/automations', authenticateToken, shopifyAutomationController.getAutomations);

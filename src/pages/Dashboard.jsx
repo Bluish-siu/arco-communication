@@ -50,6 +50,7 @@ import AutomatedAlertsModal from '../components/dashboard/AutomatedAlertsModal';
 import CtwaAdsModal from '../components/dashboard/CtwaAdsModal';
 import AiAgentModal from '../components/dashboard/AiAgentModal';
 import ShopifyAutomationsManager from '../components/shopify/ShopifyAutomationsManager';
+import ShopifyStorefrontWidgetManager from '../components/shopify/ShopifyStorefrontWidgetManager';
 import { isShopifyEmbedded } from '../utils/shopifyAppBridge';
 
 // WhatsApp Contextual SVG Icon
@@ -84,6 +85,9 @@ export default function Dashboard() {
 
   // Active modal name
   const [activeModal, setActiveModal] = useState(null);
+
+  // Shopify Interakt Replacement active tab
+  const [shopifyActiveTab, setShopifyActiveTab] = useState('automations'); // 'automations' | 'widget'
 
   // Live Dashboard State
   const [dashboardState, setDashboardState] = useState({
@@ -540,14 +544,52 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* SHOPIFY WHATSAPP NOTIFICATION RECIPES (INTERAKT REPLACEMENT) */}
-              <ShopifyAutomationsManager
-                shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
-                onToast={(msg, type) => {
-                  setToast({ message: msg, type: type || 'success' });
-                  setTimeout(() => setToast(null), 3500);
-                }}
-              />
+              {/* SHOPIFY INTERAKT REPLACEMENT SUITE TABS */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShopifyActiveTab('automations')}
+                  className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                    shopifyActiveTab === 'automations'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>Step 1: Automated Notifications</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShopifyActiveTab('widget')}
+                  className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                    shopifyActiveTab === 'widget'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Step 2: Storefront Widget & Buy Button</span>
+                </button>
+              </div>
+
+              {/* ACTIVE TAB CONTENT */}
+              {shopifyActiveTab === 'automations' ? (
+                <ShopifyAutomationsManager
+                  shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
+                  onToast={(msg, type) => {
+                    setToast({ message: msg, type: type || 'success' });
+                    setTimeout(() => setToast(null), 3500);
+                  }}
+                />
+              ) : (
+                <ShopifyStorefrontWidgetManager
+                  shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
+                  onToast={(msg, type) => {
+                    setToast({ message: msg, type: type || 'success' });
+                    setTimeout(() => setToast(null), 3500);
+                  }}
+                />
+              )}
 
               {/* 5. OBJECTIVES SECTION (6 High-Fidelity Cards with Realistic Mockups) */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/90 shadow-2xs space-y-6">

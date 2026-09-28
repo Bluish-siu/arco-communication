@@ -24,6 +24,7 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { integrationService } from '../services/integrationService';
 import { isShopifyEmbedded, getShopifyParams } from '../utils/shopifyAppBridge';
 import ShopifyAutomationsManager from '../components/shopify/ShopifyAutomationsManager';
+import ShopifyStorefrontWidgetManager from '../components/shopify/ShopifyStorefrontWidgetManager';
 
 const ALL_CATEGORIES = [
   'All Categories',
@@ -96,6 +97,7 @@ export default function Integrations() {
   // Connect Modal State
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isAutomationsModalOpen, setIsAutomationsModalOpen] = useState(false);
+  const [isWidgetModalOpen, setIsWidgetModalOpen] = useState(false);
   const [shopInput, setShopInput] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -643,6 +645,15 @@ export default function Integrations() {
                             <span>WhatsApp Automations</span>
                           </button>
 
+                          <button
+                            type="button"
+                            onClick={() => setIsWidgetModalOpen(true)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Storefront Widget</span>
+                          </button>
+
                           <a
                             href={`https://${shopifyStatus.shopDomain || embeddedShop || 'myshopify.com'}/admin`}
                             target="_blank"
@@ -867,6 +878,25 @@ export default function Integrations() {
               <X className="w-5 h-5" />
             </button>
             <ShopifyAutomationsManager
+              shopDomain={shopifyStatus.shopDomain || embeddedShop || 'arco-test-e2a1thrd.myshopify.com'}
+              onToast={showToast}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Shopify Storefront Widget & Buy Button Modal */}
+      {isWidgetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto animate-fade-in">
+          <div className="bg-slate-50 rounded-3xl max-w-5xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative my-8 max-h-[92vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setIsWidgetModalOpen(false)}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-white border border-transparent hover:border-slate-200 transition-colors cursor-pointer z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <ShopifyStorefrontWidgetManager
               shopDomain={shopifyStatus.shopDomain || embeddedShop || 'arco-test-e2a1thrd.myshopify.com'}
               onToast={showToast}
             />

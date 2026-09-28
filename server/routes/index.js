@@ -21,6 +21,7 @@ import automationRoutes from './automationRoutes.js';
 import integrationRoutes from './integrationRoutes.js';
 import shopifyWebhookRoutes from './shopifyWebhookRoutes.js';
 import chatAssignmentRoutes from './chatAssignmentRoutes.js';
+import storefrontRoutes from './storefrontRoutes.js';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ const router = Router();
 router.use('/auth', authRoutes);
 router.use('/integrations', integrationRoutes);
 router.use('/shopify', shopifyWebhookRoutes);
+router.use('/storefront', storefrontRoutes);
 router.use('/automation', automationRoutes);
 router.use('/meta', metaRoutes);
 router.use('/chat-assignment', chatAssignmentRoutes);

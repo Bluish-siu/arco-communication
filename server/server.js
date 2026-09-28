@@ -18,6 +18,7 @@ import { initFlowSchema } from './config/initFlowTables.js';
 import { initWhatsAppTemplatesSchema } from './config/initWhatsAppTemplatesTables.js';
 import { initDelayedAutomationSchema } from './config/initDelayedAutomationTables.js';
 import { initMetaIntegrationsTable } from './config/initMetaTable.js';
+import { initShopifyWidgetsTable } from './config/initShopifyWidgetsTable.js';
 import { startBasicAutomationScheduler } from './services/basicAutomationEngine.js';
 
 const app = express();
@@ -124,6 +125,7 @@ const server = app.listen(PORT, HOST, async () => {
     await initWhatsAppTemplatesSchema();
     await initDelayedAutomationSchema();
     await initMetaIntegrationsTable();
+    await initShopifyWidgetsTable();
     await query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
