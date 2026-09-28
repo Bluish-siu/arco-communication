@@ -376,30 +376,6 @@ export const campaignController = {
                   contactId,
                 ]
               );
-            } else {
-              contactId = `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-              await query(
-                `INSERT INTO contacts (
-                   id, user_id, name, phone, country_code, email, tag, tags, segment, status,
-                   whatsapp_opted, value, owner, channel, created_at, updated_at
-                 ) VALUES (
-                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, 'whatsapp', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                 )`,
-                [
-                  contactId,
-                  `USR_${contactId.slice(4)}`,
-                  recipientName,
-                  formattedPhone,
-                  countryCode.startsWith('+') ? countryCode : `+${countryCode}`,
-                  recipientEmail || '',
-                  row.tag || row.Tag || 'Lead',
-                  JSON.stringify([row.tag || row.Tag || 'Lead']),
-                  row.segment || row.Segment || 'High Intent',
-                  row.status || row.Status || 'Open Lead',
-                  optedIn,
-                  'Shraddha',
-                ]
-              );
             }
           } catch (syncErr) {
             console.warn('[Campaign Creation] Failed to sync contact to Contact Hub:', syncErr.message);

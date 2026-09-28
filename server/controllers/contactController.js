@@ -193,13 +193,20 @@ export const contactController = {
         sortOrder = 'DESC',
       } = req.query;
 
-      let sql = 'SELECT * FROM contacts WHERE 1=1';
+      let sql = `
+        SELECT c.* FROM contacts c
+        WHERE EXISTS (
+          SELECT 1 FROM conversations conv 
+          WHERE conv.phone = c.phone 
+             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+        )
+      `;
       let params = [];
 
       // 1. Search Query
       if (search && search.trim()) {
         params.push(`%${search.trim().toLowerCase()}%`);
-        sql += ` AND (LOWER(name) LIKE $${params.length} OR phone LIKE $${params.length} OR LOWER(COALESCE(email, '')) LIKE $${params.length} OR LOWER(COALESCE(user_id, '')) LIKE $${params.length})`;
+        sql += ` AND (LOWER(c.name) LIKE $${params.length} OR c.phone LIKE $${params.length} OR LOWER(COALESCE(c.email, '')) LIKE $${params.length} OR LOWER(COALESCE(c.user_id, '')) LIKE $${params.length})`;
       }
 
       // 2. Saved Segment or Structured Conditions
@@ -226,29 +233,29 @@ export const contactController = {
       // Simple tag filter
       if (tag && tag !== 'all') {
         params.push(tag);
-        sql += ` AND (tag = $${params.length} OR tags @> jsonb_build_array($${params.length}::text))`;
+        sql += ` AND (c.tag = $${params.length} OR c.tags @> jsonb_build_array($${params.length}::text))`;
       }
 
       // Status filter
       if (status && status !== 'all') {
         params.push(status);
-        sql += ` AND status = $${params.length}`;
+        sql += ` AND c.status = $${params.length}`;
       }
 
       // WhatsApp Opted Flag
       if (whatsapp_opted !== undefined && whatsapp_opted !== 'all' && whatsapp_opted !== '') {
         const isOpted = String(whatsapp_opted) === 'true';
         params.push(isOpted);
-        sql += ` AND whatsapp_opted = $${params.length}`;
+        sql += ` AND c.whatsapp_opted = $${params.length}`;
       }
 
       if (owner && owner !== 'all') {
         params.push(owner);
-        sql += ` AND owner = $${params.length}`;
+        sql += ` AND c.owner = $${params.length}`;
       }
 
       // Count total matches
-      const countSql = sql.replace('SELECT *', 'SELECT COUNT(*)');
+      const countSql = sql.replace('SELECT c.*', 'SELECT COUNT(*)');
       const countRes = await query(countSql, params);
       const total = parseInt(countRes.rows[0].count, 10);
 
@@ -257,18 +264,23 @@ export const contactController = {
       const sortColumn = validSortCols.includes(sortBy) ? sortBy : 'created_at';
       const sortDirection = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-      sql += ` ORDER BY ${sortColumn} ${sortDirection} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      sql += ` ORDER BY c.${sortColumn} ${sortDirection} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
 
       const result = await query(sql, params);
 
-      // Status breakdown & opt-in counts for filter pills
+      // Status breakdown & opt-in counts for filter pills (strictly for inbox contacts)
       const summaryRes = await query(`
         SELECT 
           COUNT(*) as total,
-          COUNT(*) FILTER (WHERE whatsapp_opted = true) as whatsapp_opted_count,
-          COUNT(*) FILTER (WHERE whatsapp_opted = false) as whatsapp_non_opted_count
-        FROM contacts
+          COUNT(*) FILTER (WHERE c.whatsapp_opted = true) as whatsapp_opted_count,
+          COUNT(*) FILTER (WHERE c.whatsapp_opted = false) as whatsapp_non_opted_count
+        FROM contacts c
+        WHERE EXISTS (
+          SELECT 1 FROM conversations conv 
+          WHERE conv.phone = c.phone 
+             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+        )
       `);
 
       const formatted = result.rows.map((c) => ({
@@ -321,7 +333,14 @@ export const contactController = {
         status,
       } = req.query;
 
-      let sql = 'SELECT COUNT(*) FROM contacts WHERE 1=1';
+      let sql = `
+        SELECT COUNT(*) FROM contacts c
+        WHERE EXISTS (
+          SELECT 1 FROM conversations conv 
+          WHERE conv.phone = c.phone 
+             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+        )
+      `;
       let params = [];
 
       let conditionsToApply = [];
@@ -345,18 +364,18 @@ export const contactController = {
       } else {
         if (tag && tag !== 'all') {
           params.push(tag);
-          sql += ` AND (tag = $${params.length} OR tags @> jsonb_build_array($${params.length}::text))`;
+          sql += ` AND (c.tag = $${params.length} OR c.tags @> jsonb_build_array($${params.length}::text))`;
         }
         if (status && status !== 'all') {
           params.push(status);
-          sql += ` AND status = $${params.length}`;
+          sql += ` AND c.status = $${params.length}`;
         }
       }
 
       if (whatsapp_opted !== undefined && whatsapp_opted !== 'all' && whatsapp_opted !== '') {
         const isOpted = String(whatsapp_opted) === 'true';
         params.push(isOpted);
-        sql += ` AND whatsapp_opted = $${params.length}`;
+        sql += ` AND c.whatsapp_opted = $${params.length}`;
       }
 
       const result = await query(sql, params);
