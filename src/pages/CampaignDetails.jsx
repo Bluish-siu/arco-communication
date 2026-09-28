@@ -30,6 +30,7 @@ import {
   Filter,
   Zap,
   Check,
+  RotateCcw,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -63,6 +64,7 @@ export default function CampaignDetails() {
   const [recipientSearch, setRecipientSearch] = useState('');
   const [statusCounts, setStatusCounts] = useState({});
   const [processingBatch, setProcessingBatch] = useState(false);
+  const [retryingFailed, setRetryingFailed] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -135,6 +137,20 @@ export default function CampaignDetails() {
       showToast('Failed to process batch.', 'error');
     } finally {
       setProcessingBatch(false);
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    setRetryingFailed(true);
+    try {
+      const res = await campaignsService.retryFailed(id);
+      showToast(res.message || 'Retrying failed recipients now...');
+      await loadCampaign(true);
+      await loadRecipients();
+    } catch {
+      showToast('Failed to trigger retry.', 'error');
+    } finally {
+      setRetryingFailed(false);
     }
   };
 
@@ -258,6 +274,18 @@ export default function CampaignDetails() {
               <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
+
+            {/* Retry Failed Recipients */}
+            {(campaign?.status === 'Failed' || (statusCounts?.failed || 0) > 0 || (campaign?.failed || 0) > 0) && (
+              <button
+                onClick={handleRetryFailed}
+                disabled={retryingFailed}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${retryingFailed ? 'animate-spin' : ''}`} />
+                <span>{retryingFailed ? 'Retrying...' : `Retry Failed (${statusCounts?.failed || campaign.failed || 0})`}</span>
+              </button>
+            )}
 
             {/* Batch Dispatch Runner */}
             {campaign.pending > 0 && (

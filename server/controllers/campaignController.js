@@ -871,6 +871,79 @@ export const campaignController = {
     }
   },
 
+  // POST /api/campaigns/:id/send-now
+  sendNow: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      if (campRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      }
+
+      await query(
+        `UPDATE campaigns
+         SET status = 'Running',
+             scheduled_for = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id]
+      );
+
+      processCampaign(id).catch((err) => console.error('[Campaign Send-Now Background Error]:', err.message));
+
+      res.json({
+        success: true,
+        message: 'Campaign scheduled for immediate delivery.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/campaigns/:id/retry-failed
+  retryFailed: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      if (campRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      }
+
+      const resetRes = await query(
+        `UPDATE campaign_recipients
+         SET status = 'pending',
+             error_message = NULL,
+             error_code = NULL,
+             failed_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE campaign_id = $1 AND status = 'failed'
+         RETURNING id`,
+        [id]
+      );
+
+      const retriedCount = resetRes.rowCount || 0;
+
+      await query(
+        `UPDATE campaigns
+         SET status = 'Running',
+             failure_count = 0,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id]
+      );
+
+      processCampaign(id).catch((err) => console.error('[Campaign Retry Background Error]:', err.message));
+
+      res.json({
+        success: true,
+        message: `Reset ${retriedCount} failed recipients to pending queue. Dispatching now...`,
+        retriedCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // PUT /api/campaigns/:id
   update: async (req, res, next) => {
     try {

@@ -103,6 +103,14 @@ export const campaignsService = {
     return res;
   },
 
+  // POST /api/campaigns/:id/retry-failed (Retry failed recipients)
+  retryFailed: async (id) => {
+    const res = await apiRequest(`/campaigns/${id}/retry-failed`, {
+      method: 'POST',
+    });
+    return res;
+  },
+
   // GET /api/campaigns/audiences?audienceType=...&segment=...&tag=...&status=...
   getAudiences: async (params = {}) => {
     try {

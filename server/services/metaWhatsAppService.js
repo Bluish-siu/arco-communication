@@ -308,6 +308,82 @@ export const metaWhatsAppService = {
       };
     }
   },
+  // In-memory cache for media IDs (30-day Meta media TTL)
+  mediaIdCache: new Map(),
+
+  /**
+   * Uploads an external or sample media asset directly to Meta Cloud API (/media endpoint)
+   * to obtain a permanent Meta Media ID. This avoids Error 131053 (Media upload error)
+   * when Meta's fwdproxy servers fail to download from ephemeral CDNs or scontent.whatsapp.net.
+   */
+  uploadMediaToWhatsApp: async function ({ mediaUrl, creds, format = 'IMAGE', templateName = null }) {
+    if (!mediaUrl || !creds?.accessToken || !creds?.phoneNumberId) return null;
+
+    const trimmed = String(mediaUrl).trim();
+    // If it's already a numeric media ID, return it directly
+    if (/^\d{10,}$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    const cacheKey = templateName
+      ? `${creds.phoneNumberId}_${templateName}_${format}`
+      : `${creds.phoneNumberId}_${trimmed.split('?')[0]}`;
+
+    const cached = metaWhatsAppService.mediaIdCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.id;
+    }
+
+    try {
+      console.log(`[Meta Cloud API] Downloading media buffer to generate Meta Media ID for ${format}...`);
+      const vRes = await fetch(trimmed);
+      if (!vRes.ok) {
+        console.warn(`[Meta Cloud API] Failed to download media from URL (${vRes.status}): ${trimmed.substring(0, 100)}...`);
+        return null;
+      }
+
+      const blob = await vRes.blob();
+      let mimeType = blob.type;
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        if (format === 'VIDEO') mimeType = 'video/mp4';
+        else if (format === 'DOCUMENT') mimeType = 'application/pdf';
+        else mimeType = 'image/jpeg';
+      }
+
+      const ext = format === 'VIDEO' ? 'mp4' : format === 'DOCUMENT' ? 'pdf' : 'jpg';
+      const formData = new FormData();
+      formData.append('messaging_product', 'whatsapp');
+      formData.append('type', mimeType);
+      formData.append('file', blob, `media.${ext}`);
+
+      const rawEndpoint = `https://graph.facebook.com/${creds.version || 'v25.0'}/${creds.phoneNumberId}/media`;
+      const uploadUrl = appendAppSecretProof(rawEndpoint, creds.accessToken);
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+        },
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json();
+      if (uploadData.id) {
+        console.log(`[Meta Cloud API] Successfully obtained Meta Media ID: ${uploadData.id} for ${format}`);
+        metaWhatsAppService.mediaIdCache.set(cacheKey, {
+          id: uploadData.id,
+          expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24-hour cache
+        });
+        return uploadData.id;
+      } else {
+        console.warn('[Meta Cloud API] Upload to /media failed:', uploadData.error || uploadData);
+        return null;
+      }
+    } catch (err) {
+      console.warn('[Meta Cloud API] Error in uploadMediaToWhatsApp:', err.message);
+      return null;
+    }
+  },
 
   // 3. Send WhatsApp Template Message via Meta Cloud API
   sendTemplateMessage: async ({
@@ -449,13 +525,23 @@ export const metaWhatsAppService = {
 
       // A. HEADER COMPONENT: Only construct header parameter if Meta template actually contains a HEADER
       if (headerComp) {
+        let mediaId = null;
+        if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format) && resolvedHeaderImage) {
+          mediaId = await metaWhatsAppService.uploadMediaToWhatsApp({
+            mediaUrl: resolvedHeaderImage,
+            creds,
+            format: headerComp.format,
+            templateName,
+          });
+        }
+
         if (headerComp.format === 'IMAGE' && resolvedHeaderImage) {
           formattedComponents.push({
             type: 'header',
             parameters: [
               {
                 type: 'image',
-                image: { link: resolvedHeaderImage },
+                image: mediaId ? { id: mediaId } : { link: resolvedHeaderImage },
               },
             ],
           });
@@ -465,7 +551,7 @@ export const metaWhatsAppService = {
             parameters: [
               {
                 type: 'video',
-                video: { link: resolvedHeaderImage },
+                video: mediaId ? { id: mediaId } : { link: resolvedHeaderImage },
               },
             ],
           });
@@ -475,7 +561,7 @@ export const metaWhatsAppService = {
             parameters: [
               {
                 type: 'document',
-                document: { link: resolvedHeaderImage },
+                document: mediaId ? { id: mediaId } : { link: resolvedHeaderImage },
               },
             ],
           });
@@ -532,6 +618,24 @@ export const metaWhatsAppService = {
             });
           }
         });
+      }
+    }
+
+    // Ensure any media links in formattedComponents are upgraded to media IDs if applicable
+    for (const comp of formattedComponents) {
+      if (comp.type === 'header' && Array.isArray(comp.parameters)) {
+        for (const p of comp.parameters) {
+          if (p.video?.link && !p.video?.id) {
+            const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.video.link, creds, format: 'VIDEO' });
+            if (mId) { p.video = { id: mId }; }
+          } else if (p.image?.link && !p.image?.id) {
+            const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.image.link, creds, format: 'IMAGE' });
+            if (mId) { p.image = { id: mId }; }
+          } else if (p.document?.link && !p.document?.id) {
+            const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.document.link, creds, format: 'DOCUMENT' });
+            if (mId) { p.document = { id: mId }; }
+          }
+        }
       }
     }
 

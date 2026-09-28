@@ -23,5 +23,6 @@ router.delete('/:id', requireManagerOrAdmin, campaignController.delete);
 router.get('/:id/recipients', campaignController.getRecipients);
 router.post('/:id/process-batch', requireManagerOrAdmin, campaignController.processBatch);
 router.post('/:id/send-now', requireManagerOrAdmin, campaignController.sendNow);
+router.post('/:id/retry-failed', requireManagerOrAdmin, campaignController.retryFailed);
 
 export default router;
