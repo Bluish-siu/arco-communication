@@ -28,6 +28,8 @@ import {
   FileText,
   BellRing,
   TrendingUp,
+  Zap,
+  MessageSquare,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';

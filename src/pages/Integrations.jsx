@@ -18,6 +18,7 @@ import {
   Store,
   Check,
   Zap,
+  MessageSquare,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
