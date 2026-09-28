@@ -76,4 +76,28 @@ export const inboxService = {
       return null;
     }
   },
+
+  getShopifyContext: async ({ phone, conversationId } = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (phone) params.append('phone', phone);
+      if (conversationId) params.append('conversationId', conversationId);
+      const res = await apiRequest(`/inbox/shopify-context?${params.toString()}`);
+      return res.data || null;
+    } catch {
+      return null;
+    }
+  },
+
+  triggerShopifyAction: async ({ action, conversationId, phone, payload } = {}) => {
+    try {
+      const res = await apiRequest('/inbox/shopify-actions', {
+        method: 'POST',
+        body: JSON.stringify({ action, conversationId, phone, payload }),
+      });
+      return res.data || null;
+    } catch {
+      return null;
+    }
+  },
 };

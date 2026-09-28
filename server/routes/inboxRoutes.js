@@ -7,6 +7,8 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/conversations', inboxController.getConversations);
+router.get('/shopify-context', inboxController.getShopifyContext);
+router.post('/shopify-actions', inboxController.triggerShopifyAction);
 router.get('/conversations/:id', inboxController.getConversationById);
 router.put('/conversations/:id', inboxController.updateConversation);
 router.post('/conversations', inboxController.createConversation);

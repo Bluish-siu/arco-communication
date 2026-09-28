@@ -1,5 +1,5 @@
 import { db, query } from '../config/db.js';
-import { metaWhatsAppService, isWithin24HourWindow } from '../services/metaWhatsAppService.js';
+import { metaWhatsAppService, isWithin24HourWindow, formatPhoneNumber } from '../services/metaWhatsAppService.js';
 import { toUtcIsoString } from '../utils/dateUtils.js';
 import { basicAutomationEngine } from '../services/basicAutomationEngine.js';
 
@@ -705,6 +705,348 @@ export const inboxController = {
                 owner: matchedContact.owner || 'Me',
               }
             : null,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/inbox/shopify-context
+  getShopifyContext: async (req, res, next) => {
+    try {
+      const { phone: rawPhoneQuery, conversationId } = req.query;
+      let targetPhone = rawPhoneQuery;
+
+      if (!targetPhone && conversationId) {
+        const convRes = await query('SELECT phone, name FROM conversations WHERE id = $1 LIMIT 1', [conversationId]);
+        if (convRes.rows.length > 0) {
+          targetPhone = convRes.rows[0].phone;
+        }
+      }
+
+      // 1. Fetch connected Shopify Store
+      const storeRes = await query(
+        "SELECT id, user_id, shop_domain, shop_name, status, created_at FROM shopify_integrations WHERE status = 'connected' ORDER BY updated_at DESC LIMIT 1"
+      );
+
+      const store = storeRes.rows[0] || null;
+      const shopDomain = store?.shop_domain || 'arco-test-e2a1thrd.myshopify.com';
+      const shopName = store?.shop_name || 'ARCO Test';
+
+      if (!targetPhone) {
+        return res.json({
+          success: true,
+          data: {
+            connected: Boolean(store),
+            store: store ? { shopDomain, shopName, adminUrl: `https://${shopDomain}/admin` } : null,
+            customer: null,
+            abandonedCart: null,
+            recentOrders: [],
+          },
+        });
+      }
+
+      // 2. Build phone search variations for robust multi-format matching
+      const cleanDigits = String(targetPhone).replace(/\D/g, '');
+      const raw10 = cleanDigits.slice(-10);
+      const e164WithPlus = `+91${raw10}`;
+      const e164WithoutPlus = `91${raw10}`;
+
+      const phoneVariants = Array.from(new Set([
+        targetPhone,
+        cleanDigits,
+        raw10,
+        `+${cleanDigits}`,
+        e164WithPlus,
+        e164WithoutPlus,
+        `+91 ${raw10.slice(0, 5)} ${raw10.slice(5)}`,
+      ])).filter(Boolean);
+
+      // 3. Resolve Contact Profile from contacts table
+      const contactRes = await query(
+        `SELECT id, name, phone, email, tags, custom_attributes, created_at
+         FROM contacts 
+         WHERE phone = ANY($1::text[]) 
+            OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') = ANY($1::text[])
+            OR phone ILIKE $2
+         LIMIT 1`,
+        [phoneVariants, `%${raw10}%`]
+      );
+      const contact = contactRes.rows[0] || null;
+
+      // 4. Query Orders for this customer from checkout_orders
+      let ordersSql = `
+        SELECT id, order_number, user_id, contact_id, customer_name, customer_email,
+               phone_number, items, subtotal, shipping_charge, discount, tax, total_amount,
+               payment_method, payment_status, order_status, fulfillment_status,
+               shipping_country, city, state, address, pincode, currency, created_at, updated_at
+        FROM checkout_orders
+        WHERE (phone_number = ANY($1::text[])
+           OR REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '+', '') = ANY($1::text[])
+           OR phone_number ILIKE $2
+      `;
+      const orderParams = [phoneVariants, `%${raw10}%`];
+
+      if (contact?.id) {
+        orderParams.push(contact.id);
+        ordersSql += ` OR contact_id = $${orderParams.length}`;
+      }
+
+      ordersSql += `) ORDER BY created_at DESC LIMIT 10`;
+
+      const ordersRes = await query(ordersSql, orderParams);
+      const rawOrders = ordersRes.rows;
+
+      const formattedOrders = rawOrders.map((o) => {
+        let parsedItems = [];
+        try {
+          parsedItems = typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []);
+        } catch {
+          parsedItems = [];
+        }
+
+        const numericOrderNum = String(o.order_number).replace(/[^0-9]/g, '') || o.order_number;
+
+        return {
+          id: o.id,
+          orderNumber: o.order_number.startsWith('#') ? o.order_number : `#${o.order_number}`,
+          customerName: o.customer_name || contact?.name || 'Customer',
+          totalAmount: parseFloat(o.total_amount || 0),
+          subtotal: parseFloat(o.subtotal || o.total_amount || 0),
+          discount: parseFloat(o.discount || 0),
+          currency: o.currency || 'INR',
+          paymentStatus: o.payment_status || 'Pending',
+          orderStatus: o.order_status || 'Confirmed',
+          fulfillmentStatus: o.fulfillment_status || 'Unfulfilled',
+          shippingAddress: {
+            address: o.address,
+            city: o.city,
+            state: o.state,
+            pincode: o.pincode,
+            country: o.shipping_country,
+          },
+          items: parsedItems.map((item) => ({
+            id: item.id || item.variant_id,
+            title: item.title || item.name || 'Shopify Item',
+            variantTitle: item.variant_title || '',
+            quantity: item.quantity || 1,
+            price: parseFloat(item.price || 0),
+            total: (item.quantity || 1) * parseFloat(item.price || 0),
+            imageUrl: item.image || item.image_url || null,
+          })),
+          createdAt: o.created_at,
+          adminOrderUrl: `https://${shopDomain}/admin/orders/${numericOrderNum}`,
+          trackingUrl: `https://${shopDomain}/tools/track?order=${numericOrderNum}`,
+        };
+      });
+
+      // 5. Query Active Abandoned Checkout
+      const abandonedRes = await query(
+        `SELECT id, shop_domain, shopify_checkout_id, checkout_token, customer_name,
+                customer_email, phone, total_price, currency, items, abandoned_checkout_url,
+                status, created_at, updated_at
+         FROM shopify_abandoned_checkouts
+         WHERE (phone = ANY($1::text[])
+            OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') = ANY($1::text[])
+            OR phone ILIKE $2)
+           AND status IN ('abandoned', 'sent')
+         ORDER BY created_at DESC LIMIT 1`,
+        [phoneVariants, `%${raw10}%`]
+      );
+
+      let abandonedCart = null;
+      if (abandonedRes.rows.length > 0) {
+        const cartRow = abandonedRes.rows[0];
+        let cartItems = [];
+        try {
+          cartItems = typeof cartRow.items === 'string' ? JSON.parse(cartRow.items) : (cartRow.items || []);
+        } catch {
+          cartItems = [];
+        }
+
+        abandonedCart = {
+          id: cartRow.id,
+          checkoutId: cartRow.shopify_checkout_id,
+          checkoutToken: cartRow.checkout_token,
+          customerName: cartRow.customer_name || contact?.name || 'Shopper',
+          totalPrice: parseFloat(cartRow.total_price || 0),
+          currency: cartRow.currency || 'INR',
+          recoveryUrl: cartRow.abandoned_checkout_url || `https://${shopDomain}/checkout?token=${cartRow.checkout_token}`,
+          status: cartRow.status,
+          createdAt: cartRow.created_at,
+          items: cartItems.map((it) => ({
+            id: it.id || it.variant_id,
+            title: it.title || it.name || 'Item in Cart',
+            quantity: it.quantity || 1,
+            price: parseFloat(it.price || 0),
+            variantTitle: it.variant_title || '',
+          })),
+        };
+      }
+
+      // 6. Aggregate Commerce Metrics
+      const totalOrdersCount = formattedOrders.length;
+      const totalSpentSum = formattedOrders.reduce((sum, ord) => sum + ord.totalAmount, 0);
+      const aov = totalOrdersCount > 0 ? Math.round(totalSpentSum / totalOrdersCount) : 0;
+      const currency = formattedOrders[0]?.currency || 'INR';
+
+      let customerSegment = 'Prospective Shopper';
+      if (totalOrdersCount > 3 || totalSpentSum >= 5000) {
+        customerSegment = 'VIP Repeat Customer';
+      } else if (totalOrdersCount > 1) {
+        customerSegment = 'Returning Customer';
+      } else if (totalOrdersCount === 1) {
+        customerSegment = 'First-time Buyer';
+      } else if (abandonedCart) {
+        customerSegment = 'Cart Abandoner';
+      }
+
+      res.json({
+        success: true,
+        data: {
+          connected: Boolean(store),
+          store: {
+            shopDomain,
+            shopName,
+            status: store?.status || 'connected',
+            adminUrl: `https://${shopDomain}/admin`,
+            adminCustomerUrl: `https://${shopDomain}/admin/customers`,
+          },
+          customer: {
+            name: contact?.name || (formattedOrders[0]?.customerName) || 'Shopify Customer',
+            phone: targetPhone,
+            email: contact?.email || formattedOrders[0]?.customerEmail || '',
+            totalOrders: totalOrdersCount,
+            totalSpent: totalSpentSum,
+            averageOrderValue: aov,
+            currency,
+            segment: customerSegment,
+            lastOrderDate: formattedOrders[0]?.createdAt || null,
+          },
+          abandonedCart,
+          recentOrders: formattedOrders,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/inbox/shopify-actions
+  triggerShopifyAction: async (req, res, next) => {
+    try {
+      const { action, conversationId, phone, payload = {} } = req.body;
+      const userId = req.user?.id || 'usr_1';
+
+      if (!action) {
+        return res.status(400).json({ success: false, error: 'Action is required' });
+      }
+
+      // Resolve conversation & phone
+      let conv = null;
+      let targetPhone = phone;
+
+      if (conversationId) {
+        const convRes = await query('SELECT * FROM conversations WHERE id = $1 LIMIT 1', [conversationId]);
+        if (convRes.rows.length > 0) {
+          conv = convRes.rows[0];
+          targetPhone = targetPhone || conv.phone;
+        }
+      }
+
+      if (!targetPhone) {
+        return res.status(400).json({ success: false, error: 'Recipient phone number is required' });
+      }
+
+      const storeRes = await query(
+        "SELECT shop_domain, shop_name FROM shopify_integrations WHERE status = 'connected' LIMIT 1"
+      );
+      const shopDomain = storeRes.rows[0]?.shop_domain || 'arco-test-e2a1thrd.myshopify.com';
+      const shopName = storeRes.rows[0]?.shop_name || 'ARCO Test';
+
+      let messageText = '';
+
+      if (action === 'send_tracking') {
+        const { orderNumber, trackingNumber, carrier, trackingUrl } = payload;
+        const carrierName = carrier || 'Express Courier';
+        const trackUrl = trackingUrl || `https://${shopDomain}/tools/track?order=${String(orderNumber).replace(/[^0-9]/g, '')}`;
+        messageText = `🚚 *Shipping Update for Order ${orderNumber}*\n\nGreat news! Your package has been dispatched via *${carrierName}*.\nTracking Number: *${trackingNumber || 'In Transit'}*\n\nTrack your live delivery here:\n${trackUrl}`;
+      } else if (action === 'send_cod_verification') {
+        const { orderNumber, totalAmount } = payload;
+        messageText = `📦 *COD Order Verification*\n\nHi! Please confirm your Cash on Delivery order *${orderNumber}* for *₹${totalAmount}* on ${shopName}.\n\nReply *1* to Confirm Order\nReply *2* to Cancel Order`;
+      } else if (action === 'send_cart_recovery') {
+        const { customerName, recoveryUrl, discountCode, discountPercent } = payload;
+        const code = discountCode || 'SAVE10';
+        const percent = discountPercent || 10;
+        messageText = `🛒 *You left items in your cart!*\n\nHi ${customerName || 'there'}, your selected items are reserved on ${shopName}.\nUse special code *${code}* for *${percent}% OFF*!\n\nComplete checkout here:\n${recoveryUrl || `https://${shopDomain}`}`;
+      } else if (action === 'send_order_confirmation') {
+        const { orderNumber, totalAmount, itemsCount } = payload;
+        messageText = `🎉 *Order Confirmation - ${orderNumber}*\n\nThank you for shopping with ${shopName}! We have received your order for *₹${totalAmount}* (${itemsCount || 1} item${itemsCount > 1 ? 's' : ''}).\nWe will notify you as soon as your parcel ships!`;
+      } else if (action === 'custom_message') {
+        messageText = payload.text || '';
+      } else {
+        return res.status(400).json({ success: false, error: `Unsupported action: ${action}` });
+      }
+
+      if (!messageText) {
+        return res.status(400).json({ success: false, error: 'Generated message text is empty' });
+      }
+
+      // Send to WhatsApp via Meta API
+      let metaMessageId = null;
+      let msgStatus = 'sent';
+      try {
+        const sendResult = await metaWhatsAppService.sendTextMessage({
+          to: targetPhone,
+          text: messageText,
+          userId,
+        });
+        if (sendResult?.success) {
+          metaMessageId = sendResult.messageId || null;
+        } else {
+          msgStatus = 'failed';
+        }
+      } catch (err) {
+        console.warn('[Shopify Inbox Action WhatsApp Dispatch Warning]:', err.message);
+        msgStatus = 'failed';
+      }
+
+      // Record message into conversation history if conversation exists
+      let newMsg = null;
+      if (conv) {
+        const now = new Date();
+        const isoNow = now.toISOString();
+        const msgId = `m_act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        newMsg = await db.insert('messages', {
+          id: msgId,
+          conversation_id: conv.id,
+          sender: 'me',
+          text: messageText,
+          time: isoNow,
+          timestamp: now,
+          created_at: now,
+          meta_message_id: metaMessageId,
+          status: msgStatus,
+          message_type: 'text',
+        });
+
+        await db.update('conversations', conv.id, {
+          last_message_time: 'Just now',
+          reply_status: 'replied_manually',
+          updated_at: now,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Shopify action executed successfully',
+        data: {
+          action,
+          recipientPhone: targetPhone,
+          messageText,
+          message: newMsg,
+          delivered: msgStatus === 'sent',
         },
       });
     } catch (error) {

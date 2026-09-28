@@ -48,6 +48,11 @@ import {
   CheckSquare,
   Square,
   Bookmark,
+  ShoppingBag,
+  Truck,
+  Store,
+  Zap,
+  RefreshCw,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
@@ -284,6 +289,14 @@ export default function Inbox() {
   const [inspectorNotes, setInspectorNotes] = useState('');
 
   // =========================================================================
+  // STEP 4B: SHOPIFY COMMERCE INSPECTOR STATE
+  // =========================================================================
+  const [inspectorTab, setInspectorTab] = useState('shopify'); // 'shopify' | 'crm'
+  const [shopifyContext, setShopifyContext] = useState(null);
+  const [loadingShopifyContext, setLoadingShopifyContext] = useState(false);
+  const [shopifyActionExecuting, setShopifyActionExecuting] = useState(null);
+
+  // =========================================================================
   // STEP 5: QUICK REPLY & SNIPPETS POPOVER STATE
   // =========================================================================
   const [isQuickReplyOpen, setIsQuickReplyOpen] = useState(false);
@@ -465,6 +478,15 @@ export default function Inbox() {
       });
     }
   }, [selectedChatId, conversations]);
+
+  // Automatically fetch Shopify Commerce context for the currently active chat
+  useEffect(() => {
+    if (selectedChat && selectedChat.phone) {
+      fetchShopifyContext(selectedChat);
+    } else {
+      setShopifyContext(null);
+    }
+  }, [selectedChatId]);
 
   // Auto scroll messages to bottom on new message or chat select
   useEffect(() => {
@@ -937,11 +959,67 @@ export default function Inbox() {
     }
   };
 
+  // Fetch full Shopify commerce context (orders, abandoned checkouts, LTV)
+  const fetchShopifyContext = async (chat = selectedChat) => {
+    if (!chat || !chat.phone) return;
+    setLoadingShopifyContext(true);
+    try {
+      const data = await inboxService.getShopifyContext({
+        phone: chat.phone,
+        conversationId: chat.id,
+      });
+      if (data) {
+        setShopifyContext(data);
+      }
+    } catch (err) {
+      console.warn('Failed to load Shopify context:', err);
+    } finally {
+      setLoadingShopifyContext(false);
+    }
+  };
+
+  // Trigger 1-click Shopify Commerce actions (tracking links, COD verification, cart recovery)
+  const handleTriggerShopifyAction = async (action, payload = {}) => {
+    if (!selectedChat) return;
+    const actionKey = `${action}_${payload.orderNumber || payload.checkoutId || ''}`;
+    setShopifyActionExecuting(actionKey);
+    try {
+      const res = await inboxService.triggerShopifyAction({
+        action,
+        conversationId: selectedChat.id,
+        phone: selectedChat.phone,
+        payload,
+      });
+      if (res && res.success) {
+        showToast(res.message || 'Action sent successfully on WhatsApp!', 'success');
+        const fullConv = await inboxService.getConversation(selectedChat.id);
+        if (fullConv) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === fullConv.id ? fullConv : c))
+          );
+        }
+      } else {
+        showToast(res?.error || 'Action failed to execute', 'error');
+      }
+    } catch (err) {
+      showToast('Error triggering Shopify action', 'error');
+    } finally {
+      setShopifyActionExecuting(null);
+    }
+  };
+
+  // Paste pre-formatted Shopify link/message directly into chat composer
+  const handleDraftShopifyAction = (text) => {
+    setMessageInput(text);
+    showToast('Pasted into message composer');
+  };
+
   // Open Contact Inspector and fetch latest attributes from backend
   const handleOpenContactInspector = async (chatToInspect = selectedChat) => {
     if (!chatToInspect) return;
     setIsContactDrawerOpen(true);
     syncInspectorWithChat(chatToInspect);
+    fetchShopifyContext(chatToInspect);
 
     setInspectorLoading(true);
     try {
@@ -1516,11 +1594,47 @@ export default function Inbox() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {shopifyContext?.connected && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectorTab('shopify');
+                            setIsContactDrawerOpen(true);
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                            isContactDrawerOpen && inspectorTab === 'shopify'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                          title="View Shopify Commerce Context"
+                        >
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Shopify</span>
+                          {shopifyContext.recentOrders?.length > 0 && (
+                            <span
+                              className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
+                                isContactDrawerOpen && inspectorTab === 'shopify'
+                                  ? 'bg-emerald-700 text-white'
+                                  : 'bg-emerald-200 text-emerald-900'
+                              }`}
+                            >
+                              {shopifyContext.recentOrders.length}
+                            </span>
+                          )}
+                          {shopifyContext.abandonedCart && (
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Active Abandoned Cart" />
+                          )}
+                        </button>
+                      )}
+
                       <button
                         type="button"
-                        onClick={() => handleOpenContactInspector()}
+                        onClick={() => {
+                          setInspectorTab('crm');
+                          handleOpenContactInspector();
+                        }}
                         className={`p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors ${
-                          isContactDrawerOpen ? 'bg-emerald-50 text-emerald-700 font-bold' : ''
+                          isContactDrawerOpen && inspectorTab === 'crm' ? 'bg-emerald-50 text-emerald-700 font-bold' : ''
                         }`}
                         title="Contact details & attributes"
                       >
@@ -1704,23 +1818,375 @@ export default function Inbox() {
             {/* 2. Side-by-Side / Slide-out Contact Inspector Drawer */}
             {selectedChat && isContactDrawerOpen && (
               <div className="w-80 sm:w-96 bg-white border-l border-slate-200 flex flex-col h-full overflow-y-auto animate-in slide-in-from-right-4 duration-150 z-20 shrink-0 font-sans shadow-xl">
-                {/* Drawer Header */}
-                <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50/50">
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="w-4 h-4 text-emerald-600" />
-                    <h3 className="text-xs font-bold text-slate-900">Contact Details & Attributes</h3>
+                {/* Drawer Header with Segmented Tabs */}
+                <div className="p-3 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50/80">
+                  <div className="flex bg-slate-200/80 p-0.5 rounded-xl text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setInspectorTab('shopify')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        inspectorTab === 'shopify'
+                          ? 'bg-white text-emerald-800 shadow-xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Shopify</span>
+                      {shopifyContext?.recentOrders?.length > 0 && (
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                          {shopifyContext.recentOrders.length}
+                        </span>
+                      )}
+                      {shopifyContext?.abandonedCart && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInspectorTab('crm')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        inspectorTab === 'crm'
+                          ? 'bg-white text-slate-900 shadow-xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5 text-slate-600" />
+                      <span>CRM</span>
+                    </button>
                   </div>
                   <button
                     type="button"
                     onClick={() => setIsContactDrawerOpen(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Drawer Body */}
-                <div className="p-5 space-y-5 flex-1 overflow-y-auto">
+                {/* 1. Shopify Commerce Tab */}
+                {inspectorTab === 'shopify' && (
+                  <div className="p-5 space-y-5 flex-1 overflow-y-auto">
+                    {/* Store Connection & Admin Link */}
+                    <div className="flex items-center justify-between p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border border-emerald-200/90 shadow-xs">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <Store className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="font-bold text-xs text-slate-900 truncate">
+                              {shopifyContext?.store?.shopName || 'Shopify Store'}
+                            </h4>
+                            <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Live
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-mono truncate">
+                            {shopifyContext?.store?.shopDomain || 'arco-test-e2a1thrd.myshopify.com'}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href={shopifyContext?.store?.adminCustomerUrl || `https://${shopifyContext?.store?.shopDomain || 'arco-test-e2a1thrd.myshopify.com'}/admin/customers`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded-xl bg-white text-slate-700 hover:text-emerald-700 hover:border-emerald-300 border border-slate-200/90 text-xs font-bold shrink-0 shadow-2xs transition-colors flex items-center gap-1"
+                        title="Open in Shopify Admin"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+
+                    {/* Customer Commerce Metrics (2x2 Grid) */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                          Total Spend
+                        </span>
+                        <div className="text-base font-black text-slate-900 mt-0.5">
+                          ₹{(shopifyContext?.customer?.totalSpent || 0).toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[10px] text-emerald-600 font-semibold">
+                          AOV: ₹{(shopifyContext?.customer?.averageOrderValue || 0).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                          Total Orders
+                        </span>
+                        <div className="text-base font-black text-slate-900 mt-0.5">
+                          {shopifyContext?.customer?.totalOrders || 0}
+                        </div>
+                        <span className="inline-block mt-0.5 text-[10px] font-bold text-slate-700 bg-slate-200/70 px-2 py-0.2 rounded-full truncate">
+                          {shopifyContext?.customer?.segment || 'Prospective'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Active Abandoned Cart Card (High-Impact Recovery) */}
+                    {shopifyContext?.abandonedCart && (
+                      <div className="p-3.5 bg-gradient-to-br from-amber-50 to-orange-50/80 rounded-2xl border border-amber-300/90 shadow-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-amber-900 font-extrabold text-xs">
+                            <ShoppingBag className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>Active Abandoned Cart</span>
+                          </div>
+                          <span className="text-xs font-black text-amber-950 bg-amber-100/90 px-2 py-0.5 rounded-full border border-amber-200">
+                            ₹{shopifyContext.abandonedCart.totalPrice?.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+
+                        {/* Items list */}
+                        <div className="space-y-1.5 bg-white/90 p-2.5 rounded-xl border border-amber-200/80 text-xs">
+                          {shopifyContext.abandonedCart.items?.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-slate-800">
+                              <div className="truncate pr-2 font-medium">
+                                <span>{item.title}</span>
+                                {item.variantTitle && (
+                                  <span className="text-slate-500 text-[10px] block font-normal">
+                                    {item.variantTitle}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-slate-600 text-xs shrink-0">
+                                x{item.quantity} • ₹{item.price}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* 1-Click Action Buttons */}
+                        <div className="grid grid-cols-2 gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            disabled={shopifyActionExecuting?.startsWith('send_cart_recovery')}
+                            onClick={() =>
+                              handleTriggerShopifyAction('send_cart_recovery', {
+                                checkoutId: shopifyContext.abandonedCart.checkoutId,
+                                customerName: shopifyContext.customer?.name,
+                                recoveryUrl: shopifyContext.abandonedCart.recoveryUrl,
+                                discountCode: 'SAVE10',
+                                discountPercent: 10,
+                              })
+                            }
+                            className="py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>
+                              {shopifyActionExecuting?.startsWith('send_cart_recovery') ? 'Sending...' : 'Send Recovery'}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDraftShopifyAction(
+                                `Hi ${shopifyContext.customer?.name || 'there'}! You left items in your cart on ${shopifyContext.store?.shopName}. Use code SAVE10 for 10% off: ${shopifyContext.abandonedCart.recoveryUrl}`
+                              )
+                            }
+                            className="py-2 px-3 bg-white hover:bg-amber-100/60 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Draft in Chat</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Order History Section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                          Order History ({shopifyContext?.recentOrders?.length || 0})
+                        </h5>
+                        {loadingShopifyContext && (
+                          <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
+                        )}
+                      </div>
+
+                      {shopifyContext?.recentOrders?.length === 0 ? (
+                        <div className="p-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500">
+                          <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                          <p className="font-semibold text-slate-700">No Shopify orders yet</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Orders placed with this phone number on {shopifyContext?.store?.shopName} will appear here.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {shopifyContext?.recentOrders?.map((order) => {
+                            const isCOD = order.paymentStatus === 'COD';
+                            const isPaid = order.paymentStatus === 'Paid';
+                            const isFulfilled =
+                              order.fulfillmentStatus === 'Fulfilled' || order.fulfillmentStatus === 'Shipped';
+
+                            return (
+                              <div
+                                key={order.id}
+                                className="p-3.5 bg-slate-50/90 rounded-2xl border border-slate-200/90 hover:border-slate-300 transition-colors space-y-3 shadow-2xs"
+                              >
+                                {/* Order Header */}
+                                <div className="flex items-start justify-between">
+                                  <div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-black text-xs text-slate-900">
+                                        {order.orderNumber}
+                                      </span>
+                                      <span
+                                        className={`text-[9px] font-extrabold px-2 py-0.2 rounded-full border ${
+                                          isPaid
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                            : isCOD
+                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                                        }`}
+                                      >
+                                        {order.paymentStatus}
+                                      </span>
+                                      <span
+                                        className={`text-[9px] font-extrabold px-2 py-0.2 rounded-full border ${
+                                          isFulfilled
+                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                                        }`}
+                                      >
+                                        {order.fulfillmentStatus}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                      {new Date(order.createdAt).toLocaleDateString('en-IN', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-xs font-black text-slate-900">
+                                      ₹{order.totalAmount?.toLocaleString('en-IN')}
+                                    </div>
+                                    <a
+                                      href={order.adminOrderUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] font-semibold text-emerald-600 hover:underline flex items-center justify-end gap-0.5"
+                                    >
+                                      <span>Shopify</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  </div>
+                                </div>
+
+                                {/* Items list */}
+                                <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-1.5 text-xs">
+                                  {order.items?.map((item, idx) => (
+                                    <div key={idx} className="flex items-center justify-between text-slate-700">
+                                      <span className="truncate pr-2 font-medium">
+                                        {item.title} {item.variantTitle ? `(${item.variantTitle})` : ''}
+                                      </span>
+                                      <span className="font-mono text-slate-500 text-[11px] shrink-0">
+                                        x{item.quantity} • ₹{item.price}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* 1-Click Order Actions */}
+                                <div className="flex items-center gap-1.5 pt-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={shopifyActionExecuting?.startsWith(`send_tracking_${order.orderNumber}`)}
+                                    onClick={() =>
+                                      handleTriggerShopifyAction('send_tracking', {
+                                        orderNumber: order.orderNumber,
+                                        trackingNumber: `TRK-${order.orderNumber.replace(/[^0-9]/g, '')}99`,
+                                        carrier: 'Delhivery Express',
+                                        trackingUrl: order.trackingUrl,
+                                      })
+                                    }
+                                    className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                                    title="Send shipping update & tracking link via WhatsApp"
+                                  >
+                                    <Truck className="w-3 h-3 text-emerald-600" />
+                                    <span>Tracking</span>
+                                  </button>
+
+                                  {isCOD && (
+                                    <button
+                                      type="button"
+                                      disabled={shopifyActionExecuting?.startsWith(`send_cod_verification_${order.orderNumber}`)}
+                                      onClick={() =>
+                                        handleTriggerShopifyAction('send_cod_verification', {
+                                          orderNumber: order.orderNumber,
+                                          totalAmount: order.totalAmount,
+                                        })
+                                      }
+                                      className="flex-1 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                                      title="Send COD Verification prompt to customer"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3 text-amber-600" />
+                                      <span>Verify COD</span>
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDraftShopifyAction(
+                                        `Hi ${order.customerName}! Your order ${order.orderNumber} for ₹${order.totalAmount} on ${shopifyContext?.store?.shopName} is currently ${order.fulfillmentStatus}. Live tracking: ${order.trackingUrl}`
+                                      )
+                                    }
+                                    className="py-1.5 px-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                                    title="Copy status into message composer"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                    <span>Draft</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Commerce Snippets */}
+                    <div className="space-y-2 pt-3 border-t border-slate-200">
+                      <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                        Commerce Quick Replies
+                      </h5>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDraftShopifyAction(
+                              `Hello ${selectedChat.name}! How can we assist you with your orders from ${shopifyContext?.store?.shopName || 'our store'} today?`
+                            )
+                          }
+                          className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200/80 text-left text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                        >
+                          📦 Order Support
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDraftShopifyAction(
+                              `Check out our latest bestsellers on ${shopifyContext?.store?.shopName || 'our store'}! Shop online: https://${shopifyContext?.store?.shopDomain || 'arco-test-e2a1thrd.myshopify.com'}`
+                            )
+                          }
+                          className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200/80 text-left text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                        >
+                          🛍️ Share Catalog
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. CRM Profile Tab */}
+                {inspectorTab === 'crm' && (
+                  <div className="p-5 space-y-5 flex-1 overflow-y-auto">
                   {/* Hero Card */}
                   <div className="flex items-center gap-3.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
                     <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white font-bold text-base flex items-center justify-center shadow-xs">
@@ -1951,6 +2417,7 @@ export default function Inbox() {
                     </button>
                   </div>
                 </div>
+                )}
               </div>
             )}
           </div>
