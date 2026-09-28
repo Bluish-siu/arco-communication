@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { query } from '../config/db.js';
 import { config } from '../config/index.js';
 import { shopifyAuthService } from '../services/shopifyAuthService.js';
@@ -113,19 +114,42 @@ export const integrationController = {
       );
 
       let record = integRes.rows[0];
-      const userId = req.user?.id || record?.user_id || 'usr_1';
 
-      // Anti-hijacking check: if store belongs to another user, reject
-      if (record && record.user_id && record.user_id !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: 'This Shopify store is already connected to another ARCO account.',
-        });
+      // 2. Resolve or auto-provision an ARCO user account for this merchant store
+      let merchantUser = null;
+      if (record?.user_id) {
+        const uRes = await query('SELECT id, name, email, company_name, role, onboarding_completed FROM users WHERE id = $1 LIMIT 1', [record.user_id]);
+        if (uRes.rows[0]) {
+          merchantUser = uRes.rows[0];
+        }
       }
+
+      const cleanShopHandle = shopDomain.replace('.myshopify.com', '');
+      const defaultStoreEmail = `shopify+${cleanShopHandle.replace(/[^a-zA-Z0-9]/g, '_')}@arcocomm.com`;
+
+      if (!merchantUser) {
+        // Try looking up by store email
+        const userByEmail = await query('SELECT id, name, email, company_name, role, onboarding_completed FROM users WHERE email = $1 LIMIT 1', [defaultStoreEmail]);
+        if (userByEmail.rows[0]) {
+          merchantUser = userByEmail.rows[0];
+        } else {
+          // Auto-provision fresh merchant admin user
+          const newUserId = `usr_shopify_${Date.now()}`;
+          const insertUser = await query(
+            `INSERT INTO users (id, name, email, company_name, role, onboarding_completed, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, 'admin', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING id, name, email, company_name, role, onboarding_completed`,
+            [newUserId, cleanShopHandle, defaultStoreEmail, cleanShopHandle]
+          );
+          merchantUser = insertUser.rows[0];
+        }
+      }
+
+      const userId = merchantUser.id;
 
       let needsExchange = !record || !record.access_token || record.status !== 'connected';
 
-      // 2. Check if existing token has expired
+      // 3. Check if existing token has expired
       if (record?.access_token && record?.expires_at) {
         const isExpired = new Date(record.expires_at).getTime() < Date.now();
         if (isExpired) {
@@ -157,7 +181,7 @@ export const integrationController = {
         }
       }
 
-      // 3. Perform Token Exchange if no valid offline token exists
+      // 4. Perform Token Exchange if no valid offline token exists
       if (needsExchange) {
         if (!rawIdToken) {
           return res.status(401).json({ success: false, error: 'Cannot perform token exchange without ID token' });
@@ -168,7 +192,7 @@ export const integrationController = {
           idToken: rawIdToken,
         });
 
-        // 4. Query shop metadata via GraphQL
+        // 5. Query shop metadata via GraphQL
         let shopData = null;
         try {
           shopData = await shopifyGraphService.getShop({
@@ -179,11 +203,22 @@ export const integrationController = {
           console.warn(`[Shopify Shop Metadata Fetch Warning for ${shopDomain}]:`, graphErr.message);
         }
 
-        const shopName = shopData?.name || shopDomain.replace('.myshopify.com', '');
+        const shopName = shopData?.name || cleanShopHandle;
         const shopifyShopId = shopData?.id || null;
         const connectionId = record?.id || `shp_${Date.now()}`;
 
-        // 5. Register Phase 1 Webhooks
+        // Sync merchant store name if available
+        if (shopData?.name && merchantUser.name !== shopData.name) {
+          try {
+            await query('UPDATE users SET name = $1, company_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [shopData.name, userId]);
+            merchantUser.name = shopData.name;
+            merchantUser.company_name = shopData.name;
+          } catch (nameErr) {
+            console.warn('[Shopify User Name Sync Warning]:', nameErr.message);
+          }
+        }
+
+        // 6. Register Phase 1 Webhooks
         try {
           const webhookBase = config.shopifyWebhookBaseUrl || 'https://arco-backend-ecbl.onrender.com';
           const webhookUrl = `${webhookBase.replace(/\/+$/, '')}/api/shopify/webhooks`;
@@ -196,7 +231,7 @@ export const integrationController = {
           console.warn(`[Shopify Webhook Auto-Registration Warning]:`, whErr.message);
         }
 
-        // 6. Encrypt tokens before storing in PostgreSQL
+        // 7. Encrypt tokens before storing in PostgreSQL
         const encryptedAccessToken = encryptToken(exchange.accessToken);
         const encryptedRefreshToken = exchange.refreshToken ? encryptToken(exchange.refreshToken) : null;
 
@@ -206,7 +241,8 @@ export const integrationController = {
              expires_at, scopes, status, installed_at, uninstalled_at, last_error, updated_at
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'connected', CURRENT_TIMESTAMP, NULL, NULL, CURRENT_TIMESTAMP)
            ON CONFLICT (shop_domain) DO UPDATE 
-           SET access_token = EXCLUDED.access_token,
+           SET user_id = EXCLUDED.user_id,
+               access_token = EXCLUDED.access_token,
                refresh_token = EXCLUDED.refresh_token,
                expires_at = EXCLUDED.expires_at,
                shop_name = EXCLUDED.shop_name,
@@ -216,7 +252,6 @@ export const integrationController = {
                uninstalled_at = NULL,
                last_error = NULL,
                updated_at = CURRENT_TIMESTAMP
-           WHERE shopify_integrations.user_id = EXCLUDED.user_id
            RETURNING id, user_id, shop_domain, shop_name, shopify_shop_id, scopes, status, installed_at`,
           [
             connectionId,
@@ -248,16 +283,41 @@ export const integrationController = {
         }
       }
 
-      // Return ONLY strictly safe information to frontend (NEVER return access_token or secrets)
+      // 8. Generate authoritative ARCO JWT token for this authenticated Shopify merchant
+      const arcoToken = jwt.sign(
+        {
+          id: merchantUser.id,
+          email: merchantUser.email,
+          name: merchantUser.name,
+          role: merchantUser.role || 'admin',
+          shopDomain,
+          source: 'shopify_embedded',
+        },
+        config.jwtSecret,
+        { expiresIn: config.jwtExpiresIn || '30d' }
+      );
+
+      // Return both ARCO auth token, user profile, and integration status
       res.json({
         success: true,
+        token: arcoToken,
+        user: {
+          id: merchantUser.id,
+          name: merchantUser.name,
+          email: merchantUser.email,
+          company_name: merchantUser.company_name,
+          role: merchantUser.role || 'admin',
+          onboarding_completed: true,
+          onboardingCompleted: true,
+          isAuthenticated: true,
+        },
         data: {
-          connected: record.status === 'connected',
-          shopDomain: record.shop_domain,
-          shopName: record.shop_name,
-          scopes: record.scopes,
-          status: record.status,
-          installedAt: record.installed_at,
+          connected: record ? record.status === 'connected' : true,
+          shopDomain: record?.shop_domain || shopDomain,
+          shopName: record?.shop_name || merchantUser.name,
+          scopes: record?.scopes || config.shopifyScopes,
+          status: record?.status || 'connected',
+          installedAt: record?.installed_at || new Date().toISOString(),
         },
       });
     } catch (error) {

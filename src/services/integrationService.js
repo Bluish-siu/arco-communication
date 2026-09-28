@@ -22,7 +22,21 @@ export const integrationService = {
         Authorization: `Bearer ${token}`,
       },
     });
-    return res.data;
+
+    if (res?.token) {
+      try {
+        localStorage.setItem('arco_auth_token', res.token);
+      } catch (e) {
+        console.error('[Integration Service] Failed to store ARCO auth token:', e);
+      }
+    }
+
+    return {
+      ...(res.data || {}),
+      token: res.token,
+      user: res.user,
+      success: res.success,
+    };
   },
 
   // GET /api/integrations/shopify/status

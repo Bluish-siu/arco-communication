@@ -12,10 +12,13 @@ import {
   Edit2,
   Smartphone,
   Sparkles,
+  ShoppingBag,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import { useOnboarding } from '../context/OnboardingContext';
 import { authService } from '../services/authService';
+import { isShopifyEmbedded } from '../utils/shopifyAppBridge';
+import { integrationService } from '../services/integrationService';
 import {
   setupRecaptcha,
   sendFirebasePhoneOtp,
@@ -38,7 +41,53 @@ const COUNTRY_CODES = [
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login, demoLogin } = useOnboarding();
+  const { login, demoLogin, setAuthenticatedUser } = useOnboarding();
+
+  // Embedded Shopify App Detection & Auto-Login
+  const isEmbedded = isShopifyEmbedded();
+  const [isShopifyLoggingIn, setIsShopifyLoggingIn] = useState(isEmbedded);
+  const [shopifyError, setShopifyError] = useState(null);
+
+  useEffect(() => {
+    if (!isEmbedded) return;
+
+    let isMounted = true;
+    async function autoAuthShopify() {
+      try {
+        setIsShopifyLoggingIn(true);
+        setShopifyError(null);
+        const sessionRes = await integrationService.getShopifySession();
+        if (sessionRes?.token && sessionRes?.user && isMounted) {
+          setAuthenticatedUser(sessionRes.user, sessionRes.token);
+
+          const redirectParam = searchParams.get('redirect');
+          let targetUrl = '/integrations';
+          if (redirectParam) {
+            try {
+              const decoded = decodeURIComponent(redirectParam);
+              targetUrl = decoded;
+            } catch {
+              targetUrl = redirectParam;
+            }
+          }
+          navigate(targetUrl, { replace: true });
+        } else if (isMounted) {
+          throw new Error(sessionRes?.error || 'Failed to authenticate with Shopify store session');
+        }
+      } catch (err) {
+        console.error('[Login] Embedded Shopify auto-auth error:', err);
+        if (isMounted) {
+          setShopifyError(err.message || 'Failed to authenticate your Shopify store.');
+          setIsShopifyLoggingIn(false);
+        }
+      }
+    }
+
+    autoAuthShopify();
+    return () => {
+      isMounted = false;
+    };
+  }, [isEmbedded, navigate, searchParams, setAuthenticatedUser]);
 
   // Auth Modes: 'default' | 'phone_number' | 'phone_otp'
   const [authMode, setAuthMode] = useState('default');
@@ -308,6 +357,72 @@ export default function Login() {
     if (resendCooldown > 0) return;
     handleSendPhoneOtp();
   };
+
+  if (isEmbedded && isShopifyLoggingIn) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-white font-sans">
+        <div className="max-w-md w-full bg-slate-800/95 border border-slate-700/80 rounded-2xl p-8 text-center shadow-2xl backdrop-blur-md">
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <Sparkles className="w-6 h-6 animate-pulse" />
+            </div>
+            <div className="h-0.5 w-6 bg-slate-700"></div>
+            <div className="w-12 h-12 rounded-xl bg-[#95BF47]/20 border border-[#95BF47]/30 flex items-center justify-center text-[#95BF47]">
+              <ShoppingBag className="w-6 h-6" />
+            </div>
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Connecting to Shopify Admin</h2>
+          <p className="text-sm text-slate-400 mb-6">
+            Signing you in via Shopify App Bridge. Your WhatsApp omnichannel dashboard is loading...
+          </p>
+          <div className="w-full bg-slate-700/60 rounded-full h-1.5 overflow-hidden mb-4">
+            <div className="bg-gradient-to-r from-emerald-500 to-[#95BF47] h-full w-2/3 animate-pulse rounded-full"></div>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+            <span>Verifying Shopify store session</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isEmbedded && shopifyError) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-white font-sans">
+        <div className="max-w-md w-full bg-slate-800/90 border border-red-500/30 rounded-2xl p-8 text-center shadow-2xl">
+          <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h2 className="text-lg font-bold text-white mb-2">Shopify Authorization Needed</h2>
+          <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+            {shopifyError}
+          </p>
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry Connection
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                sessionStorage.removeItem('arco_shopify_embedded');
+                setIsShopifyLoggingIn(false);
+                setShopifyError(null);
+              }}
+              className="w-full py-2 px-4 bg-slate-700/60 hover:bg-slate-700 text-slate-300 font-medium text-xs rounded-xl transition cursor-pointer"
+            >
+              Sign in with ARCO account instead
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between">

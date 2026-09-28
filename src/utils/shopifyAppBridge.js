@@ -12,20 +12,52 @@ const APP_BRIDGE_SCRIPT_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.j
 export function isShopifyEmbedded() {
   if (typeof window === 'undefined') return false;
   try {
-    const params = new URLSearchParams(window.location.search);
-    const hasHost = !!params.get('host');
-    const hasEmbedded = params.get('embedded') === '1';
     const inIframe = window.top !== window.self;
+    if (!inIframe) return false;
+
+    const params = new URLSearchParams(window.location.search);
+    let hasHost = !!params.get('host');
+    let hasShop = !!params.get('shop');
+    let hasEmbedded = params.get('embedded') === '1';
+
+    // If redirected to /login?redirect=..., inspect the encoded redirect URL
+    const redirectParam = params.get('redirect');
+    if (redirectParam && (!hasHost || !hasShop || !hasEmbedded)) {
+      try {
+        const decoded = decodeURIComponent(redirectParam);
+        const qIdx = decoded.indexOf('?');
+        if (qIdx !== -1) {
+          const innerParams = new URLSearchParams(decoded.substring(qIdx));
+          if (!hasHost && innerParams.get('host')) {
+            hasHost = true;
+            sessionStorage.setItem('arco_shopify_host', innerParams.get('host'));
+          }
+          if (!hasShop && innerParams.get('shop')) {
+            hasShop = true;
+            sessionStorage.setItem('arco_shopify_shop', innerParams.get('shop'));
+          }
+          if (!hasEmbedded && innerParams.get('embedded') === '1') {
+            hasEmbedded = true;
+          }
+        }
+      } catch (err) {
+        // ignore parse errors
+      }
+    }
+
+    const referrer = typeof document !== 'undefined' ? (document.referrer || '') : '';
+    const isShopifyReferrer = referrer.includes('shopify.com') || referrer.includes('myshopify.com');
+    const hasShopifyGlobal = typeof window !== 'undefined' && !!window.shopify;
 
     // Cache in sessionStorage for internal client-side route transitions
-    if ((hasHost || hasEmbedded) && inIframe) {
+    if (hasHost || hasEmbedded || hasShop || isShopifyReferrer || hasShopifyGlobal) {
       sessionStorage.setItem('arco_shopify_embedded', 'true');
       if (params.get('host')) sessionStorage.setItem('arco_shopify_host', params.get('host'));
       if (params.get('shop')) sessionStorage.setItem('arco_shopify_shop', params.get('shop'));
       return true;
     }
 
-    return inIframe && sessionStorage.getItem('arco_shopify_embedded') === 'true';
+    return sessionStorage.getItem('arco_shopify_embedded') === 'true';
   } catch {
     return false;
   }
@@ -37,8 +69,31 @@ export function isShopifyEmbedded() {
 export function getShopifyParams() {
   if (typeof window === 'undefined') return { host: null, shop: null };
   const params = new URLSearchParams(window.location.search);
-  const host = params.get('host') || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('arco_shopify_host') : null);
-  const shop = params.get('shop') || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('arco_shopify_shop') : null);
+  let host = params.get('host');
+  let shop = params.get('shop');
+
+  const redirectParam = params.get('redirect');
+  if (redirectParam && (!host || !shop)) {
+    try {
+      const decoded = decodeURIComponent(redirectParam);
+      const qIdx = decoded.indexOf('?');
+      if (qIdx !== -1) {
+        const innerParams = new URLSearchParams(decoded.substring(qIdx));
+        if (!host) host = innerParams.get('host');
+        if (!shop) shop = innerParams.get('shop');
+      }
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  if (!host && typeof sessionStorage !== 'undefined') {
+    host = sessionStorage.getItem('arco_shopify_host');
+  }
+  if (!shop && typeof sessionStorage !== 'undefined') {
+    shop = sessionStorage.getItem('arco_shopify_shop');
+  }
+
   return { host, shop };
 }
 
