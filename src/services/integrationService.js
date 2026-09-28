@@ -116,4 +116,48 @@ export const integrationService = {
     });
     return res;
   },
+
+  // GET /api/integrations/shopify/automations
+  getShopifyAutomations: async (shop) => {
+    try {
+      const query = shop ? `?shop=${encodeURIComponent(shop)}` : '';
+      const res = await apiRequest(`/integrations/shopify/automations${query}`);
+      return res.data || [];
+    } catch (err) {
+      console.warn('[Integration Service] getShopifyAutomations failed:', err.message);
+      return [];
+    }
+  },
+
+  // PUT /api/integrations/shopify/automations/:recipeType
+  updateShopifyAutomation: async (recipeType, updates, shop) => {
+    const query = shop ? `?shop=${encodeURIComponent(shop)}` : '';
+    const res = await apiRequest(`/integrations/shopify/automations/${recipeType}${query}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    return res.data;
+  },
+
+  // POST /api/integrations/shopify/automations/:recipeType/test
+  testShopifyAutomation: async (recipeType, testPhone, shop) => {
+    const query = shop ? `?shop=${encodeURIComponent(shop)}` : '';
+    const res = await apiRequest(`/integrations/shopify/automations/${recipeType}/test${query}`, {
+      method: 'POST',
+      body: JSON.stringify({ testPhone }),
+    });
+    return res.data;
+  },
+
+  // GET /api/integrations/shopify/automations/stats
+  getShopifyAutomationStats: async (shop) => {
+    try {
+      const query = shop ? `?shop=${encodeURIComponent(shop)}` : '';
+      const res = await apiRequest(`/integrations/shopify/automations/stats${query}`);
+      return res.data || {};
+    } catch (err) {
+      console.warn('[Integration Service] getShopifyAutomationStats failed:', err.message);
+      return {};
+    }
+  },
 };

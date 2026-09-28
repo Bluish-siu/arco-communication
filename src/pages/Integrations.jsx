@@ -17,11 +17,13 @@ import {
   ShieldCheck,
   Store,
   Check,
+  Zap,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { integrationService } from '../services/integrationService';
 import { isShopifyEmbedded, getShopifyParams } from '../utils/shopifyAppBridge';
+import ShopifyAutomationsManager from '../components/shopify/ShopifyAutomationsManager';
 
 const ALL_CATEGORIES = [
   'All Categories',
@@ -93,6 +95,7 @@ export default function Integrations() {
 
   // Connect Modal State
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
+  const [isAutomationsModalOpen, setIsAutomationsModalOpen] = useState(false);
   const [shopInput, setShopInput] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -630,14 +633,25 @@ export default function Integrations() {
                   <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
                     {shopifyStatus.connected ? (
                       <>
-                        <a
-                          href={`https://${shopifyStatus.shopDomain || embeddedShop || 'myshopify.com'}/admin`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
-                        >
-                          Shopify Admin <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setIsAutomationsModalOpen(true)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors cursor-pointer"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>WhatsApp Automations</span>
+                          </button>
+
+                          <a
+                            href={`https://${shopifyStatus.shopDomain || embeddedShop || 'myshopify.com'}/admin`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                          >
+                            Shopify Admin <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
 
                         <button
                           type="button"
@@ -837,6 +851,25 @@ export default function Integrations() {
               </div>
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {/* Shopify WhatsApp Automations Modal */}
+      {isAutomationsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto animate-fade-in">
+          <div className="bg-slate-50 rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative my-8 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setIsAutomationsModalOpen(false)}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-white border border-transparent hover:border-slate-200 transition-colors cursor-pointer z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <ShopifyAutomationsManager
+              shopDomain={shopifyStatus.shopDomain || embeddedShop || 'arco-test-e2a1thrd.myshopify.com'}
+              onToast={showToast}
+            />
           </div>
         </div>
       )}

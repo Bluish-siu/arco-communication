@@ -49,6 +49,8 @@ import WhatsAppFormsModal from '../components/dashboard/WhatsAppFormsModal';
 import AutomatedAlertsModal from '../components/dashboard/AutomatedAlertsModal';
 import CtwaAdsModal from '../components/dashboard/CtwaAdsModal';
 import AiAgentModal from '../components/dashboard/AiAgentModal';
+import ShopifyAutomationsManager from '../components/shopify/ShopifyAutomationsManager';
+import { isShopifyEmbedded } from '../utils/shopifyAppBridge';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className = 'w-5 h-5' }) => (
@@ -537,6 +539,15 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
+
+              {/* SHOPIFY WHATSAPP NOTIFICATION RECIPES (INTERAKT REPLACEMENT) */}
+              <ShopifyAutomationsManager
+                shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
+                onToast={(msg, type) => {
+                  setToast({ message: msg, type: type || 'success' });
+                  setTimeout(() => setToast(null), 3500);
+                }}
+              />
 
               {/* 5. OBJECTIVES SECTION (6 High-Fidelity Cards with Realistic Mockups) */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/90 shadow-2xs space-y-6">

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { integrationController } from '../controllers/integrationController.js';
+import { shopifyAutomationController } from '../controllers/shopifyAutomationController.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { verifyShopifyIdToken } from '../middleware/shopifyAuth.js';
 
@@ -18,6 +19,12 @@ router.get('/shopify/oauth-url', authenticateToken, integrationController.getSho
 router.post('/shopify/connect', authenticateToken, requireAdmin, integrationController.connectShopify);
 router.post('/shopify/disconnect', authenticateToken, requireAdmin, integrationController.disconnectShopify);
 router.post('/shopify/reconcile-webhooks', authenticateToken, requireAdmin, integrationController.reconcileShopifyWebhooks);
+
+// Shopify WhatsApp Notification Automation Recipes
+router.get('/shopify/automations', authenticateToken, shopifyAutomationController.getAutomations);
+router.put('/shopify/automations/:recipeType', authenticateToken, shopifyAutomationController.updateAutomation);
+router.post('/shopify/automations/:recipeType/test', authenticateToken, shopifyAutomationController.testAutomation);
+router.get('/shopify/automations/stats', authenticateToken, shopifyAutomationController.getStats);
 
 // Historical Bulk Synchronization Endpoints
 router.post('/shopify/sync', authenticateToken, requireAdmin, integrationController.startShopifySync);
