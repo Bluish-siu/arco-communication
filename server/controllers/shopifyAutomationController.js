@@ -78,10 +78,13 @@ export const shopifyAutomationController = {
         return res.status(400).json({ success: false, error: 'testPhone is required' });
       }
 
+      const userId = req.user?.id || req.shopify?.userId || null;
+
       const result = await shopifyAutomationService.testAutomation({
         shopDomain,
         recipeType,
         testPhone,
+        userId,
       });
 
       res.json({

@@ -200,14 +200,14 @@ export const shopifyAutomationService = {
   /**
    * Dispatches a live test WhatsApp notification to testPhone
    */
-  testAutomation: async ({ shopDomain, recipeType, testPhone }) => {
+  testAutomation: async ({ shopDomain, recipeType, testPhone, userId = null }) => {
     if (!testPhone) throw new Error('Test phone number is required');
     const cleanPhone = formatPhoneNumber(testPhone);
     if (!cleanPhone || cleanPhone.length < 8) {
       throw new Error(`Invalid phone number: ${testPhone}`);
     }
 
-    const automations = await shopifyAutomationService.getAutomations({ shopDomain });
+    const automations = await shopifyAutomationService.getAutomations({ shopDomain, userId });
     const recipe = automations.find((a) => a.recipe_type === recipeType);
     if (!recipe) throw new Error(`Recipe ${recipeType} not found`);
 
@@ -231,17 +231,60 @@ export const shopifyAutomationService = {
         testBody = `[TEST] WhatsApp Notification from ${shopName} via ARCO.`;
     }
 
-    // Try sending template if configured or interactive/text message
-    const sendRes = await metaWhatsAppService.sendMessage({
+    // 1. Send authoritative approved Meta WhatsApp template
+    let templateName = recipe.template_name || 'order_status';
+    let sendRes = await metaWhatsAppService.sendTemplateMessage({
       to: cleanPhone,
-      type: 'text',
-      text: { body: testBody },
+      templateName,
+      userId,
     });
+
+    // If candidate template failed or was pending/rejected, fallback to approved 'order_status'
+    if (!sendRes?.success && templateName !== 'order_status') {
+      const fallbackRes = await metaWhatsAppService.sendTemplateMessage({
+        to: cleanPhone,
+        templateName: 'order_status',
+        userId,
+      });
+      if (fallbackRes?.success) {
+        sendRes = fallbackRes;
+        templateName = 'order_status';
+      }
+    }
+
+    // Secondary fallback to approved 'order'
+    if (!sendRes?.success && templateName !== 'order') {
+      const orderFallbackRes = await metaWhatsAppService.sendTemplateMessage({
+        to: cleanPhone,
+        templateName: 'order',
+        userId,
+      });
+      if (orderFallbackRes?.success) {
+        sendRes = orderFallbackRes;
+        templateName = 'order';
+      }
+    }
+
+    // 2. Also try sending rich text message if within 24h conversation window
+    try {
+      await metaWhatsAppService.sendTextMessage({
+        to: cleanPhone,
+        text: testBody,
+        userId,
+      });
+    } catch (txtErr) {
+      // Expected if outside 24h window
+    }
+
+    if (!sendRes?.success) {
+      throw new Error(sendRes?.error || sendRes?.message || 'Failed to dispatch WhatsApp message via Meta Cloud API.');
+    }
 
     return {
       success: true,
       phone: cleanPhone,
-      messageId: sendRes.messageId,
+      messageId: sendRes.wamid || sendRes.metaMessageId,
+      templateName,
       preview: testBody,
     };
   },
