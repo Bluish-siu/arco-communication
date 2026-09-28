@@ -335,6 +335,14 @@ export const whatsappController = {
               if (contactRes.rows.length > 0) {
                 contact = contactRes.rows[0];
 
+                // Check if this contact received a campaign where they were opted-in
+                const priorCampaignOpt = await query(
+                  `SELECT name, whatsapp_opted, email FROM campaign_recipients
+                   WHERE (phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+                   ORDER BY created_at DESC LIMIT 1`,
+                  [fromPhone, fromRaw, clean10]
+                );
+
                 // Preserve existing consent value unless webhook contains an explicit consent change
                 if (hasExplicitOptOut && contact.whatsapp_opted !== false) {
                   await query('UPDATE contacts SET whatsapp_opted = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
@@ -342,23 +350,34 @@ export const whatsappController = {
                 } else if (hasExplicitOptIn && contact.whatsapp_opted !== true) {
                   await query('UPDATE contacts SET whatsapp_opted = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
                   contact.whatsapp_opted = true;
+                } else if (priorCampaignOpt.rows.length > 0 && priorCampaignOpt.rows[0].whatsapp_opted === true && contact.whatsapp_opted !== true) {
+                  await query('UPDATE contacts SET whatsapp_opted = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [contact.id]);
+                  contact.whatsapp_opted = true;
                 }
 
-                if ((!contact.name || contact.name === 'Unknown' || contact.name === fromPhone) && senderProfileName) {
-                  await query('UPDATE contacts SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
-                    senderProfileName,
+                // Prefer campaign full name over raw WhatsApp profile handle like "~Nilesh"
+                const preferredName = priorCampaignOpt.rows[0]?.name || senderProfileName;
+                if ((!contact.name || contact.name.startsWith('~') || contact.name === 'Unknown' || contact.name === fromPhone || contact.name.startsWith('WhatsApp User')) && preferredName) {
+                  await query('UPDATE contacts SET name = $1, email = COALESCE(NULLIF(email, \'\'), $2), updated_at = CURRENT_TIMESTAMP WHERE id = $3', [
+                    preferredName,
+                    priorCampaignOpt.rows[0]?.email || '',
                     contact.id,
                   ]);
-                  contact.name = senderProfileName;
+                  contact.name = preferredName;
+                  if (priorCampaignOpt.rows[0]?.email && !contact.email) contact.email = priorCampaignOpt.rows[0].email;
                 }
               } else {
                 const newContactId = `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                const contactName = senderProfileName || `WhatsApp User (${clean10})`;
-
-                // Compliance: An inbound message indicates customer initiated communication,
-                // but must NOT automatically be treated as marketing opt-in.
-                // If no explicit opt-in exists, default to false per ARCO consent conventions.
-                const initialConsent = hasExplicitOptIn ? true : false;
+                const priorCampaignOpt = await query(
+                  `SELECT name, whatsapp_opted, email FROM campaign_recipients
+                   WHERE (phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+                   ORDER BY created_at DESC LIMIT 1`,
+                  [fromPhone, fromRaw, clean10]
+                );
+                const hasPriorOptIn = priorCampaignOpt.rows.length > 0 && priorCampaignOpt.rows[0].whatsapp_opted === true;
+                const initialConsent = hasExplicitOptIn || hasPriorOptIn;
+                const contactName = priorCampaignOpt.rows[0]?.name || senderProfileName || `WhatsApp User (${clean10})`;
+                const contactEmail = priorCampaignOpt.rows[0]?.email || '';
 
                 const newContactRes = await query(
                   `INSERT INTO contacts (id, name, phone, email, whatsapp_opted, tag, status, owner, created_at, updated_at)
@@ -368,7 +387,7 @@ export const whatsappController = {
                     newContactId,
                     contactName,
                     fromPhone,
-                    '',
+                    contactEmail,
                     initialConsent,
                     'Lead',
                     'Open Lead',

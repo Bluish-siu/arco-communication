@@ -319,14 +319,11 @@ export const campaignController = {
       if (rawCsvContacts.length > 0) {
         const onlyOpted = audienceFilter?.whatsappOptedOnly !== false;
 
-        rawCsvContacts.forEach((row, idx) => {
+        for (let idx = 0; idx < rawCsvContacts.length; idx++) {
+          const row = rawCsvContacts[idx];
           // Check opt-in
           const rawOpted = row.whatsappOpted ?? row.whatsapp_opted ?? row['WhatsApp Opted'] ?? row['whatsapp opted'] ?? true;
           const optedIn = isWhatsAppOpted(rawOpted);
-
-          if (onlyOpted && !optedIn) {
-            return; // Skip non-opted contacts when filter is active
-          }
 
           // Normalize Phone
           const phoneNorm = normalizeRecipientPhone({
@@ -336,7 +333,7 @@ export const campaignController = {
           });
 
           if (!phoneNorm.isValid) {
-            return; // Skip invalid phone numbers
+            continue; // Skip invalid phone numbers
           }
 
           const recipientName = row.name || row.Name || row['Full Name'] || 'Customer';
@@ -346,9 +343,75 @@ export const campaignController = {
           // Preserve all extra CSV data for template variable interpolation
           const csvData = { ...row };
 
+          // Automatically sync / upsert contact into contacts table so they appear in Contact Hub with correct WhatsApp Opted status
+          let contactId = null;
+          try {
+            const clean10 = phoneNorm.normalizedPhone.slice(-10);
+            const formattedPhone = phoneNorm.normalizedPhone.startsWith('+') ? phoneNorm.normalizedPhone : `+${phoneNorm.normalizedPhone}`;
+            const existingContactRes = await query(
+              `SELECT id, name, email, whatsapp_opted FROM contacts 
+               WHERE phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3
+               LIMIT 1`,
+              [formattedPhone, phoneNorm.normalizedPhone, clean10]
+            );
+
+            if (existingContactRes.rows.length > 0) {
+              const existingContact = existingContactRes.rows[0];
+              contactId = existingContact.id;
+              await query(
+                `UPDATE contacts
+                 SET name = COALESCE(NULLIF($1, ''), name),
+                     email = COALESCE(NULLIF($2, ''), email),
+                     whatsapp_opted = $3,
+                     status = COALESCE(NULLIF($4, ''), status),
+                     tag = COALESCE(NULLIF($5, ''), tag),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $6`,
+                [
+                  recipientName,
+                  recipientEmail || '',
+                  optedIn,
+                  row.status || row.Status || null,
+                  row.tag || row.Tag || null,
+                  contactId,
+                ]
+              );
+            } else {
+              contactId = `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              await query(
+                `INSERT INTO contacts (
+                   id, user_id, name, phone, country_code, email, tag, tags, segment, status,
+                   whatsapp_opted, value, owner, channel, created_at, updated_at
+                 ) VALUES (
+                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, 'whatsapp', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                 )`,
+                [
+                  contactId,
+                  `USR_${contactId.slice(4)}`,
+                  recipientName,
+                  formattedPhone,
+                  countryCode.startsWith('+') ? countryCode : `+${countryCode}`,
+                  recipientEmail || '',
+                  row.tag || row.Tag || 'Lead',
+                  JSON.stringify([row.tag || row.Tag || 'Lead']),
+                  row.segment || row.Segment || 'High Intent',
+                  row.status || row.Status || 'Open Lead',
+                  optedIn,
+                  'Shraddha',
+                ]
+              );
+            }
+          } catch (syncErr) {
+            console.warn('[Campaign Creation] Failed to sync contact to Contact Hub:', syncErr.message);
+          }
+
+          if (onlyOpted && !optedIn) {
+            continue; // Skip non-opted contacts when filter is active
+          }
+
           eligibleRecipients.push({
             id: `rcp_csv_${Date.now()}_${idx}`,
-            contactId: null,
+            contactId,
             name: recipientName,
             phone: phoneNorm.normalizedPhone,
             email: recipientEmail,
@@ -356,7 +419,7 @@ export const campaignController = {
             whatsappOpted: optedIn,
             csvData,
           });
-        });
+        }
       } else {
         // 2. Build audience query to select contacts from PostgreSQL
         let audienceSql = 'SELECT id, name, phone, email, country_code, whatsapp_opted FROM contacts WHERE 1=1';
