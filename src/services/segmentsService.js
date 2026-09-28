@@ -52,4 +52,26 @@ export const segmentsService = {
     const res = await apiRequest(`/segments/${id}`, { method: 'DELETE' });
     return res.success;
   },
+
+  // GET /api/segments/shopify
+  getShopifySegments: async () => {
+    try {
+      const res = await apiRequest('/segments/shopify');
+      return res.data || [];
+    } catch (err) {
+      console.warn('[Segments Service] getShopifySegments failed:', err);
+      return [];
+    }
+  },
+
+  // GET /api/segments/shopify/:segmentType/contacts
+  getShopifySegmentContacts: async (segmentType) => {
+    try {
+      const res = await apiRequest(`/segments/shopify/${segmentType}/contacts`);
+      return res.contacts || [];
+    } catch (err) {
+      console.warn('[Segments Service] getShopifySegmentContacts failed:', err);
+      return [];
+    }
+  },
 };

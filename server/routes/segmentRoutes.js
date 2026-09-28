@@ -8,6 +8,8 @@ router.use(authenticateToken);
 
 router.get('/', segmentController.getAll);
 router.get('/metadata', segmentController.getMetadata);
+router.get('/shopify', segmentController.getShopifySegments);
+router.get('/shopify/:segmentType/contacts', segmentController.getShopifySegmentContacts);
 router.get('/:id', segmentController.getById);
 router.post('/', requireManagerOrAdmin, segmentController.create);
 router.put('/:id', requireManagerOrAdmin, segmentController.update);

@@ -405,7 +405,24 @@ export const campaignController = {
         let audienceSql = 'SELECT id, name, phone, email, country_code, whatsapp_opted FROM contacts WHERE 1=1';
         const audienceParams = [];
 
-        if (audienceType === 'saved_segment' && audienceFilter?.savedSegmentId) {
+        if (audienceType === 'shopify') {
+          const shopifySeg = audienceFilter?.shopifySegment || 'all';
+          const baseWhere = `(channel = 'shopify' OR tags @> '["Shopify"]'::jsonb OR tags @> '["Shopify Order"]'::jsonb OR custom_attributes->>'shopify_shop' IS NOT NULL OR tag = 'Customer' OR tags @> '["Customer"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE phone IS NOT NULL))`;
+          
+          if (shopifySeg === 'vip') {
+            audienceSql += ` AND (${baseWhere}) AND (COALESCE((custom_attributes->>'total_spent')::numeric, value, 0) >= 5000 OR tags @> '["VIP"]'::jsonb OR tags @> '["High Spenders"]'::jsonb OR tag = 'VIP')`;
+          } else if (shopifySeg === 'repeat') {
+            audienceSql += ` AND (${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) > 1 OR tags @> '["Repeat Buyers"]'::jsonb)`;
+          } else if (shopifySeg === 'first_time') {
+            audienceSql += ` AND (${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) = 1 OR tags @> '["Order Placed(Prepaid)"]'::jsonb OR tags @> '["Order Placed(CoD)"]'::jsonb OR tag = 'Customer')`;
+          } else if (shopifySeg === 'abandoned' || shopifySeg === 'abandoned_cart') {
+            audienceSql += ` AND (tags @> '["Abandoned Cart"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE status = 'abandoned' AND phone IS NOT NULL))`;
+          } else if (shopifySeg === 'cod') {
+            audienceSql += ` AND (${baseWhere}) AND (tags @> '["Order Placed(CoD)"]'::jsonb OR custom_attributes->>'payment_gateway' ILIKE '%cod%')`;
+          } else {
+            audienceSql += ` AND (${baseWhere})`;
+          }
+        } else if (audienceType === 'saved_segment' && audienceFilter?.savedSegmentId) {
           const segRes = await query('SELECT conditions FROM segments WHERE id = $1', [audienceFilter.savedSegmentId]);
           if (segRes.rows.length > 0 && Array.isArray(segRes.rows[0].conditions)) {
             segRes.rows[0].conditions.forEach((cond) => {
@@ -1065,11 +1082,33 @@ export const campaignController = {
   // GET /api/campaigns/audiences (Dynamic recipient counter from PostgreSQL contacts)
   getAudiences: async (req, res, next) => {
     try {
-      const { audienceType, segment, tag, status, whatsapp_opted, savedSegmentId } = req.query;
+      const { audienceType, segment, tag, status, whatsapp_opted, savedSegmentId, shopifySegment } = req.query;
       let sql = 'SELECT COUNT(*) FROM contacts WHERE 1=1';
       const params = [];
 
-      if (audienceType === 'saved_segment' && savedSegmentId && savedSegmentId !== 'all') {
+      if (audienceType === 'shopify') {
+        const shopifySeg = shopifySegment || 'all';
+        const baseWhere = `(channel = 'shopify' OR tags @> '["Shopify"]'::jsonb OR tags @> '["Shopify Order"]'::jsonb OR custom_attributes->>'shopify_shop' IS NOT NULL OR tag = 'Customer' OR tags @> '["Customer"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE phone IS NOT NULL))`;
+        
+        if (shopifySeg === 'vip') {
+          sql += ` AND (${baseWhere}) AND (COALESCE((custom_attributes->>'total_spent')::numeric, value, 0) >= 5000 OR tags @> '["VIP"]'::jsonb OR tags @> '["High Spenders"]'::jsonb OR tag = 'VIP')`;
+        } else if (shopifySeg === 'repeat') {
+          sql += ` AND (${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) > 1 OR tags @> '["Repeat Buyers"]'::jsonb)`;
+        } else if (shopifySeg === 'first_time') {
+          sql += ` AND (${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) = 1 OR tags @> '["Order Placed(Prepaid)"]'::jsonb OR tags @> '["Order Placed(CoD)"]'::jsonb OR tag = 'Customer')`;
+        } else if (shopifySeg === 'abandoned' || shopifySeg === 'abandoned_cart') {
+          sql += ` AND (tags @> '["Abandoned Cart"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE status = 'abandoned' AND phone IS NOT NULL))`;
+        } else if (shopifySeg === 'cod') {
+          sql += ` AND (${baseWhere}) AND (tags @> '["Order Placed(CoD)"]'::jsonb OR custom_attributes->>'payment_gateway' ILIKE '%cod%')`;
+        } else {
+          sql += ` AND (${baseWhere})`;
+        }
+
+        if (whatsapp_opted !== undefined && whatsapp_opted !== 'all' && whatsapp_opted !== '') {
+          params.push(String(whatsapp_opted) === 'true');
+          sql += ` AND whatsapp_opted = $${params.length}`;
+        }
+      } else if (audienceType === 'saved_segment' && savedSegmentId && savedSegmentId !== 'all') {
         const segRes = await query('SELECT conditions FROM segments WHERE id = $1', [savedSegmentId]);
         if (segRes.rows.length > 0 && Array.isArray(segRes.rows[0].conditions)) {
           segRes.rows[0].conditions.forEach((cond) => {

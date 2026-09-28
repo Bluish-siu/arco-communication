@@ -268,4 +268,166 @@ export const segmentController = {
       next(error);
     }
   },
+
+  // GET /api/segments/shopify (Fetches pre-built Shopify smart segments with live recipient counts)
+  getShopifySegments: async (req, res, next) => {
+    try {
+      const storeRes = await query(
+        "SELECT shop_domain, shop_name FROM shopify_integrations WHERE status = 'connected' LIMIT 1"
+      );
+      const connectedStore = storeRes.rows[0] || null;
+
+      const baseWhere = `(channel = 'shopify' OR tags @> '["Shopify"]'::jsonb OR tags @> '["Shopify Order"]'::jsonb OR custom_attributes->>'shopify_shop' IS NOT NULL OR tag = 'Customer' OR tags @> '["Customer"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE phone IS NOT NULL))`;
+
+      const smartSegmentDefs = [
+        {
+          id: 'shopify_all',
+          name: 'All Shopify Customers',
+          description: 'All synchronized buyers and store leads from your Shopify store',
+          criteria: 'Purchased on Shopify OR opted-in via store',
+          icon: 'ShoppingBag',
+          badgeColor: 'emerald',
+          where: baseWhere,
+        },
+        {
+          id: 'shopify_vip',
+          name: 'VIP & High Spenders',
+          description: 'High-value shoppers with cumulative spend ≥ ₹5,000 or tagged VIP',
+          criteria: 'Total Spent ≥ ₹5,000 OR Tagged "VIP"',
+          icon: 'Crown',
+          badgeColor: 'amber',
+          where: `(${baseWhere}) AND (COALESCE((custom_attributes->>'total_spent')::numeric, value, 0) >= 5000 OR tags @> '["VIP"]'::jsonb OR tags @> '["High Spenders"]'::jsonb OR tag = 'VIP')`,
+        },
+        {
+          id: 'shopify_repeat',
+          name: 'Repeat Buyers',
+          description: 'Loyal store customers with 2 or more successful orders',
+          criteria: 'Orders Count > 1 OR Tagged "Repeat Buyers"',
+          icon: 'Repeat',
+          badgeColor: 'blue',
+          where: `(${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) > 1 OR tags @> '["Repeat Buyers"]'::jsonb)`,
+        },
+        {
+          id: 'shopify_first_time',
+          name: 'First-Time Buyers',
+          description: 'Customers who completed their first purchase and are prime for a 2nd order',
+          criteria: 'Orders Count = 1 OR Single Order Tag',
+          icon: 'Sparkles',
+          badgeColor: 'purple',
+          where: `(${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) = 1 OR tags @> '["Order Placed(Prepaid)"]'::jsonb OR tags @> '["Order Placed(CoD)"]'::jsonb OR tag = 'Customer')`,
+        },
+        {
+          id: 'shopify_abandoned',
+          name: 'Abandoned Cart Shoppers',
+          description: 'Shoppers who started checkout but left before placing order',
+          criteria: 'Unrecovered Checkout in last 30 days OR Tagged "Abandoned Cart"',
+          icon: 'ShoppingCart',
+          badgeColor: 'rose',
+          where: `(tags @> '["Abandoned Cart"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE status = 'abandoned' AND phone IS NOT NULL))`,
+        },
+        {
+          id: 'shopify_cod',
+          name: 'Cash on Delivery (COD) Shoppers',
+          description: 'Customers who prefer COD orders and need confirmation reminders',
+          criteria: 'Payment Method = COD OR Tagged "Order Placed(CoD)"',
+          icon: 'Banknote',
+          badgeColor: 'teal',
+          where: `(${baseWhere}) AND (tags @> '["Order Placed(CoD)"]'::jsonb OR custom_attributes->>'payment_gateway' ILIKE '%cod%')`,
+        },
+      ];
+
+      const segmentsWithCounts = await Promise.all(
+        smartSegmentDefs.map(async (def) => {
+          const countRes = await query(`SELECT COUNT(*) FROM contacts WHERE ${def.where}`);
+          const estimatedCount = parseInt(countRes.rows[0]?.count || 0, 10);
+          return {
+            id: def.id,
+            name: def.name,
+            description: def.description,
+            criteria: def.criteria,
+            icon: def.icon,
+            badgeColor: def.badgeColor,
+            filterType: 'shopify',
+            isShopifySmartSegment: true,
+            estimatedCount,
+            shopDomain: connectedStore?.shop_domain || 'arco-test-e2a1thrd.myshopify.com',
+            whatsappOpted: true,
+            createdBy: 'Shopify Sync Engine',
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        connectedStore: connectedStore?.shop_domain || null,
+        count: segmentsWithCounts.length,
+        data: segmentsWithCounts,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/segments/shopify/:segmentType/contacts (Fetches contacts belonging to a specific Shopify segment for preview)
+  getShopifySegmentContacts: async (req, res, next) => {
+    try {
+      const { segmentType } = req.params;
+      const baseWhere = `(channel = 'shopify' OR tags @> '["Shopify"]'::jsonb OR tags @> '["Shopify Order"]'::jsonb OR custom_attributes->>'shopify_shop' IS NOT NULL OR tag = 'Customer' OR tags @> '["Customer"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE phone IS NOT NULL))`;
+
+      let whereClause = baseWhere;
+      switch (segmentType) {
+        case 'shopify_vip':
+          whereClause = `(${baseWhere}) AND (COALESCE((custom_attributes->>'total_spent')::numeric, value, 0) >= 5000 OR tags @> '["VIP"]'::jsonb OR tags @> '["High Spenders"]'::jsonb OR tag = 'VIP')`;
+          break;
+        case 'shopify_repeat':
+          whereClause = `(${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) > 1 OR tags @> '["Repeat Buyers"]'::jsonb)`;
+          break;
+        case 'shopify_first_time':
+          whereClause = `(${baseWhere}) AND (COALESCE((custom_attributes->>'orders_count')::int, 0) = 1 OR tags @> '["Order Placed(Prepaid)"]'::jsonb OR tags @> '["Order Placed(CoD)"]'::jsonb OR tag = 'Customer')`;
+          break;
+        case 'shopify_abandoned':
+          whereClause = `(tags @> '["Abandoned Cart"]'::jsonb OR phone IN (SELECT phone FROM shopify_abandoned_checkouts WHERE status = 'abandoned' AND phone IS NOT NULL))`;
+          break;
+        case 'shopify_cod':
+          whereClause = `(${baseWhere}) AND (tags @> '["Order Placed(CoD)"]'::jsonb OR custom_attributes->>'payment_gateway' ILIKE '%cod%')`;
+          break;
+        case 'shopify_all':
+        default:
+          whereClause = baseWhere;
+          break;
+      }
+
+      const contactsRes = await query(
+        `SELECT id, name, phone, email, tags, custom_attributes, value, created_at, updated_at 
+         FROM contacts 
+         WHERE ${whereClause} 
+         ORDER BY updated_at DESC LIMIT 50`
+      );
+
+      const formattedContacts = contactsRes.rows.map((c) => {
+        const attrs = c.custom_attributes || {};
+        return {
+          id: c.id,
+          name: c.name || 'Shopify Customer',
+          phone: c.phone,
+          email: c.email,
+          ordersCount: attrs.orders_count || 1,
+          totalSpent: attrs.total_spent ? `₹${parseFloat(attrs.total_spent).toLocaleString('en-IN')}` : (c.value ? `₹${parseFloat(c.value).toLocaleString('en-IN')}` : '₹0'),
+          currency: attrs.currency || 'INR',
+          tags: Array.isArray(c.tags) ? c.tags : (c.tags ? [c.tags] : []),
+          lastOrder: attrs.last_order_name || null,
+          createdAt: c.created_at,
+        };
+      });
+
+      res.json({
+        success: true,
+        segmentType,
+        count: formattedContacts.length,
+        contacts: formattedContacts,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

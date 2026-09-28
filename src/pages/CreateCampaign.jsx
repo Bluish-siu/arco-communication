@@ -35,6 +35,10 @@ import {
   ExternalLink,
   Repeat,
   Megaphone,
+  ShoppingBag,
+  Crown,
+  ShoppingCart,
+  Banknote,
 } from 'lucide-react';
 import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
@@ -266,7 +270,11 @@ export default function CreateCampaign() {
   }, [selectedTemplate]);
 
   // Step 3: Audience
-  const [audienceType, setAudienceType] = useState('segment'); // 'csv' | 'manual' | 'segment' | 'tag' | 'list'
+  const initialAudienceType = searchParams.get('audienceType');
+  const initialShopifySegment = searchParams.get('shopifySegment');
+  const [audienceType, setAudienceType] = useState(initialAudienceType || 'segment'); // 'shopify' | 'csv' | 'manual' | 'segment' | 'tag' | 'list'
+  const [selectedShopifySegment, setSelectedShopifySegment] = useState(initialShopifySegment || 'shopify_all');
+  const [shopifySegmentsList, setShopifySegmentsList] = useState([]);
   const [savedSegments, setSavedSegments] = useState([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState('');
   const [saveSegmentModalOpen, setSaveSegmentModalOpen] = useState(false);
@@ -785,6 +793,12 @@ export default function CreateCampaign() {
     async function loadAudienceOptions() {
       await loadSegments();
       try {
+        const shp = await segmentsService.getShopifySegments();
+        setShopifySegmentsList(Array.isArray(shp) ? shp : []);
+      } catch (shpErr) {
+        console.warn('Failed to load shopify segments:', shpErr);
+      }
+      try {
         const meta = await segmentsService.getMetadata();
         if (meta?.tags) {
           setAvailableTags(meta.tags);
@@ -805,6 +819,7 @@ export default function CreateCampaign() {
       try {
         const res = await campaignsService.getAudiences({
           audienceType,
+          shopifySegment: selectedShopifySegment,
           savedSegmentId: selectedSegmentId,
           tag: selectedTag,
           whatsapp_opted: whatsappOptedOnly ? 'true' : undefined,
@@ -817,7 +832,7 @@ export default function CreateCampaign() {
       }
     }
     calculateReach();
-  }, [audienceType, selectedSegmentId, selectedTag, whatsappOptedOnly]);
+  }, [audienceType, selectedShopifySegment, selectedSegmentId, selectedTag, whatsappOptedOnly]);
 
   // Select Sample Template & Advance to Full Builder (Screen 2)
   const handleUseSample = (tmpl) => {
@@ -923,6 +938,7 @@ export default function CreateCampaign() {
           }))
         : undefined,
       audienceFilter: {
+        shopifySegment: selectedShopifySegment,
         savedSegmentId: selectedSegmentId,
         tag: selectedTag,
         manualNumbers: manualPhoneNumbers,
@@ -1600,13 +1616,14 @@ export default function CreateCampaign() {
                   {activeStep === 3 && (
                     <div className="p-4 border-t border-gray-100 space-y-4">
                       
-                      {/* 5 Selectable Audience Cards */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                      {/* 6 Selectable Audience Cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                         {[
-                          { id: 'csv', title: 'Upload CSV', icon: Upload, desc: 'Import numbers file' },
-                          { id: 'manual', title: 'Enter Manually', icon: FileText, desc: 'Type phone numbers' },
+                          { id: 'shopify', title: 'Shopify Store', icon: ShoppingBag, desc: 'Sync buyers & carts', isShopify: true },
                           { id: 'segment', title: 'Select Segment', icon: Layers, desc: 'Saved CRM filter' },
                           { id: 'tag', title: 'Select Tag', icon: Tag, desc: 'Contacts by tag' },
+                          { id: 'csv', title: 'Upload CSV', icon: Upload, desc: 'Import numbers file' },
+                          { id: 'manual', title: 'Enter Manually', icon: FileText, desc: 'Type phone numbers' },
                           { id: 'list', title: 'Select from list', icon: Users, desc: 'All CRM contacts' },
                         ].map((opt) => {
                           const Icon = opt.icon;
@@ -1617,28 +1634,105 @@ export default function CreateCampaign() {
                               onClick={() => setAudienceType(opt.id)}
                               className={`p-3 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
                                 isSelected
-                                  ? 'border-[#0d3b30] bg-[#f2fbf6]'
-                                  : 'border-gray-200 hover:border-gray-300 bg-white'
+                                  ? opt.isShopify ? 'border-emerald-600 bg-emerald-50/50' : 'border-[#0d3b30] bg-[#f2fbf6]'
+                                  : opt.isShopify ? 'border-emerald-200 bg-emerald-50/20 hover:border-emerald-400' : 'border-gray-200 hover:border-gray-300 bg-white'
                               }`}
                             >
                               <div className="flex items-center justify-between">
-                                <Icon className={`w-4 h-4 ${isSelected ? 'text-[#0d3b30]' : 'text-gray-400'}`} />
+                                <Icon className={`w-4 h-4 ${isSelected ? (opt.isShopify ? 'text-emerald-700' : 'text-[#0d3b30]') : (opt.isShopify ? 'text-emerald-600' : 'text-gray-400')}`} />
                                 <input
                                   type="radio"
                                   name="audienceType"
                                   checked={isSelected}
                                   onChange={() => setAudienceType(opt.id)}
-                                  className="text-[#0d3b30] focus:ring-0 cursor-pointer"
+                                  className={`${opt.isShopify ? 'text-emerald-700' : 'text-[#0d3b30]'} focus:ring-0 cursor-pointer`}
                                 />
                               </div>
                               <div className="mt-2">
-                                <div className="font-bold text-[11px] text-gray-900">{opt.title}</div>
+                                <div className="font-bold text-[11px] text-gray-900 flex items-center gap-1">
+                                  <span>{opt.title}</span>
+                                  {opt.isShopify && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  )}
+                                </div>
                                 <div className="text-[10px] text-gray-400">{opt.desc}</div>
                               </div>
                             </div>
                           );
                         })}
                       </div>
+
+                      {/* Contextual Sub-selector: Shopify Store Audience */}
+                      {audienceType === 'shopify' && (
+                        <div className="p-4 bg-emerald-50/40 rounded-lg border border-emerald-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <ShoppingBag className="w-4 h-4 text-emerald-700" />
+                              <label className="block text-xs font-bold text-gray-900">
+                                Target Shopify Store Audience
+                              </label>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold border border-emerald-200">
+                                arco-test-e2a1thrd.myshopify.com
+                              </span>
+                            </div>
+                            <Link
+                              to="/segments?tab=shopify"
+                              className="text-[11px] font-semibold text-emerald-800 hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>Manage Segments</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </Link>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                            {[
+                              { id: 'shopify_all', title: 'All Store Customers', desc: 'All synced buyers & checkouts', icon: ShoppingBag },
+                              { id: 'shopify_vip', title: 'VIP & High Spenders', desc: 'Spent ≥ ₹5,000 or VIP tag', icon: Crown },
+                              { id: 'shopify_repeat', title: 'Repeat Buyers', desc: 'Ordered 2+ times on store', icon: Repeat },
+                              { id: 'shopify_first_time', title: 'First-Time Buyers', desc: 'Completed 1st purchase', icon: Sparkles },
+                              { id: 'shopify_abandoned', title: 'Abandoned Cart Shoppers', desc: 'Left items in checkout', icon: ShoppingCart },
+                              { id: 'shopify_cod', title: 'COD Shoppers', desc: 'Ordered with Cash on Delivery', icon: Banknote },
+                            ].map((opt) => {
+                              const Icon = opt.icon;
+                              const isSelected = selectedShopifySegment === opt.id;
+                              const matchSeg = shopifySegmentsList.find((s) => s.id === opt.id);
+                              const count = matchSeg?.estimatedCount !== undefined ? matchSeg.estimatedCount : 0;
+                              return (
+                                <label
+                                  key={opt.id}
+                                  onClick={() => setSelectedShopifySegment(opt.id)}
+                                  className={`p-3 rounded-lg border flex flex-col justify-between cursor-pointer transition-all ${
+                                    isSelected
+                                      ? 'bg-white border-emerald-600 shadow-xs ring-1 ring-emerald-500'
+                                      : 'bg-white/80 border-gray-200 hover:border-emerald-300'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <Icon className={`w-4 h-4 ${isSelected ? 'text-emerald-700' : 'text-gray-500'}`} />
+                                      <span className="font-bold text-xs text-gray-900">{opt.title}</span>
+                                    </div>
+                                    <input
+                                      type="radio"
+                                      name="shopifySegment"
+                                      checked={isSelected}
+                                      onChange={() => setSelectedShopifySegment(opt.id)}
+                                      className="text-emerald-700 focus:ring-0 cursor-pointer"
+                                    />
+                                  </div>
+                                  <p className="text-[10px] text-gray-500 mt-1 line-clamp-1">{opt.desc}</p>
+                                  <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                                    <span className="text-[10px] text-gray-400">Audience:</span>
+                                    <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                      {count} {count === 1 ? 'contact' : 'contacts'}
+                                    </span>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Contextual Sub-selector: Select Segment (REUSING SALES CRM CONTACTS & MARKET SEGMENTS LOGIC) */}
                       {audienceType === 'segment' && (

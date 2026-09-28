@@ -14,12 +14,42 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
+  ShoppingBag,
+  Crown,
+  Repeat,
+  ShoppingCart,
+  Banknote,
+  Send,
+  Eye,
+  X,
+  Layers,
+  Store,
+  ArrowRight,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { segmentsService } from '../services/segmentsService';
 import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
 import { formatDate } from '../utils/dateUtils';
+
+// Helper for Smart Segment Icons
+const getSegmentIcon = (iconName) => {
+  switch (iconName) {
+    case 'Crown':
+      return <Crown className="w-5 h-5 text-amber-500" />;
+    case 'Repeat':
+      return <Repeat className="w-5 h-5 text-blue-500" />;
+    case 'Sparkles':
+      return <Sparkles className="w-5 h-5 text-purple-500" />;
+    case 'ShoppingCart':
+      return <ShoppingCart className="w-5 h-5 text-rose-500" />;
+    case 'Banknote':
+      return <Banknote className="w-5 h-5 text-teal-500" />;
+    case 'ShoppingBag':
+    default:
+      return <ShoppingBag className="w-5 h-5 text-emerald-600" />;
+  }
+};
 
 export default function Segments() {
   const { user, businessSetup, logout, subscription, trialDaysRemaining } = useOnboarding();
@@ -29,10 +59,22 @@ export default function Segments() {
   // Navigation Profile Dropdown
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
+  // Active Tab: 'all' | 'shopify' | 'custom'
+  const [activeTab, setActiveTab] = useState('all');
+
   // Segments Data
   const [segments, setSegments] = useState([]);
+  const [shopifySegments, setShopifySegments] = useState([]);
+  const [connectedStoreDomain, setConnectedStoreDomain] = useState('arco-test-e2a1thrd.myshopify.com');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Contact Preview Modal State
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewSegment, setPreviewSegment] = useState(null);
+  const [previewContacts, setPreviewContacts] = useState([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewSearch, setPreviewSearch] = useState('');
 
   // Save Segment Modal State (Reusing Sales CRM Contacts Segment Builder)
   const [saveSegmentModalOpen, setSaveSegmentModalOpen] = useState(false);
@@ -60,12 +102,16 @@ export default function Segments() {
     return () => document.removeEventListener('click', handleOutsideClick);
   }, []);
 
-  // Fetch Segments
+  // Fetch Segments (Both Custom CRM and Shopify Smart Segments)
   const loadSegments = async () => {
     setLoading(true);
     try {
-      const data = await segmentsService.getSegments();
-      setSegments(data || []);
+      const [customData, shopifyData] = await Promise.all([
+        segmentsService.getSegments(),
+        segmentsService.getShopifySegments(),
+      ]);
+      setSegments(customData || []);
+      setShopifySegments(shopifyData || []);
     } catch (err) {
       console.error('Failed to load segments:', err);
       showToast('Failed to load segments', 'error');
@@ -77,6 +123,23 @@ export default function Segments() {
   useEffect(() => {
     loadSegments();
   }, []);
+
+  // Open Preview Modal for a Shopify Segment
+  const handleOpenPreview = async (seg) => {
+    setPreviewSegment(seg);
+    setPreviewModalOpen(true);
+    setLoadingPreview(true);
+    setPreviewSearch('');
+    try {
+      const contacts = await segmentsService.getShopifySegmentContacts(seg.id);
+      setPreviewContacts(contacts || []);
+    } catch (err) {
+      console.error('Failed to load preview contacts:', err);
+      showToast('Failed to load segment contacts', 'error');
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
 
   // Handle Save Segment Submission from Reused SaveSegmentModal
   const handleSaveSegmentSubmit = async ({ name, description, filterType, conditions, logic, whatsappOpted }) => {
@@ -244,64 +307,222 @@ export default function Segments() {
               </button>
             </div>
 
-            {/* Filter / Search Bar (when segments exist) */}
-            {segments.length > 0 && (
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <div className="relative w-72">
+            {/* Tab Navigation: All | Shopify Smart Segments | Custom Segments */}
+            <div className="flex items-center justify-between border-b border-gray-200 pt-1 pb-px">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('all')}
+                  className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'all'
+                      ? 'border-b-2 border-[#0d3b30] text-[#0d3b30] bg-white'
+                      : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100/60'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>All Segments</span>
+                  <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-gray-100 text-gray-600 font-mono">
+                    {filteredSegments.length + shopifySegments.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('shopify')}
+                  className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'shopify'
+                      ? 'border-b-2 border-emerald-600 text-emerald-800 bg-white'
+                      : 'text-gray-500 hover:text-emerald-700 hover:bg-emerald-50/40'
+                  }`}
+                >
+                  <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Shopify Smart Segments</span>
+                  <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-mono font-bold">
+                    {shopifySegments.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('custom')}
+                  className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'custom'
+                      ? 'border-b-2 border-[#0d3b30] text-[#0d3b30] bg-white'
+                      : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100/60'
+                  }`}
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Custom CRM Segments</span>
+                  <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-gray-100 text-gray-600 font-mono">
+                    {filteredSegments.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Search Bar & Refresh */}
+              <div className="flex items-center gap-2 pb-1">
+                <div className="relative w-64">
                   <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     placeholder="Search segments..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="h-8 pl-8 pr-3 rounded border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 w-full"
+                    className="h-7 pl-8 pr-3 rounded border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 w-full"
                   />
                 </div>
 
                 <button
                   type="button"
                   onClick={loadSegments}
-                  className="h-8 w-8 rounded border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 cursor-pointer shadow-2xs"
+                  className="h-7 w-7 rounded border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 cursor-pointer shadow-2xs"
                   title="Refresh Segments"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
                 </button>
+              </div>
+            </div>
+
+            {/* SECTION 1: SHOPIFY SMART SEGMENTS (Visible when 'all' or 'shopify' is active) */}
+            {(activeTab === 'all' || activeTab === 'shopify') && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                      <ShoppingBag className="w-3.5 h-3.5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h2 className="text-xs font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                        <span>Shopify Store Intelligence Segments</span>
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          {connectedStoreDomain}
+                        </span>
+                      </h2>
+                      <p className="text-[11px] text-gray-500">
+                        Dynamic, real-time audiences based on customer spend, order frequency, and cart abandonment
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] text-gray-500 font-medium">
+                    Auto-updated on every Shopify webhook
+                  </span>
+                </div>
+
+                {/* 6 Shopify Smart Segments Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {shopifySegments.map((seg) => (
+                    <div
+                      key={seg.id}
+                      className="bg-white rounded-lg border border-gray-200 p-4 hover:border-emerald-300 hover:shadow-xs transition-all flex flex-col justify-between space-y-3"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center">
+                            {getSegmentIcon(seg.icon)}
+                          </div>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            <Users className="w-3 h-3" />
+                            {seg.estimatedCount} {seg.estimatedCount === 1 ? 'Customer' : 'Customers'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h3 className="font-bold text-xs text-gray-900 leading-snug">{seg.name}</h3>
+                          <p className="text-[11px] text-gray-500 line-clamp-2 mt-0.5">
+                            {seg.description}
+                          </p>
+                        </div>
+
+                        <div className="pt-1">
+                          <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-mono border border-gray-200/60 truncate max-w-full">
+                            {seg.criteria}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="pt-2 border-t border-gray-100 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPreview(seg)}
+                          className="flex-1 h-7 rounded border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 text-gray-500" />
+                          <span>View Contacts</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/campaigns/create?audienceType=shopify&shopifySegment=${seg.id}`)}
+                          className="flex-1 h-7 rounded bg-[#0d3b30] hover:bg-[#154d3f] text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Megaphone className="w-3 h-3 text-emerald-300" />
+                          <span>Broadcast</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Content: Loading | Empty State | Table */}
-            {loading ? (
-              <div className="border border-gray-200 rounded bg-white min-h-[360px] flex flex-col items-center justify-center p-12 space-y-3">
-                <RefreshCw className="w-7 h-7 text-[#0d3b30] animate-spin" />
-                <p className="text-xs font-semibold text-gray-500">Loading audience segments...</p>
-              </div>
-            ) : segments.length === 0 ? (
-              /* Interakt Empty State */
-              <div className="border border-gray-200 rounded bg-white min-h-[420px] flex flex-col items-center justify-center p-12 text-center space-y-3.5 shadow-2xs">
-                
-                {/* Circular Segment Icon */}
-                <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-[#0d3b30]">
-                  <Filter className="w-7 h-7 stroke-[1.75]" />
+            {/* SECTION 2: CUSTOM CRM SEGMENTS HEADER (Visible when 'all' or 'custom' is active) */}
+            {(activeTab === 'all' || activeTab === 'custom') && (
+              <div className="pt-2 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-gray-100 text-gray-700 flex items-center justify-center">
+                      <Filter className="w-3.5 h-3.5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h2 className="text-xs font-bold text-gray-900 tracking-tight">
+                        Custom CRM Segments
+                      </h2>
+                      <p className="text-[11px] text-gray-500">
+                        Multi-condition segments created from contact properties, event triggers, and custom tags
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] text-gray-500">
+                    {filteredSegments.length} Saved {filteredSegments.length === 1 ? 'Segment' : 'Segments'}
+                  </span>
                 </div>
-
-                <div className="space-y-1">
-                  <h3 className="text-base font-bold text-gray-900">No Segments Yet</h3>
-                  <p className="text-xs text-gray-500 max-w-sm leading-relaxed">
-                    Create segments to organize and filter your contacts more efficiently.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSaveSegmentModalOpen(true)}
-                  className="h-8 px-4 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-medium text-xs rounded shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>Create New Segment</span>
-                </button>
-
               </div>
-            ) : (
+            )}
+
+            {/* Content: Loading | Empty State | Table for Custom CRM Segments */}
+            {(activeTab === 'all' || activeTab === 'custom') && (
+              <>
+                {loading ? (
+                  <div className="border border-gray-200 rounded bg-white min-h-[240px] flex flex-col items-center justify-center p-8 space-y-3">
+                    <RefreshCw className="w-6 h-6 text-[#0d3b30] animate-spin" />
+                    <p className="text-xs font-semibold text-gray-500">Loading custom segments...</p>
+                  </div>
+                ) : filteredSegments.length === 0 ? (
+                  /* Custom Segments Empty State */
+                  <div className="border border-gray-200 rounded-lg bg-white p-8 text-center space-y-2.5 shadow-2xs">
+                    <div className="w-10 h-10 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500 mx-auto">
+                      <Filter className="w-5 h-5 stroke-[1.75]" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <h3 className="text-xs font-bold text-gray-900">No Custom CRM Segments</h3>
+                      <p className="text-[11px] text-gray-500 max-w-sm mx-auto">
+                        Create custom multi-rule segments to target specific contact cohorts.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSaveSegmentModalOpen(true)}
+                      className="h-7 px-3 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-medium text-[11px] rounded shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3 stroke-[2.5]" />
+                      <span>Create Segment</span>
+                    </button>
+                  </div>
+                ) : (
               /* Segments List Table */
               <div className="border border-gray-200 rounded overflow-hidden bg-white shadow-2xs">
                 <div className="overflow-x-auto">
@@ -405,11 +626,165 @@ export default function Segments() {
                   </table>
                 </div>
               </div>
+                )}
+              </>
             )}
 
           </div>
         </main>
       </div>
+
+      {/* Contact Preview Modal for Shopify Smart Segments */}
+      {previewModalOpen && previewSegment && (
+        <div className="fixed inset-0 bg-gray-950/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
+                  {getSegmentIcon(previewSegment.icon)}
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                    <span>{previewSegment.name}</span>
+                    <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      {previewContacts.length} Contacts
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">{previewSegment.criteria}</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPreviewModalOpen(false)}
+                className="w-7 h-7 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Search Bar */}
+            <div className="px-5 py-2.5 bg-gray-50/60 border-b border-gray-100 flex items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter contacts in segment..."
+                  value={previewSearch}
+                  onChange={(e) => setPreviewSearch(e.target.value)}
+                  className="h-7 pl-8 pr-3 rounded border border-gray-200 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 w-full"
+                />
+              </div>
+              <span className="text-[11px] text-gray-500 font-medium">
+                Store: {connectedStoreDomain}
+              </span>
+            </div>
+
+            {/* Contacts Table List */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {loadingPreview ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-2">
+                  <RefreshCw className="w-5 h-5 text-emerald-600 animate-spin" />
+                  <p className="text-xs text-gray-500 font-medium">Fetching Shopify customers...</p>
+                </div>
+              ) : previewContacts.length === 0 ? (
+                <div className="py-12 text-center space-y-1 text-gray-500">
+                  <Users className="w-7 h-7 mx-auto text-gray-300 stroke-[1.5]" />
+                  <p className="text-xs font-semibold text-gray-700">No contacts in this segment yet</p>
+                  <p className="text-[11px]">Customers will appear automatically as webhooks sync from Shopify</p>
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-[11px] font-semibold text-gray-500 pb-2">
+                      <th className="pb-2 font-semibold">Customer</th>
+                      <th className="pb-2 font-semibold">Phone Number</th>
+                      <th className="pb-2 font-semibold">Orders</th>
+                      <th className="pb-2 font-semibold">Total Spent</th>
+                      <th className="pb-2 font-semibold">Tags</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 font-normal text-gray-700">
+                    {previewContacts
+                      .filter((c) => {
+                        if (!previewSearch.trim()) return true;
+                        const term = previewSearch.toLowerCase();
+                        return (
+                          c.name?.toLowerCase().includes(term) ||
+                          c.phone?.includes(term) ||
+                          c.email?.toLowerCase().includes(term)
+                        );
+                      })
+                      .map((c) => (
+                        <tr key={c.id} className="hover:bg-gray-50/70 transition-colors">
+                          <td className="py-2.5 pr-3">
+                            <div className="font-semibold text-gray-900">{c.name}</div>
+                            {c.email && <div className="text-[10px] text-gray-400">{c.email}</div>}
+                          </td>
+                          <td className="py-2.5 pr-3 font-mono text-[11px] text-gray-800">
+                            {c.phone || '—'}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <span className="inline-block px-1.5 py-0.2 rounded bg-gray-100 text-gray-700 font-semibold text-[10px]">
+                              {c.ordersCount || 1}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-3 font-semibold text-gray-900 text-xs">
+                            {c.totalSpent}
+                          </td>
+                          <td className="py-2.5">
+                            <div className="flex flex-wrap gap-1">
+                              {c.tags && c.tags.length > 0 ? (
+                                c.tags.slice(0, 2).map((t, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 text-[10px] border border-emerald-200"
+                                  >
+                                    {t}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-gray-400 text-[10px]">None</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between rounded-b-xl">
+              <span className="text-[11px] text-gray-500">
+                Target this audience with custom WhatsApp marketing offers
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalOpen(false)}
+                  className="h-7 px-3 rounded border border-gray-300 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewModalOpen(false);
+                    navigate(`/campaigns/create?audienceType=shopify&shopifySegment=${previewSegment.id}`);
+                  }}
+                  className="h-7 px-3 bg-[#0d3b30] hover:bg-[#154d3f] text-white text-xs font-semibold rounded shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Megaphone className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>Launch WhatsApp Broadcast</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reused Sales CRM Contacts Segment Builder Modal */}
       <SaveSegmentModal
