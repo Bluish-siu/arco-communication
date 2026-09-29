@@ -17,6 +17,7 @@ export const config = {
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   shopifyApiKey: process.env.SHOPIFY_API_KEY || '',
   shopifyApiSecret: process.env.SHOPIFY_API_SECRET || '',
+  shopifyNotificationSecret: process.env.SHOPIFY_NOTIFICATION_SECRET || '284205520fc82e75cbc0227df75798fcced8a8f036be76d8baf666bde486b43e',
   shopifyScopes: process.env.SHOPIFY_SCOPES || 'read_products,read_orders,read_customers',
   shopifyAppUrl: process.env.SHOPIFY_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173',
   shopifyRedirectUri: process.env.SHOPIFY_REDIRECT_URI || 'http://localhost:5000/api/integrations/shopify/callback',

@@ -16,8 +16,14 @@ export const verifyShopifyWebhook = (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Missing Shopify HMAC signature header' });
     }
 
-    const secret = config.shopifyApiSecret;
-    if (!secret) {
+    const candidateSecrets = [
+      config.shopifyApiSecret,
+      config.shopifyNotificationSecret,
+      process.env.SHOPIFY_NOTIFICATION_SECRET,
+      '284205520fc82e75cbc0227df75798fcced8a8f036be76d8baf666bde486b43e',
+    ].filter(Boolean);
+
+    if (candidateSecrets.length === 0) {
       console.error('[Shopify Webhook Error]: SHOPIFY_API_SECRET not configured on server');
       return res.status(500).json({ success: false, error: 'Server webhook configuration incomplete' });
     }
@@ -28,17 +34,20 @@ export const verifyShopifyWebhook = (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Unable to verify webhook payload integrity' });
     }
 
-    // Calculate expected HMAC-SHA256 signature in Base64
-    const calculatedHmac = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody)
-      .digest('base64');
-
+    // Verify HMAC against candidate secrets (App Secret or Store Notification Secret)
     const hmacBuffer = Buffer.from(hmacHeader, 'base64');
-    const calculatedBuffer = Buffer.from(calculatedHmac, 'base64');
+    let isValid = false;
 
-    // Timing-safe comparison to prevent timing attacks
-    if (hmacBuffer.length !== calculatedBuffer.length || !crypto.timingSafeEqual(hmacBuffer, calculatedBuffer)) {
+    for (const sec of candidateSecrets) {
+      const calculatedHmac = crypto.createHmac('sha256', sec).update(rawBody).digest('base64');
+      const calculatedBuffer = Buffer.from(calculatedHmac, 'base64');
+      if (hmacBuffer.length === calculatedBuffer.length && crypto.timingSafeEqual(hmacBuffer, calculatedBuffer)) {
+        isValid = true;
+        break;
+      }
+    }
+
+    if (!isValid) {
       console.warn(`[Shopify Webhook Signature Mismatch] Topic: "${topic}" Shop: "${shopDomain}"`);
       return res.status(401).json({ success: false, error: 'Invalid Shopify webhook signature' });
     }
