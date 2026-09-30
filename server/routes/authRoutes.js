@@ -12,6 +12,8 @@ router.use(authLimiter);
 router.post('/login', authController.login);
 router.post('/demo-login', authController.demoLogin);
 router.post('/phone', authController.loginWithPhone);
+router.post('/whatsapp/send-otp', authController.sendWhatsAppOtp);
+router.post('/whatsapp/verify-otp', authController.verifyWhatsAppOtp);
 router.get('/me', authenticateToken, authController.getCurrentUser);
 router.post('/onboarding', authenticateToken, authController.updateOnboarding);
 

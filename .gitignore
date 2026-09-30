@@ -30,4 +30,5 @@ dist
 scratch/
 *.pdf
 ARCO_CODEBASE_ANALYSIS.md
+~$*
 

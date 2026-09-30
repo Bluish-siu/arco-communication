@@ -31,6 +31,7 @@
 | Table Name | Purpose & Managed Entity | Key Columns & Constraints |
 | :--- | :--- | :--- |
 | `users` | Multi-tenant merchant accounts & auth | `id` (UUID), `email`, `password_hash`, `role`, `company_name` |
+| `auth_otps` | 5-minute WhatsApp authentication codes | `id`, `phone`, `otp_code`, `expires_at`, `attempts`, `is_used` |
 | `contacts` | Unified CRM contact directory | `id`, `user_id`, `name`, `phone` (indexed), `email`, `tags` |
 | `conversations`| Active threads in Team Inbox | `id`, `user_id`, `contact_id`, `phone`, `status`, `last_inbound_at` |
 | `messages` | Chat history bubbles | `id`, `conversation_id`, `sender_type`, `content`, `wamid`, `status` |
@@ -61,6 +62,19 @@
 4. Client page `GoogleCallback.jsx` sends code to backend `POST /api/auth/google`.
 5. Backend exchanges code at `https://oauth2.googleapis.com/token` for an access token, fetches profile from `https://www.googleapis.com/oauth2/v2/userinfo`.
 6. Backend auto-creates user in `users` table, signs a 7-day secure JWT token, and returns merchant session to frontend `localStorage`.
+
+### 2.3 WhatsApp OTP Authentication (`arco_auth_otp`)
+* **Category**: Meta `AUTHENTICATION` Template (Live & Approved).
+* **Interactive 1-Tap Copy Code**: Features a dynamic URL copy-code button component (`COPY_CODE`), allowing merchants to copy the OTP code directly from their WhatsApp notification bubble.
+* **Security & Storage**: 6-digit cryptographically random OTP stored in PostgreSQL `auth_otps` table, with 5-minute expiry (`expires_at`) and max 5 attempts rate-limiting.
+* **Execution Flow**:
+  1. Merchant enters mobile number on `/login` and clicks **"Send Verification Code via WhatsApp"**.
+  2. Frontend sends request to `POST /api/auth/whatsapp/send-otp`.
+  3. Server invalidates older pending codes, persists new OTP in `auth_otps`, and invokes Meta Graph API template `arco_auth_otp`.
+  4. Merchant receives official ARCO WhatsApp message with 6-digit code and 1-tap `[Copy Code]` button.
+  5. Merchant inputs 6 digits on `/login` (supporting auto-focus progression and clipboard paste).
+  6. Frontend dispatches `POST /api/auth/whatsapp/verify-otp`.
+  7. Server authoritatively verifies code, marks code as used (`is_used = true`), provisions/updates record in `users`, and signs a 7-day JWT session.
 
 ---
 

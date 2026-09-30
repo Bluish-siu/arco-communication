@@ -41,6 +41,25 @@ export const authService = {
     return res.data;
   },
 
+  sendWhatsAppOtp: async (phone) => {
+    const res = await apiRequest('/auth/whatsapp/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+    return res;
+  },
+
+  verifyWhatsAppOtp: async (phone, otp) => {
+    const res = await apiRequest('/auth/whatsapp/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone, otp }),
+    });
+    if (res.data?.token) {
+      localStorage.setItem('arco_auth_token', res.data.token);
+    }
+    return res.data;
+  },
+
   getCurrentUser: async () => {
     try {
       const res = await apiRequest('/auth/me');

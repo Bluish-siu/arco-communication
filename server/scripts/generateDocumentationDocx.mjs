@@ -356,6 +356,7 @@ async function generate() {
             ['Table Name', 'Purpose & Managed Entity', 'Key Columns & Constraints'],
             [
               ['users', 'Tenant accounts and administrative credentials', 'id (UUID), email, password_hash, role, company_name, created_at'],
+              ['auth_otps', '5-minute WhatsApp authentication codes', 'id, phone, otp_code, expires_at, attempts, is_used, created_at'],
               ['contacts', 'CRM contacts synchronized across Meta & Shopify', 'id, user_id, name, phone (indexed), email, tags, custom_attributes'],
               ['conversations', 'Thread state for Team Inbox (/inbox)', 'id, user_id, contact_id, phone, status, last_inbound_at, unread_count'],
               ['messages', 'Individual incoming & outgoing chat bubbles', 'id, conversation_id, sender_type, message_type, content, wamid, status'],
@@ -376,8 +377,8 @@ async function generate() {
           // -------------------------------------------------------------
           // SECTION 2: HOW WE DID THE GOOGLE LOGIN PART
           // -------------------------------------------------------------
-          h1('2. Google OAuth 2.0 Authentication Engine (How We Did Google Login)'),
-          p('To provide frictionless merchant onboarding, ARCO implements an enterprise-grade Google OAuth 2.0 authorization code flow compliant with Google Identity Services standards.'),
+          h1('2. Google OAuth 2.0 & WhatsApp OTP Authentication (How We Built Authentication)'),
+          p('To provide frictionless merchant onboarding, ARCO implements an enterprise-grade Google OAuth 2.0 authorization code flow compliant with Google Identity Services standards, paired with native WhatsApp OTP authentication.'),
 
           h2('2.1 Google Cloud Console Configuration'),
           bullet('Project established on Google Cloud Console: Branding Catalyst SaaS Suite.', 'Google Project:'),
@@ -410,6 +411,24 @@ const { access_token } = await tokenResponse.json();
 const userinfo = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
   headers: { Authorization: \`Bearer \${access_token}\` }
 }).then(r => r.json());`),
+
+          h2('2.3 WhatsApp OTP Authentication Engine (arco_auth_otp)'),
+          p('In addition to Google OAuth, ARCO features official WhatsApp OTP login powered by an approved Meta Authentication template:'),
+          bullet('Meta Authentication Template approved and live under WABA 1311505681068950 with 1-tap button.', 'Approved Template Name: arco_auth_otp'),
+          bullet('Delivers a dynamic URL copy-code button component (COPY_CODE) allowing merchants to copy the OTP directly from their WhatsApp notification bubble with one tap.', 'Interactive 1-Tap Copy Code:'),
+          bullet('Stored in dedicated PostgreSQL auth_otps table with 5-minute expiry, max 5 verification attempts, and automatic invalidation of stale codes.', 'Security Architecture:'),
+          bullet('On /login, merchant enters mobile number. Backend generates 6-digit random code, inserts into auth_otps, and invokes Meta Graph API. Merchant enters code, backend verifies against auth_otps, creates/updates user, and signs 7-day JWT.', 'Execution Pipeline:'),
+
+          codeBlock(`// WhatsApp OTP Dispatch via Meta Cloud API (authController.js)
+await metaWhatsAppService.sendTemplateMessage({
+  to: cleanPhone,
+  templateName: 'arco_auth_otp',
+  languageCode: 'en_US',
+  components: [
+    { type: 'body', parameters: [{ type: 'text', text: otpCode }] },
+    { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: otpCode }] }
+  ]
+});`),
 
           new Paragraph({ spacing: { after: 200 } }),
 
@@ -547,8 +566,18 @@ for (const sec of candidateSecrets) {
   });
 
   const buffer = await Packer.toBuffer(doc);
-  const outputPath = path.join(process.cwd(), 'ARCO_Full_Documentation.docx');
-  fs.writeFileSync(outputPath, buffer);
+  let outputPath = path.join(process.cwd(), 'ARCO_Full_Documentation.docx');
+  try {
+    fs.writeFileSync(outputPath, buffer);
+  } catch (err) {
+    if (err.code === 'EBUSY') {
+      outputPath = path.join(process.cwd(), 'ARCO_Full_Documentation_Updated.docx');
+      fs.writeFileSync(outputPath, buffer);
+      console.log(`ℹ ARCO_Full_Documentation.docx is open in Word. Saved updated copy to: ${outputPath}`);
+    } else {
+      throw err;
+    }
+  }
   console.log(`✓ Master Word Documentation generated successfully: ${outputPath}`);
   console.log(`  File size: ${(buffer.length / 1024).toFixed(1)} KB`);
 }

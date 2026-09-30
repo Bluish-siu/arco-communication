@@ -3,8 +3,191 @@ import jwt from 'jsonwebtoken';
 import { db, query } from '../config/db.js';
 import { config } from '../config/index.js';
 import { verifyFirebaseIdToken } from '../config/firebaseAdmin.js';
+import { metaWhatsAppService, formatPhoneNumber } from '../services/metaWhatsAppService.js';
 
 export const authController = {
+  // POST /api/auth/whatsapp/send-otp
+  sendWhatsAppOtp: async (req, res, next) => {
+    try {
+      const { phone } = req.body;
+      if (!phone) {
+        return res.status(400).json({ success: false, error: 'Mobile phone number is required' });
+      }
+
+      const cleanPhone = formatPhoneNumber(phone);
+      if (!cleanPhone || cleanPhone.length < 8) {
+        return res.status(400).json({ success: false, error: 'Please enter a valid mobile number with country code' });
+      }
+
+      // Generate 6-digit random OTP
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
+      const otpId = `otp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+
+      // Invalidate any previous unused OTP for this phone number
+      await query(
+        "UPDATE auth_otps SET is_used = true, updated_at = CURRENT_TIMESTAMP WHERE phone = $1 AND is_used = false",
+        [cleanPhone]
+      );
+
+      // Store new OTP
+      await query(
+        "INSERT INTO auth_otps (id, phone, otp_code, expires_at, attempts, is_used, created_at, updated_at) VALUES ($1, $2, $3, $4, 0, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        [otpId, cleanPhone, otpCode, expiresAt]
+      );
+
+      // Dispatch approved Meta Authentication Template (arco_auth_otp) with Copy Code button
+      const waRes = await metaWhatsAppService.sendTemplateMessage({
+        to: cleanPhone,
+        templateName: 'arco_auth_otp',
+        languageCode: 'en_US',
+        components: [
+          {
+            type: 'body',
+            parameters: [{ type: 'text', text: otpCode }]
+          },
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: '0',
+            parameters: [{ type: 'text', text: otpCode }]
+          }
+        ]
+      });
+
+      if (!waRes?.success) {
+        console.error('[WhatsApp OTP Dispatch Failed]:', waRes?.error || waRes?.message);
+        return res.status(500).json({
+          success: false,
+          error: waRes?.error || 'Failed to dispatch WhatsApp verification code. Please check your number.'
+        });
+      }
+
+      console.log(`[WhatsApp OTP Dispatched] Phone: ${cleanPhone} | WAMID: ${waRes.wamid || waRes.metaMessageId}`);
+
+      return res.json({
+        success: true,
+        message: 'Verification code sent to your WhatsApp successfully!',
+        data: {
+          phone: cleanPhone,
+          expiresInSeconds: 300,
+        }
+      });
+    } catch (error) {
+      console.error('[WhatsApp Send OTP Exception]:', error);
+      next(error);
+    }
+  },
+
+  // POST /api/auth/whatsapp/verify-otp
+  verifyWhatsAppOtp: async (req, res, next) => {
+    try {
+      const { phone, otp } = req.body;
+      if (!phone || !otp) {
+        return res.status(400).json({ success: false, error: 'Phone number and verification code are required' });
+      }
+
+      const cleanPhone = formatPhoneNumber(phone);
+      const cleanOtp = String(otp || '').trim().replace(/\D/g, '');
+
+      if (!cleanPhone || cleanOtp.length !== 6) {
+        return res.status(400).json({ success: false, error: 'Please enter a valid 6-digit verification code' });
+      }
+
+      // Query active OTP
+      const otpRes = await query(
+        "SELECT * FROM auth_otps WHERE phone = $1 AND is_used = false AND expires_at > CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1",
+        [cleanPhone]
+      );
+
+      if (otpRes.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Verification code has expired or was not requested. Please request a new code.'
+        });
+      }
+
+      const record = otpRes.rows[0];
+
+      // Check max attempts
+      if (record.attempts >= 5) {
+        await query("UPDATE auth_otps SET is_used = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1", [record.id]);
+        return res.status(429).json({
+          success: false,
+          error: 'Too many incorrect attempts. Please request a new verification code.'
+        });
+      }
+
+      // Verify matching code
+      if (record.otp_code !== cleanOtp) {
+        await query("UPDATE auth_otps SET attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1", [record.id]);
+        return res.status(400).json({
+          success: false,
+          error: 'Incorrect verification code. Please check your WhatsApp and try again.'
+        });
+      }
+
+      // Mark OTP as verified and used
+      await query(
+        "UPDATE auth_otps SET is_used = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [record.id]
+      );
+
+      // Find or create user in users table
+      const raw10 = cleanPhone.slice(-10);
+      let userRes = await query(
+        "SELECT * FROM users WHERE phone = $1 OR phone = $2 OR phone LIKE $3 LIMIT 1",
+        [cleanPhone, `+${cleanPhone}`, `%${raw10}`]
+      );
+
+      let user = userRes.rows[0];
+      if (!user) {
+        const newUserId = `usr_${Date.now()}`;
+        const insertUser = await query(
+          "INSERT INTO users (id, phone, name, company_name, role, trial_days_remaining, onboarding_completed, created_at, updated_at) VALUES ($1, $2, $3, $4, 'admin', 14, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *",
+          [newUserId, `+${cleanPhone}`, `User ${raw10.slice(-4)}`, 'My ARCO Business']
+        );
+        user = insertUser.rows[0];
+        console.log(`[USER CREATED WHATSAPP OTP] id = "${user.id}", phone = "${user.phone}"`);
+      }
+
+      // Generate JWT Token
+      const token = jwt.sign(
+        { id: user.id, phone: user.phone, email: user.email, role: user.role, name: user.name },
+        config.jwtSecret,
+        { expiresIn: config.jwtExpiresIn }
+      );
+
+      let targetRoute = '/dashboard';
+      if (!user.onboarding_completed) {
+        targetRoute = '/onboarding';
+      }
+
+      return res.json({
+        success: true,
+        message: 'WhatsApp authentication successful',
+        data: {
+          user: {
+            id: user.id,
+            phone: user.phone,
+            name: user.name,
+            email: user.email,
+            companyName: user.company_name,
+            role: user.role,
+            trialDaysRemaining: user.trial_days_remaining ?? 14,
+            onboardingCompleted: user.onboarding_completed,
+            business_setup: user.business_setup,
+          },
+          token,
+          targetRoute,
+        }
+      });
+    } catch (error) {
+      console.error('[WhatsApp Verify OTP Exception]:', error);
+      next(error);
+    }
+  },
+
   // POST /api/auth/phone
   loginWithPhone: async (req, res, next) => {
     try {
