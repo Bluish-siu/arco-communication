@@ -556,12 +556,14 @@ export const metaWhatsAppService = {
             ],
           });
         } else if (headerComp.format === 'DOCUMENT' && resolvedHeaderImage) {
+          const rawDocName = (typeof resolvedHeaderImage === 'string' && resolvedHeaderImage.split('/').pop()?.split('?')[0]) || 'Arco_Wholesale_Brochure.pdf';
+          const cleanDocName = rawDocName.endsWith('.pdf') ? rawDocName : `${rawDocName}.pdf`;
           formattedComponents.push({
             type: 'header',
             parameters: [
               {
                 type: 'document',
-                document: mediaId ? { id: mediaId } : { link: resolvedHeaderImage },
+                document: mediaId ? { id: mediaId, filename: cleanDocName } : { link: resolvedHeaderImage, filename: cleanDocName },
               },
             ],
           });
@@ -632,8 +634,9 @@ export const metaWhatsAppService = {
             const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.image.link, creds, format: 'IMAGE' });
             if (mId) { p.image = { id: mId }; }
           } else if (p.document?.link && !p.document?.id) {
+            const preservedFilename = p.document.filename || 'Arco_Wholesale_Brochure.pdf';
             const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.document.link, creds, format: 'DOCUMENT' });
-            if (mId) { p.document = { id: mId }; }
+            if (mId) { p.document = { id: mId, filename: preservedFilename }; }
           }
         }
       }
