@@ -4,6 +4,10 @@ import SearchableSelect from './SearchableSelect';
 
 // Available Tag Options (Exact 10 options matching Interakt with SVG tag icon)
 const TAG_OPTIONS = [
+  { value: 'Stage 1', label: 'Stage 1', icon: TagIcon },
+  { value: 'Stage 2', label: 'Stage 2', icon: TagIcon },
+  { value: 'Book A Demo', label: 'Book A Demo', icon: TagIcon },
+  { value: 'Demo Booked', label: 'Demo Booked', icon: TagIcon },
   { value: 'Repeat Buyers', label: 'Repeat Buyers', icon: TagIcon },
   { value: 'Recovered', label: 'Recovered', icon: TagIcon },
   { value: 'Order Placed(Prepaid)', label: 'Order Placed(Prepaid)', icon: TagIcon },

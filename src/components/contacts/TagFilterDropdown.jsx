@@ -4,6 +4,10 @@ import { ChevronDown, Search, Check, Tag as TagIcon } from 'lucide-react';
 // Exact 11 Tag Options matching Interakt specification
 export const TAG_FILTER_OPTIONS = [
   { value: 'all', label: 'Tag: All' },
+  { value: 'Stage 1', label: 'Stage 1' },
+  { value: 'Stage 2', label: 'Stage 2' },
+  { value: 'Book A Demo', label: 'Book A Demo' },
+  { value: 'Demo Booked', label: 'Demo Booked' },
   { value: 'Repeat Buyers', label: 'Repeat Buyers' },
   { value: 'Recovered', label: 'Recovered' },
   { value: 'Order Placed(Prepaid)', label: 'Order Placed(Prepaid)' },

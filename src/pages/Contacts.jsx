@@ -50,6 +50,10 @@ import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
 
 // Available Tag Options for Bulk Tagging (Matching Interakt specification)
 const BULK_TAG_OPTIONS = [
+  'Stage 1',
+  'Stage 2',
+  'Book A Demo',
+  'Demo Booked',
   'Repeat Buyers',
   'Recovered',
   'Order Placed(Prepaid)',

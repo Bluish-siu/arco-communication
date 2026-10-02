@@ -146,6 +146,10 @@ const FILTER_CATEGORIES = [
 ];
 
 const STANDARD_TAGS = [
+  'Stage 1',
+  'Stage 2',
+  'Book A Demo',
+  'Demo Booked',
   'Repeat Buyers',
   'Recovered',
   'Order Placed (Prepaid)',

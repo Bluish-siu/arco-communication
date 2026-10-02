@@ -25,6 +25,7 @@ import {
   Layers,
   Store,
   ArrowRight,
+  Megaphone,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
