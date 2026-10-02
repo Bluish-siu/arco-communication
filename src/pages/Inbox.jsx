@@ -439,12 +439,72 @@ export default function Inbox() {
     setDraftFilters(DEFAULT_FILTERS);
   };
 
+  // Sync inspector with selected conversation
+  const syncInspectorWithChat = (chat, contactData = null) => {
+    if (!chat) return;
+    setInspectorName(chat.name || '');
+    setInspectorPhone(chat.phone || '');
+    setInspectorTag(chat.tag || 'Lead');
+    setInspectorLabel(chat.label || '');
+    setInspectorAssignee(chat.assignee || 'Me');
+    setInspectorChatStatus(chat.statusFilter || 'open');
+    setInspectorIsSpam(Boolean(chat.isSpam));
+
+    if (contactData) {
+      setInspectorEmail(contactData.email || '');
+      setInspectorUserId(contactData.userId || '');
+      setInspectorWhatsappOpted(contactData.whatsappOpted !== false);
+      setInspectorDealValue(String(contactData.dealValue || 0));
+      setInspectorNotes(contactData.notes || '');
+    } else {
+      // Find matching contact if available in local list
+      const matched = availableContacts.find(
+        (c) => c.phone === chat.phone || c.name?.toLowerCase() === chat.name?.toLowerCase()
+      );
+      if (matched) {
+        setInspectorEmail(matched.email || '');
+        setInspectorUserId(matched.user_id || '');
+        setInspectorWhatsappOpted(matched.whatsapp_opted !== false);
+        setInspectorDealValue(String(matched.value || 0));
+        setInspectorNotes(matched.notes || '');
+      } else {
+        setInspectorEmail('');
+        setInspectorUserId('');
+        setInspectorWhatsappOpted(true);
+        setInspectorDealValue('0');
+        setInspectorNotes('');
+      }
+    }
+  };
+
+  // Fetch full Shopify commerce context (orders, abandoned checkouts, LTV)
+  const fetchShopifyContext = async (chat = selectedChat) => {
+    if (!chat || !chat.phone) return;
+    setLoadingShopifyContext(true);
+    try {
+      const data = await inboxService.getShopifyContext({
+        phone: chat.phone,
+        conversationId: chat.id,
+      });
+      if (data) {
+        setShopifyContext(data);
+      }
+    } catch (err) {
+      console.warn('Failed to load Shopify context:', err);
+    } finally {
+      setLoadingShopifyContext(false);
+    }
+  };
+
   const selectedChat = conversations.find((c) => c.id === selectedChatId);
 
   // Handle conversation selection with immediate read-state update & backend persistence
   const handleSelectChat = (chatId) => {
     setSelectedChatId(chatId);
     const chat = conversations.find((c) => c.id === chatId);
+    if (chat) {
+      syncInspectorWithChat(chat);
+    }
     if (chat && (chat.unreadCount || 0) > 0) {
       setConversations((prev) =>
         prev.map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c))
@@ -462,6 +522,7 @@ export default function Inbox() {
           setConversations((prev) =>
             prev.map((c) => (c.id === chatId ? { ...c, ...fullConv } : c))
           );
+          syncInspectorWithChat(fullConv, fullConv.contact);
         }
       })
       .catch((err) => {
@@ -483,10 +544,15 @@ export default function Inbox() {
     }
   }, [selectedChatId, conversations]);
 
-  // Automatically fetch Shopify Commerce context for the currently active chat
+  // Automatically sync inspector & fetch Shopify Commerce context for the currently active chat
   useEffect(() => {
-    if (selectedChat && selectedChat.phone) {
-      fetchShopifyContext(selectedChat);
+    if (selectedChat) {
+      syncInspectorWithChat(selectedChat);
+      if (selectedChat.phone) {
+        fetchShopifyContext(selectedChat);
+      } else {
+        setShopifyContext(null);
+      }
     } else {
       setShopifyContext(null);
     }
@@ -925,62 +991,6 @@ export default function Inbox() {
     return () => document.removeEventListener('mousedown', handleClickOutsideQuickReply);
   }, []);
 
-  // Sync inspector with selected conversation
-  const syncInspectorWithChat = (chat, contactData = null) => {
-    if (!chat) return;
-    setInspectorName(chat.name || '');
-    setInspectorPhone(chat.phone || '');
-    setInspectorTag(chat.tag || 'Lead');
-    setInspectorLabel(chat.label || '');
-    setInspectorAssignee(chat.assignee || 'Me');
-    setInspectorChatStatus(chat.statusFilter || 'open');
-    setInspectorIsSpam(Boolean(chat.isSpam));
-
-    if (contactData) {
-      setInspectorEmail(contactData.email || '');
-      setInspectorUserId(contactData.userId || '');
-      setInspectorWhatsappOpted(contactData.whatsappOpted !== false);
-      setInspectorDealValue(String(contactData.dealValue || 0));
-      setInspectorNotes(contactData.notes || '');
-    } else {
-      // Find matching contact if available in local list
-      const matched = availableContacts.find(
-        (c) => c.phone === chat.phone || c.name?.toLowerCase() === chat.name?.toLowerCase()
-      );
-      if (matched) {
-        setInspectorEmail(matched.email || '');
-        setInspectorUserId(matched.user_id || '');
-        setInspectorWhatsappOpted(matched.whatsapp_opted !== false);
-        setInspectorDealValue(String(matched.value || 0));
-        setInspectorNotes(matched.notes || '');
-      } else {
-        setInspectorEmail('');
-        setInspectorUserId('');
-        setInspectorWhatsappOpted(true);
-        setInspectorDealValue('0');
-        setInspectorNotes('');
-      }
-    }
-  };
-
-  // Fetch full Shopify commerce context (orders, abandoned checkouts, LTV)
-  const fetchShopifyContext = async (chat = selectedChat) => {
-    if (!chat || !chat.phone) return;
-    setLoadingShopifyContext(true);
-    try {
-      const data = await inboxService.getShopifyContext({
-        phone: chat.phone,
-        conversationId: chat.id,
-      });
-      if (data) {
-        setShopifyContext(data);
-      }
-    } catch (err) {
-      console.warn('Failed to load Shopify context:', err);
-    } finally {
-      setLoadingShopifyContext(false);
-    }
-  };
 
   // Trigger 1-click Shopify Commerce actions (tracking links, COD verification, cart recovery)
   const handleTriggerShopifyAction = async (action, payload = {}) => {
@@ -1044,34 +1054,41 @@ export default function Inbox() {
     if (!selectedChatId) return;
     setInspectorSaving(true);
 
-    const targetName = overrides.name !== undefined ? overrides.name : inspectorName;
-    const targetPhone = overrides.phone !== undefined ? overrides.phone : inspectorPhone;
-    const targetTag = overrides.tag !== undefined ? overrides.tag : inspectorTag;
-    const targetLabel = overrides.label !== undefined ? overrides.label : inspectorLabel;
-    const targetAssignee = overrides.assignee !== undefined ? overrides.assignee : inspectorAssignee;
-    const targetStatus = overrides.chatStatus !== undefined ? overrides.chatStatus : inspectorChatStatus;
-    const targetOpted = overrides.whatsappOpted !== undefined ? overrides.whatsappOpted : inspectorWhatsappOpted;
-    const targetSpam = overrides.isSpam !== undefined ? overrides.isSpam : inspectorIsSpam;
-    const targetDealValue = overrides.dealValue !== undefined ? overrides.dealValue : inspectorDealValue;
-    const targetNotes = overrides.notes !== undefined ? overrides.notes : inspectorNotes;
-    const targetEmail = overrides.email !== undefined ? overrides.email : inspectorEmail;
-    const targetUserId = overrides.userId !== undefined ? overrides.userId : inspectorUserId;
+    const isPartial = Object.keys(overrides).length > 0;
+    const payload = {};
 
-    const payload = {
-      name: targetName,
-      phone: targetPhone,
-      email: targetEmail,
-      userId: targetUserId,
-      tag: targetTag,
-      label: targetLabel,
-      assignee: targetAssignee,
-      chatStatus: targetStatus,
-      statusFilter: targetStatus,
-      whatsappOpted: targetOpted,
-      isSpam: targetSpam,
-      dealValue: targetDealValue,
-      notes: targetNotes,
-    };
+    if (isPartial) {
+      if (overrides.name !== undefined) payload.name = overrides.name;
+      if (overrides.phone !== undefined) payload.phone = overrides.phone;
+      if (overrides.email !== undefined) payload.email = overrides.email;
+      if (overrides.userId !== undefined) payload.userId = overrides.userId;
+      if (overrides.tag !== undefined) payload.tag = overrides.tag;
+      if (overrides.label !== undefined) payload.label = overrides.label;
+      if (overrides.assignee !== undefined) payload.assignee = overrides.assignee;
+      if (overrides.chatStatus !== undefined) {
+        payload.chatStatus = overrides.chatStatus;
+        payload.statusFilter = overrides.chatStatus;
+      }
+      if (overrides.statusFilter !== undefined) payload.statusFilter = overrides.statusFilter;
+      if (overrides.whatsappOpted !== undefined) payload.whatsappOpted = overrides.whatsappOpted;
+      if (overrides.isSpam !== undefined) payload.isSpam = overrides.isSpam;
+      if (overrides.dealValue !== undefined) payload.dealValue = overrides.dealValue;
+      if (overrides.notes !== undefined) payload.notes = overrides.notes;
+    } else {
+      payload.name = inspectorName;
+      payload.phone = inspectorPhone;
+      payload.email = inspectorEmail;
+      payload.userId = inspectorUserId;
+      payload.tag = inspectorTag;
+      payload.label = inspectorLabel;
+      payload.assignee = inspectorAssignee;
+      payload.chatStatus = inspectorChatStatus;
+      payload.statusFilter = inspectorChatStatus;
+      payload.whatsappOpted = inspectorWhatsappOpted;
+      payload.isSpam = inspectorIsSpam;
+      payload.dealValue = inspectorDealValue;
+      payload.notes = inspectorNotes;
+    }
 
     try {
       const res = await inboxService.updateConversation(selectedChatId, payload);
@@ -1082,13 +1099,13 @@ export default function Inbox() {
             if (c.id === selectedChatId) {
               return {
                 ...c,
-                name: payload.name || c.name,
-                phone: payload.phone || c.phone,
-                tag: payload.tag,
-                label: payload.label,
-                assignee: payload.assignee,
-                statusFilter: payload.statusFilter,
-                isSpam: payload.isSpam,
+                ...(payload.name !== undefined ? { name: payload.name } : {}),
+                ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
+                ...(payload.tag !== undefined ? { tag: payload.tag } : {}),
+                ...(payload.label !== undefined ? { label: payload.label } : {}),
+                ...(payload.assignee !== undefined ? { assignee: payload.assignee } : {}),
+                ...(payload.statusFilter !== undefined ? { statusFilter: payload.statusFilter } : {}),
+                ...(payload.isSpam !== undefined ? { isSpam: payload.isSpam } : {}),
               };
             }
             return c;
@@ -2308,7 +2325,7 @@ export default function Inbox() {
                         />
                         <button
                           type="button"
-                          onClick={() => handleSaveContactInspector()}
+                          onClick={() => handleSaveContactInspector({ label: inspectorLabel })}
                           disabled={inspectorSaving}
                           className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
                         >
