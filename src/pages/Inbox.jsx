@@ -146,6 +146,8 @@ const FILTER_CATEGORIES = [
 ];
 
 const STANDARD_TAGS = [
+  'Campaign Lead',
+  'Lead',
   'Stage 1',
   'Stage 2',
   'Book A Demo',
@@ -1130,7 +1132,12 @@ export default function Inbox() {
 
   const handleUpdateTag = async (newTag) => {
     setInspectorTag(newTag);
+    // Optimistic UI update so the chat badge changes immediately
+    setConversations((prev) =>
+      prev.map((c) => (c.id === selectedChatId ? { ...c, tag: newTag } : c))
+    );
     await handleSaveContactInspector({ tag: newTag });
+    showToast(`Customer tag updated to "${newTag}"`, 'success');
   };
 
   const handleUpdateChatStatus = async (newStatus) => {
@@ -2302,6 +2309,11 @@ export default function Inbox() {
                         onChange={(e) => handleUpdateTag(e.target.value)}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-emerald-600 cursor-pointer"
                       >
+                        {inspectorTag && !STANDARD_TAGS.includes(inspectorTag) && (
+                          <option key={inspectorTag} value={inspectorTag}>
+                            {inspectorTag}
+                          </option>
+                        )}
                         {STANDARD_TAGS.map((t) => (
                           <option key={t} value={t}>
                             {t}
@@ -2325,7 +2337,7 @@ export default function Inbox() {
                         />
                         <button
                           type="button"
-                          onClick={() => handleSaveContactInspector({ label: inspectorLabel })}
+                          onClick={() => handleSaveContactInspector({ tag: inspectorTag, label: inspectorLabel })}
                           disabled={inspectorSaving}
                           className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
                         >
