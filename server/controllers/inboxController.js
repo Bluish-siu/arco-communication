@@ -598,9 +598,13 @@ export const inboxController = {
 
       if (targetPhone) {
         const cleanPhone = targetPhone.replace(/[^0-9+]/g, '');
+        const digits10 = targetPhone.replace(/[^0-9]/g, '').slice(-10);
         const contactRes = await query(
-          'SELECT * FROM contacts WHERE phone = $1 OR phone = $2 OR name = $3 LIMIT 1',
-          [targetPhone, cleanPhone, targetName]
+          `SELECT * FROM contacts 
+           WHERE phone = $1 OR phone = $2 OR name = $3
+              OR (length($4) = 10 AND RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = $4)
+           LIMIT 1`,
+          [targetPhone, cleanPhone, targetName, digits10]
         );
         if (contactRes.rows.length > 0) {
           matchedContact = contactRes.rows[0];
