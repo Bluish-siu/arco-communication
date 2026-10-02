@@ -651,7 +651,8 @@ export const inboxController = {
         if (contactUpdates.length > 0) {
           contactUpdates.push(`updated_at = CURRENT_TIMESTAMP`);
           contactParams.push(matchedContact.id);
-          const updateSql = `UPDATE contacts SET ${contactUpdates.join(', ')} WHERE id = $${contactParams.length} RETURNING *`;
+          contactParams.push(digits10);
+          const updateSql = `UPDATE contacts SET ${contactUpdates.join(', ')} WHERE id = $${contactParams.length - 1} OR (length($${contactParams.length}) = 10 AND RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = $${contactParams.length}) RETURNING *`;
           const updatedContactRes = await query(updateSql, contactParams);
           matchedContact = updatedContactRes.rows[0];
         }

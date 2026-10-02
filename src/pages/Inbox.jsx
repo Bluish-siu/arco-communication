@@ -2304,22 +2304,32 @@ export default function Inbox() {
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Customer Tag
                       </label>
-                      <select
-                        value={inspectorTag}
-                        onChange={(e) => handleUpdateTag(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-emerald-600 cursor-pointer"
-                      >
-                        {inspectorTag && !STANDARD_TAGS.includes(inspectorTag) && (
-                          <option key={inspectorTag} value={inspectorTag}>
-                            {inspectorTag}
-                          </option>
-                        )}
-                        {STANDARD_TAGS.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={inspectorTag}
+                          onChange={(e) => handleUpdateTag(e.target.value)}
+                          className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-emerald-600 cursor-pointer"
+                        >
+                          {inspectorTag && !STANDARD_TAGS.includes(inspectorTag) && (
+                            <option key={inspectorTag} value={inspectorTag}>
+                              {inspectorTag}
+                            </option>
+                          )}
+                          {STANDARD_TAGS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateTag(inspectorTag)}
+                          disabled={inspectorSaving}
+                          className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors shrink-0"
+                        >
+                          Save Tag
+                        </button>
+                      </div>
                     </div>
 
                     {/* Custom Label */}
