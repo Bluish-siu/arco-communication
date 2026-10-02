@@ -556,8 +556,13 @@ export const metaWhatsAppService = {
             ],
           });
         } else if (headerComp.format === 'DOCUMENT' && resolvedHeaderImage) {
-          const rawDocName = (typeof resolvedHeaderImage === 'string' && resolvedHeaderImage.split('/').pop()?.split('?')[0]) || 'Arco_Wholesale_Brochure.pdf';
-          const cleanDocName = rawDocName.endsWith('.pdf') ? rawDocName : `${rawDocName}.pdf`;
+          let cleanDocName = 'Arco_Wholesale_Brochure.pdf';
+          if (typeof resolvedHeaderImage === 'string') {
+            const raw = resolvedHeaderImage.split('/').pop()?.split('?')[0];
+            if (raw && !/^\d+_\d+/.test(raw) && !/^\d+$/.test(raw) && !raw.includes('_n.pdf')) {
+              cleanDocName = raw.endsWith('.pdf') ? raw : `${raw}.pdf`;
+            }
+          }
           formattedComponents.push({
             type: 'header',
             parameters: [
@@ -633,10 +638,17 @@ export const metaWhatsAppService = {
           } else if (p.image?.link && !p.image?.id) {
             const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.image.link, creds, format: 'IMAGE' });
             if (mId) { p.image = { id: mId }; }
-          } else if (p.document?.link && !p.document?.id) {
-            const preservedFilename = p.document.filename || 'Arco_Wholesale_Brochure.pdf';
-            const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.document.link, creds, format: 'DOCUMENT' });
-            if (mId) { p.document = { id: mId, filename: preservedFilename }; }
+          } else if (p.document) {
+            let preservedFilename = p.document.filename || 'Arco_Wholesale_Brochure.pdf';
+            if (/^\d+_\d+/.test(preservedFilename) || /^\d+$/.test(preservedFilename) || preservedFilename.includes('_n.pdf')) {
+              preservedFilename = 'Arco_Wholesale_Brochure.pdf';
+            }
+            if (p.document.link && !p.document.id) {
+              const mId = await metaWhatsAppService.uploadMediaToWhatsApp({ mediaUrl: p.document.link, creds, format: 'DOCUMENT' });
+              if (mId) { p.document = { id: mId, filename: preservedFilename }; }
+            } else {
+              p.document.filename = preservedFilename;
+            }
           }
         }
       }

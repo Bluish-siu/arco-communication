@@ -613,10 +613,12 @@ export default function CreateCampaign() {
         const res = await campaignsService.getMessageStatus(wamid);
         if (res?.success && res.data) {
           const log = res.data;
+          const isFailed = log.status === 'failed';
           setTestResult((prev) => {
             if (!prev) return prev;
             return {
               ...prev,
+              success: isFailed ? false : prev.success,
               status: log.status || prev.status,
               deliveredAt: log.delivered_at,
               sentAt: log.sent_at,
@@ -624,6 +626,7 @@ export default function CreateCampaign() {
               failedAt: log.failed_at,
               errorCode: log.error_code || prev.errorCode,
               errorMessage: log.error_message || prev.errorMessage,
+              error: isFailed ? (log.error_message || prev.error || 'Message delivery failed by Meta') : prev.error,
             };
           });
 
@@ -2583,33 +2586,93 @@ export default function CreateCampaign() {
 
                   {testResult && (
                     <div
-                      className={`p-2.5 rounded-lg text-xs space-y-1 ${
-                        testResult.success
-                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
-                          : 'bg-red-50 border border-red-200 text-red-900'
+                      className={`p-2.5 rounded-lg text-xs space-y-2 border transition-all ${
+                        testResult.status === 'failed' || !testResult.success
+                          ? 'bg-red-50/90 border-red-200 text-red-950'
+                          : testResult.status === 'delivered' || testResult.status === 'read'
+                          ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                          : 'bg-amber-50/90 border-amber-200 text-amber-950'
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 font-bold">
-                        {testResult.success ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        ) : (
-                          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                        )}
-                        <span>{testResult.success ? 'Meta API Accepted' : 'Meta API Error'}</span>
-                      </div>
-                      {testResult.wamid && (
-                        <div className="text-[10px] font-mono break-all bg-white/70 p-1 rounded border border-emerald-200 text-emerald-800">
-                          WAMID: {testResult.wamid}
+                      {/* Status Header */}
+                      <div className="flex items-center justify-between font-bold">
+                        <div className="flex items-center gap-1.5">
+                          {testResult.status === 'failed' || !testResult.success ? (
+                            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                          ) : testResult.status === 'delivered' || testResult.status === 'read' ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-spin" />
+                          )}
+                          <span>
+                            {testResult.status === 'failed' || !testResult.success
+                              ? 'Delivery Suppressed / Failed'
+                              : testResult.status === 'read'
+                              ? 'Read by Recipient ✓✓'
+                              : testResult.status === 'delivered'
+                              ? 'Delivered to WhatsApp ✓'
+                              : 'Meta Cloud API Accepted'}
+                          </span>
                         </div>
-                      )}
-                      {testResult.error && (
-                        <div className="text-[11px] leading-tight">
-                          {testResult.error}
-                          {testResult.missingFields?.length > 0 && (
-                            <div className="mt-1 font-semibold text-[10px]">
-                              Missing: {testResult.missingFields.join(', ')}
+                        {testResult.status && (
+                          <span
+                            className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold tracking-wider ${
+                              testResult.status === 'failed'
+                                ? 'bg-red-200 text-red-900'
+                                : testResult.status === 'delivered' || testResult.status === 'read'
+                                ? 'bg-emerald-200 text-emerald-900'
+                                : 'bg-amber-200 text-amber-900'
+                            }`}
+                          >
+                            {testResult.status}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Error & Frequency Cap Explanation */}
+                      {(testResult.status === 'failed' || !testResult.success) && (
+                        <div className="space-y-1.5">
+                          {String(testResult.errorCode) === '131049' ||
+                          String(testResult.errorMessage || '').includes('healthy ecosystem engagement') ? (
+                            <div className="bg-white/90 p-2 rounded border border-red-200 text-[11px] text-red-900 space-y-1.5">
+                              <p className="font-bold text-red-800 flex items-center gap-1">
+                                <span>⚠️ Meta Frequency Cap (Error #131049)</span>
+                              </p>
+                              <p className="leading-snug text-gray-700">
+                                Meta temporarily halted marketing templates to <strong>+{testResult.recipientPhone || 'recipient'}</strong> because it received multiple broadcasts in a short burst without replying.
+                              </p>
+                              <div className="pt-1 border-t border-red-100 text-[10px] space-y-1 text-gray-800">
+                                <p className="font-semibold text-red-900">How to receive test message now:</p>
+                                <p>
+                                  1. Send a quick <strong>"Hi"</strong> from this phone to your WhatsApp Business number <strong>+91 96199 81755</strong> to open a 24-hr chat window.
+                                </p>
+                                <p>2. Or enter a different phone number above and click Send Test.</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-[11px] leading-tight text-red-800 font-medium bg-white/70 p-2 rounded border border-red-200">
+                              {testResult.errorMessage || testResult.error || 'Message delivery failed on Meta network'}
+                              {testResult.errorCode && (
+                                <div className="mt-1 font-mono text-[10px] text-red-600">
+                                  Error Code: #{testResult.errorCode}
+                                </div>
+                              )}
                             </div>
                           )}
+                        </div>
+                      )}
+
+                      {/* Success / Delivery Confirmation */}
+                      {(testResult.status === 'delivered' || testResult.status === 'read') && (
+                        <p className="text-[11px] text-emerald-800">
+                          Brochure PDF & campaign template arrived on device!
+                        </p>
+                      )}
+
+                      {/* WAMID display */}
+                      {testResult.wamid && (
+                        <div className="text-[10px] font-mono break-all bg-white/80 p-1.5 rounded border border-gray-200 text-gray-600">
+                          <span className="text-gray-400">WAMID: </span>{testResult.wamid}
                         </div>
                       )}
                     </div>
@@ -2801,6 +2864,23 @@ export default function CreateCampaign() {
                             <p className="text-[10px] bg-white/80 p-2 rounded border border-red-200 text-red-800 font-medium">
                               💡 <strong>Why this happened:</strong> In Meta WhatsApp Development/Sandbox mode, messages can only be delivered to phone numbers that have been added as verified test numbers in your Meta App Dashboard under <em>WhatsApp &gt; API Setup &gt; To phone number</em> list.
                             </p>
+                          )}
+                          {(String(testResult.errorCode) === '131049' || String(testResult.errorMessage || '').includes('healthy ecosystem engagement')) && (
+                            <div className="text-[10px] bg-white/90 p-2.5 rounded border border-red-200 text-red-900 space-y-1.5 font-sans">
+                              <p className="font-bold text-red-800">
+                                ⚠️ Meta Frequency Capping (Error #131049 - Ecosystem Engagement)
+                              </p>
+                              <p className="text-gray-700 leading-snug">
+                                Meta temporarily halted marketing broadcasts to <strong>+{testResult.recipientPhone}</strong> because it received multiple marketing messages in a short burst without replying.
+                              </p>
+                              <div className="pt-1 border-t border-red-100 space-y-1">
+                                <p className="font-semibold text-red-800">How to receive the test message right now:</p>
+                                <p>
+                                  1. Send a quick <strong>"Hi"</strong> from this phone to your WhatsApp Business number <strong>+91 96199 81755</strong>. This opens a 24-hr active session and lifts the marketing block!
+                                </p>
+                                <p>2. Or test using another phone number that hasn't received marketing templates recently.</p>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>
