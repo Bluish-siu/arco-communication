@@ -74,9 +74,10 @@ export default function MetaWhatsAppOnboarding() {
       window.fbAsyncInit = function () {
         window.FB.init({
           appId: appId,
+          autoLogAppEvents: true,
           cookie: true,
           xfbml: true,
-          version: 'v21.0',
+          version: 'v26.0',
         });
       };
 
