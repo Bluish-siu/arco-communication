@@ -173,33 +173,35 @@ export default function MetaWhatsAppOnboarding() {
 
     try {
       window.FB.login(
-        async (response) => {
+        function (response) {
           clearTimeout(safetyTimer);
-          if (response.authResponse?.code) {
+          if (response && response.authResponse?.code) {
             const code = response.authResponse.code;
             const wabaId = sessionStorage.getItem('meta_waba_id') || null;
             const phoneNumberId = sessionStorage.getItem('meta_phone_number_id') || null;
 
-            try {
-              const result = await metaService.embeddedSignup({
+            metaService
+              .embeddedSignup({
                 code,
                 wabaId,
                 phoneNumberId,
                 businessName: businessSetup.companyName || 'ARCO Communication Retail',
+              })
+              .then((result) => {
+                setConnectedIntegration(result);
+                completeOnboarding();
+                setStep(5);
+              })
+              .catch((err) => {
+                console.error('[Embedded Signup Error]', err);
+                setError(err.message || 'WhatsApp authorization failed. Please try again.');
+              })
+              .finally(() => {
+                setConnectingViaEmbedded(false);
               });
-
-              setConnectedIntegration(result);
-              completeOnboarding();
-              setStep(5);
-            } catch (err) {
-              console.error('[Embedded Signup Error]', err);
-              setError(err.message || 'WhatsApp authorization failed. Please try again.');
-            } finally {
-              setConnectingViaEmbedded(false);
-            }
           } else {
             setConnectingViaEmbedded(false);
-            if (response.status !== 'connected') {
+            if (response && response.status !== 'connected') {
               console.warn('[Embedded Signup] User cancelled or closed the login modal.');
             }
           }
