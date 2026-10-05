@@ -356,47 +356,73 @@ export const authController = {
   // POST /api/auth/register (New User Free Trial Registration)
   register: async (req, res, next) => {
     try {
-      const { email, firstName, lastName, password } = req.body;
+      const {
+        email,
+        firstName,
+        lastName,
+        password,
+        phone,
+        companyName,
+        companyWebsite,
+        country,
+        state,
+        annualRevenue,
+        channel,
+        whatsappUpdates,
+      } = req.body;
+
       if (!email || !email.includes('@')) {
         return res.status(400).json({ success: false, error: 'A valid email address is required' });
       }
       if (!firstName || !firstName.trim()) {
         return res.status(400).json({ success: false, error: 'First name is required' });
       }
-      if (!password || password.length < 6) {
-        return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
-      }
 
+      // If password provided, use it; otherwise generate secure auto-generated password
+      const effectivePassword = password && password.length >= 6 ? password : crypto.randomBytes(8).toString('hex');
       const cleanEmail = email.trim().toLowerCase();
       const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+      const hash = crypto.pbkdf2Sync(effectivePassword, salt, 1000, 64, 'sha512').toString('hex');
       const passwordHash = `${salt}:${hash}`;
+
+      const businessSetupPayload = {
+        channel: channel || 'Both',
+        phone: phone || '',
+        companyName: companyName ? companyName.trim() : 'My ARCO Business',
+        companyWebsite: companyWebsite || '',
+        country: country || 'India',
+        state: state || '',
+        annualRevenue: annualRevenue || '₹10L - ₹50L',
+        whatsappUpdates: whatsappUpdates !== undefined ? !!whatsappUpdates : true,
+      };
 
       // Check if user already exists
       let user = await db.findOne('users', 'LOWER(email) = LOWER($1)', [cleanEmail]);
       if (user) {
-        // If user already exists, update password if not set
+        // If user already exists, update business setup
+        const updates = {
+          company_name: companyName ? companyName.trim() : user.company_name,
+          phone: phone || user.phone,
+          business_setup: { ...(user.business_setup || {}), ...businessSetupPayload },
+        };
         if (!user.password_hash) {
-          try {
-            await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, user.id]);
-          } catch (e) {
-            console.warn('[Register] could not update password_hash:', e.message);
-          }
+          updates.password_hash = passwordHash;
         }
+        user = await db.update('users', user.id, updates);
       } else {
         const newUserId = `usr_${Date.now()}`;
         const fullName = `${firstName.trim()} ${(lastName || '').trim()}`.trim();
         try {
           const insertRes = await query(
-            "INSERT INTO users (id, name, email, password_hash, company_name, role, trial_days_remaining, onboarding_completed, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'admin', 14, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *",
-            [newUserId, fullName, cleanEmail, passwordHash, 'My ARCO Business']
+            "INSERT INTO users (id, name, email, password_hash, company_name, phone, role, trial_days_remaining, onboarding_completed, business_setup, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, 'admin', 14, false, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *",
+            [newUserId, fullName, cleanEmail, passwordHash, companyName ? companyName.trim() : 'My ARCO Business', phone || null, JSON.stringify(businessSetupPayload)]
           );
           user = insertRes.rows[0];
         } catch (dbErr) {
-          // Fallback if password_hash column not yet present
+          // Fallback if schema doesn't yet have business_setup column
           const insertRes = await query(
-            "INSERT INTO users (id, name, email, company_name, role, trial_days_remaining, onboarding_completed, created_at, updated_at) VALUES ($1, $2, $3, $4, 'admin', 14, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *",
-            [newUserId, fullName, cleanEmail, 'My ARCO Business']
+            "INSERT INTO users (id, name, email, company_name, phone, role, trial_days_remaining, onboarding_completed, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'admin', 14, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *",
+            [newUserId, fullName, cleanEmail, companyName ? companyName.trim() : 'My ARCO Business', phone || null]
           );
           user = insertRes.rows[0];
         }
@@ -404,12 +430,12 @@ export const authController = {
 
       // Generate JWT Token
       const token = jwt.sign(
-        { id: user.id, email: user.email, role: user.role || 'admin', name: user.name },
+        { id: user.id, email: user.email, role: user.role || 'admin', name: user.name, phone: user.phone },
         config.jwtSecret,
         { expiresIn: config.jwtExpiresIn }
       );
 
-      let targetRoute = '/onboarding';
+      let targetRoute = '/onboarding/industry';
       if (user.onboarding_completed) {
         targetRoute = '/dashboard';
       }
@@ -422,11 +448,12 @@ export const authController = {
             id: user.id,
             name: user.name,
             email: user.email,
+            phone: user.phone,
             companyName: user.company_name,
             role: user.role,
             trialDaysRemaining: user.trial_days_remaining ?? 14,
             onboardingCompleted: user.onboarding_completed,
-            business_setup: user.business_setup,
+            business_setup: user.business_setup || businessSetupPayload,
           },
           token,
           targetRoute,

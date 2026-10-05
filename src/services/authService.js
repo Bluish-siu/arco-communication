@@ -15,11 +15,11 @@ export const authService = {
     }
   },
 
-  register: async ({ email, firstName, lastName, password }) => {
+  register: async (payload) => {
     try {
       const res = await apiRequest('/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, firstName, lastName, password }),
+        body: JSON.stringify(payload),
       });
       if (res.data?.token) {
         localStorage.setItem('arco_auth_token', res.data.token);

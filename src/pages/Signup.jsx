@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
-  Lock,
-  Eye,
-  EyeOff,
+  User,
   ShoppingBag,
-  Sparkles,
   Check,
   CheckCircle2,
   AlertCircle,
   Loader2,
+  ChevronDown,
+  Edit2,
+  ShieldCheck,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import { authService } from '../services/authService';
@@ -27,6 +27,15 @@ const WhatsAppIcon = ({ className = 'w-4 h-4' }) => (
 const FacebookIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+  </svg>
+);
+
+// Instagram SVG Icon
+const InstagramIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+    <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
   </svg>
 );
 
@@ -59,16 +68,72 @@ const ShopifyIcon = ({ className = 'w-4 h-4' }) => (
   </svg>
 );
 
+// TallyPrime Icon
+const TallyIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <rect x="3" y="3" width="8" height="8" rx="1.5" fill="#0080FF" />
+    <rect x="13" y="3" width="8" height="8" rx="1.5" fill="#FFC800" />
+    <rect x="3" y="13" width="8" height="8" rx="1.5" fill="#E62E2D" />
+    <rect x="13" y="13" width="8" height="8" rx="1.5" fill="#00AA44" />
+  </svg>
+);
+
+const INDIAN_STATES = [
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Delhi NCR',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Other',
+];
+
 export default function Signup() {
   const navigate = useNavigate();
-  const { setAuthenticatedUser } = useOnboarding();
+  const { setAuthenticatedUser, updateBusinessSetup } = useOnboarding();
 
-  // Form input states
+  // Multi-step state: 1 = Initial Email & Name, 2 = Business Profile Form
+  const [currentStep, setCurrentStep] = useState(1);
+
+  // Step 1 Inputs
   const [workEmail, setWorkEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [emailTooltipVisible, setEmailTooltipVisible] = useState(true);
+
+  // Step 2 Business Details Inputs
+  const [selectedChannel, setSelectedChannel] = useState('Both');
+  const [phone, setPhone] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [companyWebsite, setCompanyWebsite] = useState('');
+  const [country, setCountry] = useState('India');
+  const [state, setState] = useState('');
+  const [annualRevenue, setAnnualRevenue] = useState('₹10 Lakhs - ₹50 Lakhs');
+  const [whatsappUpdates, setWhatsappUpdates] = useState(true);
+  const [captchaChecked, setCaptchaChecked] = useState(true);
 
   // Status & error states
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -91,12 +156,11 @@ export default function Signup() {
 
   // Handle Shopify direct store signup
   const handleShopifySignup = () => {
-    // Redirect to Shopify App Store or partner connect URL
     window.open('https://apps.shopify.com', '_blank', 'noopener,noreferrer');
   };
 
-  // Handle Email Form Submission -> Calls /api/auth/register and advances to /onboarding
-  const handleSubmit = async (e) => {
+  // Step 1: Click "Next" -> Validate email & names, then switch to Step 2
+  const handleStep1Next = (e) => {
     e.preventDefault();
     setFormError('');
 
@@ -110,19 +174,46 @@ export default function Signup() {
       return;
     }
 
-    if (!password || password.length < 6) {
-      setFormError('Password must be at least 6 characters.');
+    // Advance to Step 2 form in-place
+    setCurrentStep(2);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Step 2: Click "Create Account" -> Register user + business setup, then navigate to onboarding process
+  const handleCreateAccount = async (e) => {
+    e.preventDefault();
+    setFormError('');
+
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!cleanPhone || cleanPhone.length < 8) {
+      setFormError('Please enter a valid mobile phone number.');
+      return;
+    }
+
+    if (!companyName.trim()) {
+      setFormError('Please enter your company name.');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
+      const businessPayload = {
+        channel: selectedChannel,
+        phone: `+91${cleanPhone.slice(-10)}`,
+        companyName: companyName.trim(),
+        companyWebsite: companyWebsite.trim(),
+        country,
+        state,
+        annualRevenue,
+        whatsappUpdates,
+      };
+
       const res = await authService.register({
         email: workEmail.trim().toLowerCase(),
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        password,
+        ...businessPayload,
       });
 
       if (!res?.token && !res?.data?.token) {
@@ -132,15 +223,16 @@ export default function Signup() {
       const userData = res.user || res.data?.user;
       const token = res.token || res.data?.token;
 
-      // Update global authenticated user state
+      // Update global authenticated user & business setup context
       if (userData && token) {
         setAuthenticatedUser(userData, token);
       }
+      updateBusinessSetup(businessPayload);
 
-      // Seamlessly navigate to the business profile form (/onboarding)
-      navigate('/onboarding');
+      // Advance directly to the onboarding process (Step 1: Industry)
+      navigate('/onboarding/industry');
     } catch (err) {
-      console.error('[Signup Exception]:', err);
+      console.error('[Create Account Exception]:', err);
       setFormError(err.message || 'Failed to create your account. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -178,16 +270,16 @@ export default function Signup() {
       </header>
 
       {/* 2. MAIN CONTAINER WITH DEEP FOREST GREEN PALETTE */}
-      <main className="flex-1 py-8 sm:py-12 lg:py-16 relative overflow-hidden">
+      <main className="flex-1 py-8 sm:py-12 lg:py-14 relative overflow-hidden">
         {/* Subtle Ambient Emerald Lighting */}
         <div className="absolute top-10 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-10 right-10 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <Container className="relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
             
-            {/* LEFT COLUMN: Visual Showcase (Acquire & Engage Cards) (6 cols) */}
-            <div className="lg:col-span-6 flex flex-col justify-center space-y-6">
+            {/* LEFT COLUMN: Visual Showcase (Acquire & Engage Cards) (5 cols) */}
+            <div className="lg:col-span-5 flex flex-col justify-center space-y-5 pt-2">
               
               {/* Title & Tagline */}
               <div>
@@ -197,13 +289,13 @@ export default function Signup() {
                     & Instagram
                   </span>
                 </h1>
-                <p className="text-emerald-100/90 text-sm sm:text-base mt-3 font-medium">
+                <p className="text-emerald-100/90 text-sm sm:text-base mt-2 font-medium">
                   Get a 14 day free trial | No Credit Card required
                 </p>
               </div>
 
               {/* Visual Showcase: 2 Overlapping / Staggered Cards (Acquire & Engage) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4 pt-1">
                 
                 {/* CARD 1: ACQUIRE (Facebook Click-to-WhatsApp Ad) */}
                 <div className="relative">
@@ -229,7 +321,7 @@ export default function Signup() {
                     </p>
 
                     {/* Skincare Product Image */}
-                    <div className="rounded-xl overflow-hidden bg-slate-100 h-32 sm:h-36 w-full shadow-inner">
+                    <div className="rounded-xl overflow-hidden bg-slate-100 h-28 sm:h-32 w-full shadow-inner">
                       <img
                         src="/images/signup/skincare_ad.jpg"
                         alt="Acme Beauty Skincare"
@@ -275,30 +367,30 @@ export default function Signup() {
                         <span>Catalog Collection</span>
                         <span className="text-slate-400 text-xs leading-none">×</span>
                       </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-600 bg-white px-2 py-1 rounded border border-slate-100">
+                      <div className="flex items-center justify-between text-[10px] text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-100">
                         <span>Face Serum</span>
                         <span className="font-semibold text-emerald-600">Rs. 1500</span>
                       </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-600 bg-white px-2 py-1 rounded border border-slate-100">
+                      <div className="flex items-center justify-between text-[10px] text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-100">
                         <span>Moisturiser</span>
                         <span className="font-semibold text-emerald-600">Rs. 500</span>
                       </div>
                     </div>
 
                     {/* Smiling Customer Portrait */}
-                    <div className="rounded-xl overflow-hidden bg-slate-100 h-24 sm:h-28 w-full shadow-inner">
+                    <div className="rounded-xl overflow-hidden bg-slate-100 h-24 w-full shadow-inner">
                       <img
                         src="/images/signup/customer_smiling.jpg"
-                        alt="Satisfied WhatsApp Customer"
+                        alt="Satisfied Customer"
                         className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
                         loading="eager"
                       />
                     </div>
 
                     {/* Outgoing WhatsApp Payment Confirmation Bubble */}
-                    <div className="bg-[#dcf8c6] rounded-xl p-2 text-[10px] text-slate-800 border border-emerald-200 flex items-center justify-between shadow-2xs">
-                      <span>Thank you, Here is the payment link for the products</span>
-                      <span className="text-emerald-700 font-bold ml-1">✓✓</span>
+                    <div className="bg-[#dcf8c6] rounded-xl p-1.5 text-[10px] text-slate-800 border border-emerald-200 flex items-center justify-between shadow-2xs">
+                      <span className="truncate">Thank you, Here is the payment link</span>
+                      <span className="text-emerald-700 font-bold ml-1 shrink-0">✓✓</span>
                     </div>
                   </div>
                 </div>
@@ -306,65 +398,28 @@ export default function Signup() {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Interakt-style 14-Day Free Trial Signup Card (6 cols) */}
-            <div className="lg:col-span-6 flex flex-col justify-center">
-              <div className="bg-transparent text-white space-y-5 max-w-md mx-auto w-full lg:max-w-lg">
+            {/* RIGHT COLUMN: Interakt 2-Step Signup Container (7 cols) */}
+            <div className="lg:col-span-7 flex flex-col justify-center">
+              <div className="w-full max-w-xl mx-auto space-y-4">
                 
-                {/* Heading */}
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  Start Your 14-Day Free Trial
-                </h2>
-
-                {/* Shopify / Store Integration Callout Box (Navy blue) */}
-                <div className="bg-[#0f2d4a] border border-[#1b4b7a] rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-white shadow-lg">
+                {/* Integration Callout Box (Navy blue) - Visible on Both Steps */}
+                <div className="bg-[#0e2a47] border border-[#1b4b7a] rounded-2xl p-3 sm:p-3.5 flex items-center justify-between gap-3 text-white shadow-lg">
                   <div className="text-xs text-slate-200">
-                    <span className="font-semibold">For Shopify Integration,</span>
+                    <span className="font-semibold">For Tally Integration,</span>
                     <br />
-                    <span className="text-slate-300">signup directly with Shopify</span>
+                    <span className="text-slate-300 text-[11px]">signup directly with TallyPrime</span>
                   </div>
                   <button
                     type="button"
                     onClick={handleShopifySignup}
-                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-[#0f2d4a] font-bold text-xs shadow-sm transition-all cursor-pointer shrink-0"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs shadow-sm transition-all cursor-pointer shrink-0"
                   >
-                    <ShopifyIcon className="w-3.5 h-3.5 text-[#5e8e3e]" />
-                    <span>Sign up with Shopify</span>
+                    <TallyIcon className="w-3.5 h-3.5" />
+                    <span>Sign up with TallyPrime</span>
                   </button>
                 </div>
 
-                {/* SSO Buttons Grid (Google & Shopify) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Google SSO Button */}
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignup}
-                    className="w-full bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs sm:text-sm py-3 px-3 rounded-xl flex items-center justify-center gap-2.5 shadow-md transition-all cursor-pointer border border-slate-200"
-                  >
-                    <GoogleIcon className="w-4 h-4 shrink-0" />
-                    <span>Signup with Google</span>
-                  </button>
-
-                  {/* Shopify SSO Button */}
-                  <button
-                    type="button"
-                    onClick={handleShopifySignup}
-                    className="w-full bg-[#5e8e3e] hover:bg-[#527d35] text-white font-bold text-xs sm:text-sm py-3 px-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
-                  >
-                    <ShopifyIcon className="w-4 h-4 shrink-0" />
-                    <span>Sign up with Shopify</span>
-                  </button>
-                </div>
-
-                {/* Divider: OR, SIGN UP WITH EMAIL */}
-                <div className="flex items-center gap-3 pt-1">
-                  <div className="flex-1 h-px bg-emerald-800/80" />
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-200/70">
-                    OR, SIGN UP WITH EMAIL
-                  </span>
-                  <div className="flex-1 h-px bg-emerald-800/80" />
-                </div>
-
-                {/* Error Banner */}
+                {/* Validation Error Banner */}
                 {formError && (
                   <div className="p-3 rounded-xl bg-red-900/60 border border-red-500/50 text-red-200 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
                     <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
@@ -372,103 +427,360 @@ export default function Signup() {
                   </div>
                 )}
 
-                {/* Email Registration Form */}
-                <form onSubmit={handleSubmit} className="space-y-3.5">
-                  {/* Work Email */}
-                  <div>
-                    <input
-                      type="email"
-                      value={workEmail}
-                      onChange={(e) => {
-                        setWorkEmail(e.target.value);
-                        if (formError) setFormError('');
-                      }}
-                      placeholder="Work Email"
-                      required
-                      className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
-                    />
-                  </div>
+                {/* ========================================================================= */}
+                {/* STEP 1: INITIAL REGISTRATION (Work Email, Name, Google/Shopify SSO, Next) */}
+                {/* ========================================================================= */}
+                {currentStep === 1 && (
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                      Start Your 14-Day Free Trial
+                    </h2>
 
-                  {/* First Name & Last Name (2 columns) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      value={firstName}
-                      onChange={(e) => {
-                        setFirstName(e.target.value);
-                        if (formError) setFormError('');
-                      }}
-                      placeholder="First Name"
-                      required
-                      className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
-                    />
-                    <input
-                      type="text"
-                      value={lastName}
-                      onChange={(e) => {
-                        setLastName(e.target.value);
-                        if (formError) setFormError('');
-                      }}
-                      placeholder="Last Name"
-                      className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
-                    />
-                  </div>
-
-                  {/* Password Field */}
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (formError) setFormError('');
-                      }}
-                      placeholder="Password (min 6 characters)"
-                      required
-                      className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 pr-11 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none p-1"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  {/* Interakt Style "Next" CTA Button */}
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-full py-3.5 px-6 rounded-xl bg-[#6f823f] hover:bg-[#5f7034] active:scale-[0.99] text-white font-extrabold text-base shadow-lg shadow-black/20 hover:shadow-xl transition-all duration-150 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-75 disabled:cursor-not-allowed"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin text-white" />
-                        <span>Creating Account...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Next</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
-
-                  {/* Existing User Login Link */}
-                  <div className="text-center pt-2">
-                    <span className="text-xs text-emerald-100/90 font-medium">
-                      Existing User?{' '}
-                      <Link
-                        to="/login"
-                        className="text-white font-bold underline hover:text-emerald-300 transition-colors"
+                    {/* SSO Buttons Grid (Google & Shopify) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={handleGoogleSignup}
+                        className="w-full bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs sm:text-sm py-3 px-3 rounded-xl flex items-center justify-center gap-2.5 shadow-md transition-all cursor-pointer border border-slate-200"
                       >
-                        Login here
-                      </Link>
-                    </span>
+                        <GoogleIcon className="w-4 h-4 shrink-0" />
+                        <span>Signup with Google</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleShopifySignup}
+                        className="w-full bg-[#5e8e3e] hover:bg-[#527d35] text-white font-bold text-xs sm:text-sm py-3 px-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+                      >
+                        <ShopifyIcon className="w-4 h-4 shrink-0" />
+                        <span>Sign up with Shopify</span>
+                      </button>
+                    </div>
+
+                    {/* Divider: OR, SIGN UP WITH EMAIL */}
+                    <div className="flex items-center gap-3 pt-1">
+                      <div className="flex-1 h-px bg-emerald-800/80" />
+                      <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-200/70">
+                        OR, SIGN UP WITH EMAIL
+                      </span>
+                      <div className="flex-1 h-px bg-emerald-800/80" />
+                    </div>
+
+                    {/* Email Registration Form */}
+                    <form onSubmit={handleStep1Next} className="space-y-3.5">
+                      {/* Work Email with Auto-Generated Password Tooltip (Exact Interakt behavior) */}
+                      <div className="relative">
+                        {/* Tooltip Bubble */}
+                        {emailTooltipVisible && (
+                          <div className="absolute -top-12 right-6 z-30 bg-white text-slate-800 text-[11px] font-medium py-1 px-3 rounded-lg shadow-xl border border-slate-200 flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-2">
+                            <span>You'll receive an auto-generated password on this email</span>
+                            {/* Downward triangle arrow */}
+                            <div className="w-2.5 h-2.5 bg-white border-r border-b border-slate-200 rotate-45 absolute -bottom-1.5 right-6" />
+                          </div>
+                        )}
+
+                        <input
+                          type="email"
+                          value={workEmail}
+                          onChange={(e) => {
+                            setWorkEmail(e.target.value);
+                            if (formError) setFormError('');
+                          }}
+                          onFocus={() => setEmailTooltipVisible(true)}
+                          placeholder="Work Email"
+                          required
+                          className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
+                        />
+                      </div>
+
+                      {/* First Name & Last Name (2 columns) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          value={firstName}
+                          onChange={(e) => {
+                            setFirstName(e.target.value);
+                            if (formError) setFormError('');
+                          }}
+                          placeholder="First Name"
+                          required
+                          className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
+                        />
+                        <input
+                          type="text"
+                          value={lastName}
+                          onChange={(e) => {
+                            setLastName(e.target.value);
+                            if (formError) setFormError('');
+                          }}
+                          placeholder="Last Name"
+                          className="w-full bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3.5 rounded-xl border border-transparent focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm font-medium transition-all shadow-sm"
+                        />
+                      </div>
+
+                      {/* Interakt Warm Amber/Gold "Next" Button */}
+                      <button
+                        type="submit"
+                        className="w-full py-3.5 px-6 rounded-xl bg-[#fbb03b] hover:bg-[#f39c12] active:scale-[0.99] text-slate-950 font-extrabold text-base shadow-lg shadow-black/20 hover:shadow-xl transition-all duration-150 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <span>Next</span>
+                        <ArrowRight className="w-4 h-4 text-slate-950" />
+                      </button>
+
+                      {/* Existing User Login Link */}
+                      <div className="text-center pt-2">
+                        <span className="text-xs text-emerald-100/90 font-medium">
+                          Existing User?{' '}
+                          <Link
+                            to="/login"
+                            className="text-white font-bold underline hover:text-emerald-300 transition-colors"
+                          >
+                            Login here
+                          </Link>
+                        </span>
+                      </div>
+                    </form>
                   </div>
-                </form>
+                )}
+
+                {/* ========================================================================= */}
+                {/* STEP 2: BUSINESS DETAILS FORM (Exact Interakt Screenshot 2)              */}
+                {/* ========================================================================= */}
+                {currentStep === 2 && (
+                  <div className="space-y-4 animate-in fade-in duration-300">
+                    
+                    {/* User Profile Badge Card (Shows registered name & email with edit option) */}
+                    <div className="bg-white rounded-2xl p-3.5 sm:p-4 flex items-center justify-between border border-slate-200 shadow-md">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center shrink-0">
+                          <User className="w-5 h-5 text-slate-500" />
+                        </div>
+                        <div>
+                          <div className="font-extrabold text-slate-900 text-sm leading-tight">
+                            {firstName} {lastName}
+                          </div>
+                          <div className="text-xs text-slate-500 font-mono mt-0.5">
+                            {workEmail}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Edit Button to go back to Step 1 if needed */}
+                      <button
+                        type="button"
+                        onClick={() => setCurrentStep(1)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-all cursor-pointer"
+                        title="Edit email or name"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit</span>
+                      </button>
+                    </div>
+
+                    {/* Business Form Card */}
+                    <div className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 text-slate-800 space-y-4">
+                      
+                      {/* Select Channel */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-2">
+                          Select Channel
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { id: 'WhatsApp', label: 'WhatsApp', icon: WhatsAppIcon, color: 'text-emerald-600' },
+                            { id: 'Instagram', label: 'Instagram', icon: InstagramIcon, color: 'text-purple-600' },
+                            { id: 'Both', label: 'Both', icon: WhatsAppIcon, color: 'text-emerald-700' },
+                          ].map((ch) => {
+                            const Icon = ch.icon;
+                            const isSelected = selectedChannel === ch.id;
+                            return (
+                              <button
+                                key={ch.id}
+                                type="button"
+                                onClick={() => setSelectedChannel(ch.id)}
+                                className={`flex items-center justify-center gap-1.5 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-emerald-50 border-emerald-600 text-emerald-800 shadow-xs'
+                                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400'
+                                }`}
+                              >
+                                <Icon className={`w-3.5 h-3.5 ${ch.color}`} />
+                                <span>{ch.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Business Form Grid */}
+                      <form onSubmit={handleCreateAccount} className="space-y-3.5">
+                        
+                        {/* Row 1: Phone Number & Company Name */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Phone Number */}
+                          <div className="flex rounded-xl border border-slate-300 overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-600 transition-all bg-white">
+                            <span className="inline-flex items-center px-3 bg-slate-50 border-r border-slate-200 text-xs font-bold text-slate-600 select-none">
+                              +91
+                            </span>
+                            <input
+                              type="tel"
+                              value={phone}
+                              onChange={(e) => {
+                                setPhone(e.target.value);
+                                if (formError) setFormError('');
+                              }}
+                              placeholder="Phone Number"
+                              required
+                              className="w-full px-3 py-2.5 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none bg-transparent"
+                            />
+                          </div>
+
+                          {/* Company Name */}
+                          <div>
+                            <input
+                              type="text"
+                              value={companyName}
+                              onChange={(e) => {
+                                setCompanyName(e.target.value);
+                                if (formError) setFormError('');
+                              }}
+                              placeholder="Company Name"
+                              required
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all bg-white"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Row 2: Company Website & Country */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Company Website */}
+                          <div>
+                            <input
+                              type="text"
+                              value={companyWebsite}
+                              onChange={(e) => setCompanyWebsite(e.target.value)}
+                              placeholder="Company Website"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all bg-white"
+                            />
+                          </div>
+
+                          {/* Country Dropdown */}
+                          <div className="relative">
+                            <select
+                              value={country}
+                              onChange={(e) => setCountry(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all appearance-none cursor-pointer pr-8"
+                            >
+                              <option value="India">India</option>
+                              <option value="United States">United States</option>
+                              <option value="United Arab Emirates">United Arab Emirates</option>
+                              <option value="United Kingdom">United Kingdom</option>
+                              <option value="Singapore">Singapore</option>
+                              <option value="Other">Other</option>
+                            </select>
+                            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          </div>
+                        </div>
+
+                        {/* Row 3: State & Annual Revenue (INR) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* State Dropdown */}
+                          <div className="relative">
+                            <select
+                              value={state}
+                              onChange={(e) => setState(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all appearance-none cursor-pointer pr-8"
+                            >
+                              <option value="">State</option>
+                              {INDIAN_STATES.map((st) => (
+                                <option key={st} value={st}>
+                                  {st}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          </div>
+
+                          {/* Annual Revenue (INR) */}
+                          <div className="relative">
+                            <select
+                              value={annualRevenue}
+                              onChange={(e) => setAnnualRevenue(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all appearance-none cursor-pointer pr-8"
+                            >
+                              <option value="< ₹10 Lakhs">&lt; ₹10 Lakhs</option>
+                              <option value="₹10 Lakhs - ₹50 Lakhs">₹10 Lakhs - ₹50 Lakhs</option>
+                              <option value="₹50 Lakhs - ₹2 Crores">₹50 Lakhs - ₹2 Crores</option>
+                              <option value="₹2 Crores - ₹10 Crores">₹2 Crores - ₹10 Crores</option>
+                              <option value="> ₹10 Crores">&gt; ₹10 Crores</option>
+                            </select>
+                            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          </div>
+                        </div>
+
+                        {/* WhatsApp Updates Checkbox */}
+                        <div className="flex items-start gap-2.5 pt-1">
+                          <input
+                            type="checkbox"
+                            id="signupWaUpdates"
+                            checked={whatsappUpdates}
+                            onChange={(e) => setWhatsappUpdates(e.target.checked)}
+                            className="accent-emerald-600 w-4 h-4 rounded mt-0.5 cursor-pointer"
+                          />
+                          <label htmlFor="signupWaUpdates" className="text-xs text-slate-600 leading-snug cursor-pointer flex items-center gap-1.5">
+                            <span>Get updates regarding your ARCO account on WhatsApp</span>
+                            <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          </label>
+                        </div>
+
+                        {/* Visual CAPTCHA Box */}
+                        <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-300 flex items-center justify-between">
+                          <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={captchaChecked}
+                              onChange={(e) => setCaptchaChecked(e.target.checked)}
+                              className="w-5 h-5 rounded border-slate-300 accent-emerald-600 cursor-pointer"
+                            />
+                            <span className="text-xs font-bold text-slate-700">I'm not a robot</span>
+                          </label>
+                          <div className="text-right text-[9px] text-slate-400 font-mono leading-tight">
+                            <div>reCAPTCHA</div>
+                            <span className="text-[8px]">Privacy · Terms</span>
+                          </div>
+                        </div>
+
+                        {/* Primary CTA: Create Account (Vibrant Green Button) */}
+                        <button
+                          type="submit"
+                          disabled={isSubmitting}
+                          className="w-full py-3.5 px-6 rounded-xl bg-[#10b981] hover:bg-[#059669] active:scale-[0.99] text-white font-extrabold text-base shadow-lg shadow-emerald-600/20 hover:shadow-xl transition-all duration-150 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-75 disabled:cursor-not-allowed"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin text-white" />
+                              <span>Creating Account...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Create Account</span>
+                              <ArrowRight className="w-4 h-4" />
+                            </>
+                          )}
+                        </button>
+
+                        {/* Legal Terms Disclaimer */}
+                        <p className="text-[11px] text-slate-400 text-center leading-normal pt-1">
+                          By clicking on “Create Account” you agree to our{' '}
+                          <span className="text-emerald-700 font-semibold hover:underline cursor-pointer">terms and services</span>{' '}
+                          and{' '}
+                          <span className="text-emerald-700 font-semibold hover:underline cursor-pointer">privacy policy</span>.
+                        </p>
+                      </form>
+                    </div>
+
+                  </div>
+                )}
 
               </div>
             </div>
