@@ -191,6 +191,7 @@ const initialConversations = [];
 // Resolves display text for inbox preview & bubble, providing friendly fallbacks for legacy '[Message]' records
 function getMessageDisplayText(msg) {
   if (!msg) return '';
+  if (msg.attachment) return `[Document: ${msg.attachment.name || 'File'}]`;
   if (msg.text && msg.text !== '[Message]') {
     return msg.text;
   }
@@ -208,6 +209,33 @@ function getMessageDisplayText(msg) {
   if (type === 'unsupported') return '[Unsupported Message]';
   return msg.text || '[Incoming Message]';
 }
+
+export function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+const POPULAR_EMOJIS = [
+  {
+    category: 'Smileys & Emotion',
+    emojis: ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂', '😉', '😌', '😍', '🥰', '😘', '😋', '😜', '😎', '🥳', '🤩', '🤔', '🤝', '🙌'],
+  },
+  {
+    category: 'Gestures & People',
+    emojis: ['👍', '👎', '👌', '✌️', '🤞', '🤙', '👏', '🤲', '🙏', '💪', '👋', '✍️', '🙋', '🫡', '👀'],
+  },
+  {
+    category: 'Hearts & Reactions',
+    emojis: ['❤️', '💚', '💙', '💜', '🖤', '🤍', '💔', '❣️', '💕', '💖', '💘', '🔥', '✨', '⭐', '🌟', '💯', '⚡', '🎉', '🎊'],
+  },
+  {
+    category: 'Business & Commerce',
+    emojis: ['📦', '🛍️', '🛒', '🏷️', '📄', '📑', '📊', '📈', '💼', '💳', '💰', '💵', '🚚', '📞', '💬', '🔔', '📍', '✅', '❌', '⚠️', '👓', '🕶️'],
+  },
+];
 
 export default function Inbox() {
   const navigate = useNavigate();
@@ -302,6 +330,14 @@ export default function Inbox() {
   const [shopifyContext, setShopifyContext] = useState(null);
   const [loadingShopifyContext, setLoadingShopifyContext] = useState(false);
   const [shopifyActionExecuting, setShopifyActionExecuting] = useState(null);
+
+  // =========================================================================
+  // ATTACHMENTS (DOCUMENTS) & EMOJI PICKER STATE
+  // =========================================================================
+  const attachmentInputRef = useRef(null);
+  const [selectedAttachment, setSelectedAttachment] = useState(null);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const emojiPickerRef = useRef(null);
 
   // =========================================================================
   // STEP 5: QUICK REPLY & SNIPPETS POPOVER STATE
@@ -693,22 +729,53 @@ export default function Inbox() {
     );
   });
 
+  // Handle document / file attachment from device
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      showToast('File size exceeds 25MB limit', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      setSelectedAttachment({
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        dataUrl: evt.target.result,
+      });
+      showToast(`Document attached: ${file.name}`, 'success');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Insert emoji into message composer
+  const handleInsertEmoji = (emoji) => {
+    setMessageInput((prev) => (prev ? prev + emoji : emoji));
+  };
+
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
-    if (!messageInput.trim() || !selectedChatId) return;
+    if ((!messageInput.trim() && !selectedAttachment) || !selectedChatId) return;
 
     const msgText = messageInput.trim();
+    const attachmentToSend = selectedAttachment;
     const tempId = `m_${Date.now()}`;
     const nowIso = new Date().toISOString();
     const newMsg = {
       id: tempId,
       sender: 'me',
-      text: msgText,
+      text: msgText || (attachmentToSend ? `📄 ${attachmentToSend.name}` : ''),
       time: nowIso,
       timestamp: nowIso,
       createdAt: nowIso,
       status: 'sent',
-      messageType: 'text',
+      messageType: attachmentToSend ? 'document' : 'text',
+      attachment: attachmentToSend,
     };
 
     setConversations((prev) =>
@@ -727,7 +794,13 @@ export default function Inbox() {
     );
 
     setMessageInput('');
-    const sentRes = await inboxService.sendMessage(selectedChatId, msgText);
+    setSelectedAttachment(null);
+    setIsEmojiPickerOpen(false);
+
+    const sentRes = await inboxService.sendMessage(selectedChatId, msgText, 'me', {
+      attachment: attachmentToSend,
+      messageType: attachmentToSend ? 'document' : 'text',
+    });
     if (sentRes) {
       setConversations((prev) =>
         prev.map((c) => {
@@ -1033,6 +1106,17 @@ export default function Inbox() {
     }
     document.addEventListener('mousedown', handleClickOutsideQuickReply);
     return () => document.removeEventListener('mousedown', handleClickOutsideQuickReply);
+  }, []);
+
+  // Close Emoji Picker Popover when clicking outside
+  useEffect(() => {
+    function handleClickOutsideEmoji(e) {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+        setIsEmojiPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutsideEmoji);
+    return () => document.removeEventListener('mousedown', handleClickOutsideEmoji);
   }, []);
 
 
@@ -1730,7 +1814,54 @@ export default function Inbox() {
                                 : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs shadow-xs'
                             }`}
                           >
-                            <p className="whitespace-pre-wrap">{getMessageDisplayText(msg)}</p>
+                            {msg.attachment && (
+                              <div
+                                className={`mb-2 p-2.5 rounded-xl flex items-center gap-2.5 border ${
+                                  isMe
+                                    ? 'bg-emerald-700/60 border-emerald-500/40 text-white'
+                                    : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
+                              >
+                                <div
+                                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                                    isMe ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-700'
+                                  }`}
+                                >
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-bold truncate">
+                                    {msg.attachment.name || 'Document'}
+                                  </p>
+                                  <p
+                                    className={`text-[10px] ${
+                                      isMe ? 'text-emerald-100' : 'text-slate-400'
+                                    }`}
+                                  >
+                                    {msg.attachment.size ? formatFileSize(msg.attachment.size) : 'Document'}
+                                  </p>
+                                </div>
+                                {msg.attachment.dataUrl && (
+                                  <a
+                                    href={msg.attachment.dataUrl}
+                                    download={msg.attachment.name || 'document'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                                      isMe
+                                        ? 'hover:bg-emerald-600 text-white'
+                                        : 'hover:bg-slate-200 text-slate-600'
+                                    }`}
+                                    title="Download / View document"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                            {(!msg.attachment || (msg.text && msg.text !== `📄 ${msg.attachment.name}`)) && (
+                              <p className="whitespace-pre-wrap">{getMessageDisplayText(msg)}</p>
+                            )}
                           </div>
                           <div className="flex items-center gap-1 mt-1 px-1 text-[10px] text-slate-400">
                             <span>{formatMessageTime(msg)}</span>
@@ -1764,15 +1895,86 @@ export default function Inbox() {
 
                   {/* Message Composer with Quick Reply Popover */}
                   <div className="relative">
-                    {/* Quick Reply Popover */}
+                    {/* Selected Document Attachment Preview Banner */}
+                    {selectedAttachment && (
+                      <div className="mx-3 sm:mx-4 mb-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between animate-in slide-in-from-bottom-2 shadow-2xs">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate max-w-xs sm:max-w-md">
+                              {selectedAttachment.name}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-medium">
+                              {formatFileSize(selectedAttachment.size)} • Document ready to send
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAttachment(null)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+                          title="Remove attachment"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Emoji Picker Popover */}
+                    {isEmojiPickerOpen && (
+                      <div
+                        ref={emojiPickerRef}
+                        className="absolute bottom-full mb-2 left-4 sm:left-14 z-40 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 w-72 sm:w-80 space-y-2 animate-in slide-in-from-bottom-2 duration-150 font-sans"
+                      >
+                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                          <div className="flex items-center gap-1.5">
+                            <Smile className="w-3.5 h-3.5 text-emerald-600" />
+                            <span className="text-xs font-bold text-slate-900">Emojis</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsEmojiPickerOpen(false)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="max-h-56 overflow-y-auto space-y-2.5 pr-1">
+                          {POPULAR_EMOJIS.map((group) => (
+                            <div key={group.category}>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                {group.category}
+                              </p>
+                              <div className="grid grid-cols-7 sm:grid-cols-8 gap-1">
+                                {group.emojis.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => handleInsertEmoji(emoji)}
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-lg hover:bg-slate-100 transition-transform active:scale-125 cursor-pointer"
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick Reply Popover (Dedicated Trigger) */}
                     {isQuickReplyOpen && (
                       <div
                         ref={quickReplyRef}
-                        className="absolute bottom-full mb-2 left-4 right-4 sm:left-6 sm:right-auto sm:w-96 z-40 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3.5 space-y-3 animate-in slide-in-from-bottom-2 duration-150 font-sans"
+                        className="absolute bottom-full mb-2 left-4 right-4 sm:left-24 sm:right-auto sm:w-96 z-40 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3.5 space-y-3 animate-in slide-in-from-bottom-2 duration-150 font-sans"
                       >
                         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                           <div className="flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                            <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
                             <h4 className="text-xs font-bold text-slate-900">Quick Reply Snippets</h4>
                           </div>
                           <button
@@ -1826,43 +2028,80 @@ export default function Inbox() {
                     {/* Composer Form */}
                     <form
                       onSubmit={handleSendMessage}
-                      className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0 shadow-2xs"
+                      className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center gap-1.5 sm:gap-2 shrink-0 shadow-2xs"
                     >
+                      {/* Hidden File Input for Device Documents */}
+                      <input
+                        type="file"
+                        ref={attachmentInputRef}
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        accept="*/*"
+                      />
+
+                      {/* 1. Pin / Paperclip: Select document from device */}
                       <button
                         type="button"
-                        onClick={() => showToast('File attachment ready')}
-                        className="p-2.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                        title="Attach file"
+                        onClick={() => attachmentInputRef.current?.click()}
+                        className={`p-2.5 rounded-xl transition-colors cursor-pointer ${
+                          selectedAttachment
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                        }`}
+                        title="Attach document from device"
                       >
                         <Paperclip className="w-4 h-4" />
                       </button>
 
+                      {/* 2. Emoji: Opens Emoji Picker */}
                       <button
                         type="button"
-                        onClick={() => setIsQuickReplyOpen(!isQuickReplyOpen)}
+                        onClick={() => {
+                          setIsEmojiPickerOpen(!isEmojiPickerOpen);
+                          setIsQuickReplyOpen(false);
+                        }}
                         className={`p-2.5 rounded-xl transition-colors cursor-pointer ${
-                          isQuickReplyOpen
+                          isEmojiPickerOpen
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
                         }`}
-                        title="Insert quick reply snippet or approved template"
+                        title="Insert emoji"
                       >
                         <Smile className="w-4 h-4" />
                       </button>
 
+                      {/* 3. Dedicated Quick Reply Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsQuickReplyOpen(!isQuickReplyOpen);
+                          setIsEmojiPickerOpen(false);
+                        }}
+                        className={`p-2.5 rounded-xl transition-colors cursor-pointer ${
+                          isQuickReplyOpen
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'text-slate-400 hover:text-amber-600 hover:bg-slate-100'
+                        }`}
+                        title="Quick Reply Snippets (Access saved templates)"
+                      >
+                        <Zap className="w-4 h-4" />
+                      </button>
+
+                      {/* Text Input */}
                       <input
                         type="text"
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
-                        placeholder="Type a message or click smile for quick replies..."
+                        placeholder="Type a message..."
                         className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-medium"
                       />
 
+                      {/* Send Button */}
                       <button
                         type="submit"
-                        disabled={!messageInput.trim()}
+                        disabled={!messageInput.trim() && !selectedAttachment}
                         className={`p-2.5 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                          messageInput.trim()
+                          messageInput.trim() || selectedAttachment
                             ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 hover:shadow-lg'
                             : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                         }`}

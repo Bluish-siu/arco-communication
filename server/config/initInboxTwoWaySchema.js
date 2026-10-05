@@ -9,7 +9,8 @@ export async function initInboxTwoWaySchema() {
       ADD COLUMN IF NOT EXISTS meta_message_id VARCHAR(120),
       ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'sent',
       ADD COLUMN IF NOT EXISTS error_message TEXT,
-      ADD COLUMN IF NOT EXISTS message_type VARCHAR(50) DEFAULT 'text';
+      ADD COLUMN IF NOT EXISTS message_type VARCHAR(50) DEFAULT 'text',
+      ADD COLUMN IF NOT EXISTS attachment JSONB;
     `);
 
     // 2. Add 24-Hour WhatsApp Session Window tracking to conversations table

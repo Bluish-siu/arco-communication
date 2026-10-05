@@ -203,6 +203,7 @@ export const inboxController = {
               status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
               errorMessage: m.error_message || null,
               messageType: m.message_type || 'text',
+              attachment: m.attachment ? (typeof m.attachment === 'string' ? JSON.parse(m.attachment) : m.attachment) : null,
             };
           }),
         };
@@ -297,10 +298,10 @@ export const inboxController = {
   sendMessage: async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { text, sender } = req.body;
+      const { text, sender, attachment, messageType } = req.body;
 
-      if (!text || !text.trim()) {
-        return res.status(400).json({ success: false, error: 'Message text is required' });
+      if ((!text || !text.trim()) && !attachment) {
+        return res.status(400).json({ success: false, error: 'Message text or document attachment is required' });
       }
 
       const effectiveUserId = req.user?.id || 'usr_1790574599220';
@@ -337,14 +338,15 @@ export const inboxController = {
       const now = new Date();
       const isoNow = now.toISOString();
       const msgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const cleanText = text.trim();
+      const cleanText = (text || '').trim() || (attachment?.name ? `📄 ${attachment.name}` : '');
+      const finalMessageType = messageType || (attachment ? 'document' : 'text');
 
       let metaMessageId = null;
       let msgStatus = 'sent';
       let errorMessage = null;
 
       // If channel is whatsapp, dispatch through Meta Cloud API
-      if (conv.channel === 'whatsapp') {
+      if (conv.channel === 'whatsapp' && cleanText) {
         try {
           const sendResult = await metaWhatsAppService.sendTextMessage({
             to: conv.phone,
@@ -378,7 +380,8 @@ export const inboxController = {
         meta_message_id: metaMessageId,
         status: msgStatus,
         error_message: errorMessage,
-        message_type: 'text',
+        message_type: finalMessageType,
+        attachment: attachment ? (typeof attachment === 'object' ? JSON.stringify(attachment) : attachment) : null,
       });
 
       await db.update('conversations', id, {
@@ -407,6 +410,7 @@ export const inboxController = {
           status: newMsg.status,
           errorMessage: newMsg.error_message,
           messageType: newMsg.message_type,
+          attachment: attachment ? (typeof attachment === 'string' ? JSON.parse(attachment) : attachment) : null,
         },
       });
     } catch (error) {
@@ -563,6 +567,7 @@ export const inboxController = {
               status: m.status || (m.sender === 'contact' ? 'delivered' : 'sent'),
               errorMessage: m.error_message || null,
               messageType: m.message_type || 'text',
+              attachment: m.attachment ? (typeof m.attachment === 'string' ? JSON.parse(m.attachment) : m.attachment) : null,
             };
           }),
         },

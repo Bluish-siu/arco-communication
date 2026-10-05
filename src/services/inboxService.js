@@ -33,11 +33,11 @@ export const inboxService = {
     }
   },
 
-  sendMessage: async (conversationId, text, sender = 'me') => {
+  sendMessage: async (conversationId, text, sender = 'me', options = {}) => {
     try {
       const res = await apiRequest(`/inbox/conversations/${conversationId}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ text, sender }),
+        body: JSON.stringify({ text, sender, ...options }),
       });
       return res.data;
     } catch {
