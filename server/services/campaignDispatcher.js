@@ -267,15 +267,15 @@ export async function dispatchBatch(campaign, recipients) {
             convId = `cnv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             await query(
               `INSERT INTO conversations (
-                 id, name, channel, status, phone, unread_count, last_message_time,
+                 id, user_id, name, channel, status, phone, unread_count, last_message_time,
                  tag, status_filter, assignee, reply_status, response_window,
                  is_spam, created_at, updated_at
                ) VALUES (
-                 $1, $2, 'whatsapp', 'Online', $3, 0, 'Just now',
+                 $1, $2, $3, 'whatsapp', 'Online', $4, 0, 'Just now',
                  'Campaign Lead', 'open', 'Unassigned', 'replied', 'active',
                  false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                )`,
-              [convId, contactName, fromPhone]
+              [convId, campaign.user_id || 'usr_1790574599220', contactName, fromPhone]
             );
           }
 
@@ -299,13 +299,13 @@ export async function dispatchBatch(campaign, recipients) {
           const msgId = `m_cmp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
           await query(
             `INSERT INTO messages (
-               id, conversation_id, sender, text, time, timestamp, meta_message_id,
+               id, user_id, conversation_id, sender, text, time, timestamp, meta_message_id,
                status, message_type, created_at
              ) VALUES (
-               $1, $2, 'me', $3, $4, CURRENT_TIMESTAMP, $5,
+               $1, $2, $3, 'me', $4, $5, CURRENT_TIMESTAMP, $6,
                'sent', 'template', CURRENT_TIMESTAMP
              )`,
-            [msgId, convId, campaignMsgText, new Date().toISOString(), sentWamid]
+            [msgId, campaign.user_id || 'usr_1790574599220', convId, campaignMsgText, new Date().toISOString(), sentWamid]
           );
 
           await query(

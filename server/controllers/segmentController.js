@@ -57,12 +57,34 @@ export const segmentController = {
   // GET /api/segments (Fetches saved segments and calculates live recipient count for each)
   getAll: async (req, res, next) => {
     try {
-      const result = await query('SELECT * FROM segments ORDER BY created_at DESC');
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      let sql = 'SELECT * FROM segments WHERE 1=1';
+      const segParams = [];
+      if (isAdminNilesh) {
+        segParams.push('usr_1790574599220');
+        sql += ` AND (user_id = $${segParams.length} OR user_id IS NULL)`;
+      } else {
+        segParams.push(effectiveUserId);
+        sql += ` AND user_id = $${segParams.length}`;
+      }
+      sql += ' ORDER BY created_at DESC';
+
+      const result = await query(sql, segParams);
 
       const segmentsWithLiveCount = await Promise.all(
         result.rows.map(async (s) => {
           let countSql = 'SELECT COUNT(*) FROM contacts WHERE 1=1';
           let params = [];
+
+          if (isAdminNilesh) {
+            params.push('usr_1790574599220');
+            countSql += ` AND (user_id = $${params.length} OR user_id IS NULL)`;
+          } else {
+            params.push(effectiveUserId);
+            countSql += ` AND user_id = $${params.length}`;
+          }
 
           let conditions = s.conditions;
           if (typeof conditions === 'string') {
@@ -108,12 +130,18 @@ export const segmentController = {
   getById: async (req, res, next) => {
     try {
       const { id } = req.params;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const result = await query('SELECT * FROM segments WHERE id = $1', [id]);
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Segment not found' });
       }
 
       const s = result.rows[0];
+      if (!isAdminNilesh && s.user_id && s.user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Segment not found' });
+      }
       let conditions = s.conditions;
       if (typeof conditions === 'string') {
         try {
@@ -175,8 +203,18 @@ export const segmentController = {
         }
       }
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       let countSql = 'SELECT COUNT(*) FROM contacts WHERE 1=1';
       let params = [];
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        countSql += ` AND (user_id = $${params.length} OR user_id IS NULL)`;
+      } else {
+        params.push(effectiveUserId);
+        countSql += ` AND user_id = $${params.length}`;
+      }
 
       if (Array.isArray(finalConditions) && finalConditions.length > 0) {
         const { clause, params: updatedParams } = buildConditionClause(finalConditions, logic, params);
@@ -189,11 +227,12 @@ export const segmentController = {
 
       const segmentId = `seg_${Date.now()}`;
       const result = await query(
-        `INSERT INTO segments (id, name, description, filter_type, conditions, estimated_count, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `INSERT INTO segments (id, user_id, name, description, filter_type, conditions, estimated_count, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          RETURNING *`,
         [
           segmentId,
+          effectiveUserId,
           name.trim(),
           description ? description.trim() : '',
           filterType,
@@ -222,6 +261,16 @@ export const segmentController = {
     try {
       const { id } = req.params;
       const { name, description, conditions, logic = 'AND', whatsappOpted } = req.body;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      const existing = await query('SELECT * FROM segments WHERE id = $1', [id]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Segment not found' });
+      }
+      if (!isAdminNilesh && existing.rows[0].user_id && existing.rows[0].user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Segment not found' });
+      }
 
       const updates = [];
       const values = [];
@@ -245,10 +294,6 @@ export const segmentController = {
       const sql = `UPDATE segments SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`;
       const result = await query(sql, values);
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Segment not found' });
-      }
-
       res.json({ success: true, message: 'Segment updated', data: result.rows[0] });
     } catch (error) {
       next(error);
@@ -259,10 +304,18 @@ export const segmentController = {
   delete: async (req, res, next) => {
     try {
       const { id } = req.params;
-      const result = await query('DELETE FROM segments WHERE id = $1 RETURNING id', [id]);
-      if (result.rows.length === 0) {
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      const existing = await query('SELECT * FROM segments WHERE id = $1', [id]);
+      if (existing.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Segment not found' });
       }
+      if (!isAdminNilesh && existing.rows[0].user_id && existing.rows[0].user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Segment not found' });
+      }
+
+      await query('DELETE FROM segments WHERE id = $1', [id]);
       res.json({ success: true, message: 'Segment deleted successfully' });
     } catch (error) {
       next(error);

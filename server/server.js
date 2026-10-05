@@ -20,6 +20,7 @@ import { initDelayedAutomationSchema } from './config/initDelayedAutomationTable
 import { initMetaIntegrationsTable } from './config/initMetaTable.js';
 import { initShopifyWidgetsTable } from './config/initShopifyWidgetsTable.js';
 import { initAuthOtpsTable } from './config/initAuthOtpsTable.js';
+import { migrateMultiTenantDataIsolation } from './config/migrateMultiTenantDataIsolation.js';
 import { startBasicAutomationScheduler } from './services/basicAutomationEngine.js';
 
 const app = express();
@@ -128,6 +129,7 @@ const server = app.listen(PORT, HOST, async () => {
     await initMetaIntegrationsTable();
     await initShopifyWidgetsTable();
     await initAuthOtpsTable();
+    await migrateMultiTenantDataIsolation();
     await query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;

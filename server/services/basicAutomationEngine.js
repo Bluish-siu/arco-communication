@@ -149,7 +149,7 @@ export const basicAutomationEngine = {
       return contactUserId;
     }
 
-    return 'usr_1';
+    return 'usr_1790574599220';
   },
 
   /**
@@ -282,11 +282,12 @@ export const basicAutomationEngine = {
         const msgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         await query(
           `INSERT INTO messages (
-             id, conversation_id, sender, text, time, timestamp, meta_message_id,
+             id, user_id, conversation_id, sender, text, time, timestamp, meta_message_id,
              status, error_message, message_type, created_at
-           ) VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7, $8, 'text', CURRENT_TIMESTAMP)`,
+           ) VALUES ($1, $2, $3, 'agent', $4, $5, $6, $7, $8, $9, 'text', CURRENT_TIMESTAMP)`,
           [
             msgId,
+            userId || 'usr_1790574599220',
             conversationId,
             cleanText,
             isoNow,

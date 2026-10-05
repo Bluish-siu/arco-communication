@@ -195,13 +195,24 @@ export const contactController = {
 
       let sql = `
         SELECT c.* FROM contacts c
-        WHERE EXISTS (
-          SELECT 1 FROM conversations conv 
-          WHERE conv.phone = c.phone 
-             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
-        )
+        WHERE 1=1
       `;
       let params = [];
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        sql += ` AND (c.user_id = $${params.length} OR c.user_id IS NULL)
+                 AND EXISTS (
+                   SELECT 1 FROM conversations conv 
+                   WHERE conv.phone = c.phone 
+                      OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+                 )`;
+      } else {
+        params.push(effectiveUserId);
+        sql += ` AND c.user_id = $${params.length}`;
+      }
 
       // 1. Search Query
       if (search && search.trim()) {
@@ -270,18 +281,28 @@ export const contactController = {
       const result = await query(sql, params);
 
       // Status breakdown & opt-in counts for filter pills (strictly for inbox contacts)
-      const summaryRes = await query(`
+      const summaryParams = [];
+      let summarySql = `
         SELECT 
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE c.whatsapp_opted = true) as whatsapp_opted_count,
           COUNT(*) FILTER (WHERE c.whatsapp_opted = false) as whatsapp_non_opted_count
         FROM contacts c
-        WHERE EXISTS (
-          SELECT 1 FROM conversations conv 
-          WHERE conv.phone = c.phone 
-             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
-        )
-      `);
+        WHERE 1=1
+      `;
+      if (isAdminNilesh) {
+        summaryParams.push('usr_1790574599220');
+        summarySql += ` AND (c.user_id = $${summaryParams.length} OR c.user_id IS NULL)
+                        AND EXISTS (
+                          SELECT 1 FROM conversations conv 
+                          WHERE conv.phone = c.phone 
+                             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+                        )`;
+      } else {
+        summaryParams.push(effectiveUserId);
+        summarySql += ` AND c.user_id = $${summaryParams.length}`;
+      }
+      const summaryRes = await query(summarySql, summaryParams);
 
       const formatted = result.rows.map((c) => ({
         id: c.id,
@@ -311,9 +332,9 @@ export const contactController = {
         limit,
         totalPages: Math.ceil(total / limit) || 1,
         counts: {
-          total: parseInt(summaryRes.rows[0].total, 10),
-          whatsappOpted: parseInt(summaryRes.rows[0].whatsapp_opted_count, 10),
-          whatsappNonOpted: parseInt(summaryRes.rows[0].whatsapp_non_opted_count, 10),
+          total: parseInt(summaryRes.rows[0]?.total || 0, 10),
+          whatsappOpted: parseInt(summaryRes.rows[0]?.whatsapp_opted_count || 0, 10),
+          whatsappNonOpted: parseInt(summaryRes.rows[0]?.whatsapp_non_opted_count || 0, 10),
         },
       });
     } catch (error) {
@@ -333,15 +354,27 @@ export const contactController = {
         status,
       } = req.query;
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       let sql = `
         SELECT COUNT(*) FROM contacts c
-        WHERE EXISTS (
-          SELECT 1 FROM conversations conv 
-          WHERE conv.phone = c.phone 
-             OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
-        )
+        WHERE 1=1
       `;
       let params = [];
+
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        sql += ` AND (c.user_id = $${params.length} OR c.user_id IS NULL)
+                 AND EXISTS (
+                   SELECT 1 FROM conversations conv 
+                   WHERE conv.phone = c.phone 
+                      OR regexp_replace(conv.phone, '[^0-9]', '', 'g') LIKE '%' || RIGHT(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+                 )`;
+      } else {
+        params.push(effectiveUserId);
+        sql += ` AND c.user_id = $${params.length}`;
+      }
 
       let conditionsToApply = [];
       if (savedSegmentId && savedSegmentId !== 'all') {
@@ -398,8 +431,12 @@ export const contactController = {
 
       const normalizedPhone = normalizePhoneNumber(phone, countryCode);
 
-      // Duplicate Check
-      const existing = await query('SELECT id, name FROM contacts WHERE phone = $1', [normalizedPhone]);
+      const safeUserId = req.user?.id || 'usr_1790574599220';
+      const safeTag = tag || (Array.isArray(tags) && tags.length > 0 ? tags[0] : 'Lead');
+      const safeTags = Array.isArray(tags) && tags.length > 0 ? tags : [safeTag];
+
+      // Duplicate Check scoped to tenant
+      const existing = await query('SELECT id, name FROM contacts WHERE phone = $1 AND (user_id = $2 OR user_id IS NULL)', [normalizedPhone, safeUserId]);
       if (existing.rows.length > 0) {
         return res.status(409).json({
           success: false,
@@ -409,9 +446,6 @@ export const contactController = {
       }
 
       const contactId = `cnt_${Date.now()}`;
-      const safeUserId = userId ? userId.trim() : `USR_${contactId.slice(4)}`;
-      const safeTag = tag || (Array.isArray(tags) && tags.length > 0 ? tags[0] : 'Lead');
-      const safeTags = Array.isArray(tags) && tags.length > 0 ? tags : [safeTag];
 
       const insertRes = await query(
         `INSERT INTO contacts (
@@ -464,8 +498,16 @@ export const contactController = {
       const failedRows = [];
       const seenBatchPhones = new Set();
 
-      // 1. Fetch all existing phones in database for fast O(1) set lookup
-      const existingPhonesRes = await client.query('SELECT phone FROM contacts');
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      // 1. Fetch all existing phones in database for fast O(1) set lookup for this user
+      let existingPhonesRes;
+      if (isAdminNilesh) {
+        existingPhonesRes = await client.query('SELECT phone FROM contacts WHERE user_id = $1 OR user_id IS NULL', ['usr_1790574599220']);
+      } else {
+        existingPhonesRes = await client.query('SELECT phone FROM contacts WHERE user_id = $1', [effectiveUserId]);
+      }
       const dbPhoneSet = new Set(existingPhonesRes.rows.map((r) => r.phone));
 
       // 2. Validate & deduplicate rows in memory
@@ -474,7 +516,6 @@ export const contactController = {
         const rawName = row.name || row.Name || row['Full Name'];
         const rawPhone = row.phone || row.Phone || row['Phone Number'] || row.mobile || row.Mobile;
         const rawEmail = row.email || row.Email || '';
-        const rawUserId = row.userId || row.user_id || row['User ID'] || '';
         const rawTag = row.tag || row.Tag || row.tags || 'Lead';
         const rawSegment = row.segment || row.Segment || 'High Intent';
         const rawStatus = row.status || row.Status || 'Open Lead';
@@ -504,11 +545,10 @@ export const contactController = {
 
         const isOpted = typeof rawOpted === 'string' ? rawOpted.toLowerCase() !== 'false' && rawOpted.toLowerCase() !== 'no' : Boolean(rawOpted);
         const contactId = `cnt_csv_${Date.now()}_${idx}`;
-        const userId = rawUserId || `USR_${contactId.slice(8)}`;
 
         validRows.push({
           id: contactId,
-          userId,
+          userId: effectiveUserId,
           name: String(rawName).trim(),
           phone: normalizedPhone,
           countryCode: normalizedPhone.startsWith('+91') ? '+91' : '+1',
@@ -592,6 +632,8 @@ export const contactController = {
     try {
       const { id } = req.params;
       const { name, phone, email, tag, tags, segment, status, whatsappOpted, value, notes, owner } = req.body;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
 
       const updates = [];
       const values = [];
@@ -644,7 +686,13 @@ export const contactController = {
       updates.push('updated_at = CURRENT_TIMESTAMP');
       values.push(id);
 
-      const sql = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`;
+      let sql = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $${values.length}`;
+      if (!isAdminNilesh) {
+        values.push(effectiveUserId);
+        sql += ` AND user_id = $${values.length}`;
+      }
+      sql += ' RETURNING *';
+
       const result = await query(sql, values);
 
       if (result.rows.length === 0) {
@@ -661,7 +709,18 @@ export const contactController = {
   delete: async (req, res, next) => {
     try {
       const { id } = req.params;
-      const result = await query('DELETE FROM contacts WHERE id = $1 RETURNING id', [id]);
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      let sql = 'DELETE FROM contacts WHERE id = $1';
+      const params = [id];
+      if (!isAdminNilesh) {
+        params.push(effectiveUserId);
+        sql += ' AND user_id = $2';
+      }
+      sql += ' RETURNING id';
+
+      const result = await query(sql, params);
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Contact not found' });
       }
@@ -679,7 +738,17 @@ export const contactController = {
         return res.status(400).json({ success: false, error: 'ids array is required' });
       }
 
-      await query('DELETE FROM contacts WHERE id = ANY($1::text[])', [ids]);
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      let sql = 'DELETE FROM contacts WHERE id = ANY($1::text[])';
+      const params = [ids];
+      if (!isAdminNilesh) {
+        params.push(effectiveUserId);
+        sql += ' AND user_id = $2';
+      }
+
+      await query(sql, params);
       res.json({ success: true, message: `Successfully deleted ${ids.length} contacts` });
     } catch (error) {
       next(error);
@@ -699,18 +768,25 @@ export const contactController = {
         return res.status(400).json({ success: false, error: 'At least one tag is required' });
       }
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       for (const t of tagsToAdd) {
-        await query(
-          `UPDATE contacts 
+        let sql = `UPDATE contacts 
            SET tag = $1, 
                tags = CASE 
                  WHEN tags @> jsonb_build_array($1::text) THEN tags 
                  ELSE tags || jsonb_build_array($1::text) 
                END,
                updated_at = CURRENT_TIMESTAMP 
-           WHERE id = ANY($2::text[])`,
-          [t, ids]
-        );
+           WHERE id = ANY($2::text[])`;
+        const params = [t, ids];
+        if (!isAdminNilesh) {
+          params.push(effectiveUserId);
+          sql += ' AND user_id = $3';
+        }
+
+        await query(sql, params);
       }
 
       res.json({ success: true, message: `Assigned ${tagsToAdd.length} tag(s) to ${ids.length} contacts` });

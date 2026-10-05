@@ -316,15 +316,30 @@ export const whatsappController = {
                 continue;
               }
 
+              const phoneNumberId = change?.metadata?.phone_number_id;
+              let tenantUserId = 'usr_1790574599220';
+              if (phoneNumberId) {
+                try {
+                  const metaRes = await query(
+                    `SELECT user_id FROM meta_integrations WHERE phone_number_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+                    [phoneNumberId]
+                  );
+                  if (metaRes.rows.length > 0 && metaRes.rows[0].user_id) {
+                    tenantUserId = metaRes.rows[0].user_id;
+                  }
+                } catch (metaErr) {
+                  console.warn('[WhatsApp Webhook] Error resolving tenant by phone_number_id:', metaErr.message);
+                }
+              }
+
               // A. Contact Lookup / Auto-Create
               let contact = null;
               const contactRes = await query(
                 `SELECT * FROM contacts
-                 WHERE phone = $1
-                    OR phone = $2
-                    OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3
+                 WHERE (phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+                   AND (user_id = $4 OR user_id IS NULL)
                  LIMIT 1`,
-                [fromPhone, fromRaw, clean10]
+                [fromPhone, fromRaw, clean10, tenantUserId]
               );
 
               // Check for explicit opt-in / opt-out intent in message text
@@ -380,11 +395,12 @@ export const whatsappController = {
                 const contactEmail = priorCampaignOpt.rows[0]?.email || '';
 
                 const newContactRes = await query(
-                  `INSERT INTO contacts (id, name, phone, email, whatsapp_opted, tag, status, owner, created_at, updated_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  `INSERT INTO contacts (id, user_id, name, phone, email, whatsapp_opted, tag, status, owner, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                    RETURNING *`,
                   [
                     newContactId,
+                    tenantUserId,
                     contactName,
                     fromPhone,
                     contactEmail,
@@ -403,8 +419,9 @@ export const whatsappController = {
                 `SELECT * FROM conversations
                  WHERE (phone = $1 OR phone = $2 OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
                    AND channel = 'whatsapp'
+                   AND (user_id = $4 OR user_id IS NULL)
                  LIMIT 1`,
-                [fromPhone, fromRaw, clean10]
+                [fromPhone, fromRaw, clean10, tenantUserId]
               );
 
             const timeIso = timestamp.toISOString();
@@ -434,7 +451,7 @@ export const whatsappController = {
                   contactEmail: contact?.email || '',
                   tag: contact?.tag || 'Lead',
                   channel: 'whatsapp',
-                  userId: contact?.user_id || 'usr_1',
+                  userId: contact?.user_id || tenantUserId,
                 });
                 if (assignResult?.assignedAgent && assignResult.assignedAgent !== 'Unassigned') {
                   assignedAgent = assignResult.assignedAgent;
@@ -446,16 +463,17 @@ export const whatsappController = {
               const newConvId = `cnv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
               const newConvRes = await query(
                 `INSERT INTO conversations (
-                   id, name, channel, status, phone, unread_count, last_message_time,
+                   id, user_id, name, channel, status, phone, unread_count, last_message_time,
                    tag, status_filter, assignee, reply_status, response_window,
                    last_inbound_at, is_spam, created_at, updated_at
                  ) VALUES (
-                   $1, $2, 'whatsapp', 'Online', $3, 1, 'Just now',
-                   $4, 'open', $5, 'unreplied', 'active',
-                   $6, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                   $1, $2, $3, 'whatsapp', 'Online', $4, 1, 'Just now',
+                   $5, 'open', $6, 'unreplied', 'active',
+                   $7, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                  ) RETURNING *`,
                 [
                   newConvId,
+                  tenantUserId,
                   contact?.name || senderProfileName || fromPhone,
                   fromPhone,
                   contact?.tag || 'Lead',
@@ -475,14 +493,15 @@ export const whatsappController = {
             const newMsgId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             await query(
               `INSERT INTO messages (
-                 id, conversation_id, sender, text, time, timestamp, meta_message_id,
+                 id, user_id, conversation_id, sender, text, time, timestamp, meta_message_id,
                  status, error_message, message_type, created_at
                ) VALUES (
-                 $1, $2, 'contact', $3, $4, $5, $6,
-                 'delivered', NULL, $7, $8
+                 $1, $2, $3, 'contact', $4, $5, $6, $7,
+                 'delivered', NULL, $8, $9
                )`,
               [
                 newMsgId,
+                tenantUserId,
                 conv.id,
                 messageText,
                 timeIso,

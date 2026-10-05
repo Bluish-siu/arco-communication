@@ -118,7 +118,17 @@ export const campaignController = {
         ) r ON c.id = r.campaign_id
         WHERE 1=1
       `;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const params = [];
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        sql += ` AND (c.user_id = $${params.length} OR c.user_id IS NULL)`;
+      } else {
+        params.push(effectiveUserId);
+        sql += ` AND c.user_id = $${params.length}`;
+      }
 
       if (type && type !== 'all') {
         params.push(type.toLowerCase());
@@ -199,6 +209,9 @@ export const campaignController = {
   getById: async (req, res, next) => {
     try {
       const { id } = req.params;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const result = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
 
       if (result.rows.length === 0) {
@@ -206,6 +219,9 @@ export const campaignController = {
       }
 
       const c = result.rows[0];
+      if (!isAdminNilesh && c.user_id && c.user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      }
 
       // Query live recipient breakdown from campaign_recipients if available
       const recipientStatsRes = await query(
@@ -404,6 +420,16 @@ export const campaignController = {
         // 2. Build audience query to select contacts from PostgreSQL
         let audienceSql = 'SELECT id, name, phone, email, country_code, whatsapp_opted FROM contacts WHERE 1=1';
         const audienceParams = [];
+        const effectiveUserId = req.user?.id || 'usr_1790574599220';
+        const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+        if (isAdminNilesh) {
+          audienceParams.push('usr_1790574599220');
+          audienceSql += ` AND (user_id = $${audienceParams.length} OR user_id IS NULL)`;
+        } else {
+          audienceParams.push(effectiveUserId);
+          audienceSql += ` AND user_id = $${audienceParams.length}`;
+        }
 
         if (audienceType === 'shopify') {
           const shopifySeg = audienceFilter?.shopifySegment || 'all';
@@ -493,15 +519,16 @@ export const campaignController = {
       // 3. Insert campaign master record
       const result = await query(
         `INSERT INTO campaigns (
-           id, name, description, channel, type, category, status, recipients, delivered, read, replied,
+           id, user_id, name, description, channel, type, category, status, recipients, delivered, read, replied,
            scheduled_for, schedule_timezone, audience_type, audience_filter, template_id, template_name,
            template_language, template_category, template_payload, variable_mapping, recurring_config,
            post_campaign_reply_flows, created_by, created_at, updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, 0, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          RETURNING *`,
         [
           campaignId,
+          req.user?.id || 'usr_1790574599220',
           name.trim(),
           description ? description.trim() : '',
           channel || 'whatsapp',
@@ -977,8 +1004,14 @@ export const campaignController = {
         postCampaignReplyFlows,
       } = req.body;
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const existing = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
       if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Campaign not found' });
+      }
+      if (!isAdminNilesh && existing.rows[0].user_id && existing.rows[0].user_id !== effectiveUserId) {
         return res.status(404).json({ success: false, error: 'Campaign not found' });
       }
 
@@ -1044,10 +1077,18 @@ export const campaignController = {
         return res.status(400).json({ success: false, error: 'Status is required' });
       }
 
-      const result = await query(
-        `UPDATE campaigns SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
-        [status, id]
-      );
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      let sql = `UPDATE campaigns SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`;
+      const params = [status, id];
+      if (!isAdminNilesh) {
+        params.push(effectiveUserId);
+        sql += ` AND user_id = $3`;
+      }
+      sql += ' RETURNING *';
+
+      const result = await query(sql, params);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Campaign not found' });
@@ -1067,7 +1108,18 @@ export const campaignController = {
   delete: async (req, res, next) => {
     try {
       const { id } = req.params;
-      const result = await query('DELETE FROM campaigns WHERE id = $1 RETURNING id', [id]);
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      let sql = 'DELETE FROM campaigns WHERE id = $1';
+      const params = [id];
+      if (!isAdminNilesh) {
+        params.push(effectiveUserId);
+        sql += ' AND user_id = $2';
+      }
+      sql += ' RETURNING id';
+
+      const result = await query(sql, params);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Campaign not found' });
@@ -1083,8 +1135,19 @@ export const campaignController = {
   getAudiences: async (req, res, next) => {
     try {
       const { audienceType, segment, tag, status, whatsapp_opted, savedSegmentId, shopifySegment } = req.query;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       let sql = 'SELECT COUNT(*) FROM contacts WHERE 1=1';
       const params = [];
+
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        sql += ` AND (user_id = $${params.length} OR user_id IS NULL)`;
+      } else {
+        params.push(effectiveUserId);
+        sql += ` AND user_id = $${params.length}`;
+      }
 
       if (audienceType === 'shopify') {
         const shopifySeg = shopifySegment || 'all';

@@ -174,15 +174,18 @@ async function persistOutboundReply({ conversationId, text, metaMessageId }) {
     const newMsgId = `m_wf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const timeIso = now.toISOString();
 
+    const convRes = await query('SELECT user_id FROM conversations WHERE id = $1 LIMIT 1', [conversationId]);
+    const tenantUserId = convRes.rows[0]?.user_id || 'usr_1790574599220';
+
     await query(
       `INSERT INTO messages (
-         id, conversation_id, sender, text, time, timestamp, meta_message_id,
+         id, user_id, conversation_id, sender, text, time, timestamp, meta_message_id,
          status, error_message, message_type, created_at
        ) VALUES (
-         $1, $2, 'agent', $3, $4, $5, $6,
-         'sent', NULL, 'text', $7
+         $1, $2, $3, 'agent', $4, $5, $6, $7,
+         'sent', NULL, 'text', $8
        )`,
-      [newMsgId, conversationId, text, timeIso, now, metaMessageId || null, now]
+      [newMsgId, tenantUserId, conversationId, text, timeIso, now, metaMessageId || null, now]
     );
 
     await query(

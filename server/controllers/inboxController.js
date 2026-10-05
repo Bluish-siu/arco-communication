@@ -24,8 +24,19 @@ export const inboxController = {
         search,
       } = req.query;
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       let sql = 'SELECT * FROM conversations WHERE 1=1';
       const params = [];
+
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        sql += ` AND (user_id = $${params.length} OR user_id IS NULL)`;
+      } else {
+        params.push(effectiveUserId);
+        sql += ` AND user_id = $${params.length}`;
+      }
 
       // 1. Status Filter (open, closed, all)
       if (status && status !== 'all') {
@@ -138,15 +149,26 @@ export const inboxController = {
       sql += ' ORDER BY updated_at DESC';
       const convsResult = await query(sql, params);
 
-      // Fetch messages for each conversation
-      const conversations = [];
-      for (const conv of convsResult.rows) {
+      // Batch fetch messages for all returned conversations in a single high-performance query
+      const convIds = convsResult.rows.map((c) => c.id);
+      const msgsByConvId = {};
+      if (convIds.length > 0) {
         const msgsResult = await query(
-          'SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC',
-          [conv.id]
+          'SELECT * FROM messages WHERE conversation_id = ANY($1::text[]) ORDER BY created_at ASC',
+          [convIds]
         );
+        for (const m of msgsResult.rows) {
+          if (!msgsByConvId[m.conversation_id]) {
+            msgsByConvId[m.conversation_id] = [];
+          }
+          msgsByConvId[m.conversation_id].push(m);
+        }
+      }
 
-        conversations.push({
+      // Map conversation summaries
+      const conversations = convsResult.rows.map((conv) => {
+        const rawMsgs = msgsByConvId[conv.id] || [];
+        return {
           id: conv.id,
           name: conv.name,
           channel: conv.channel,
@@ -167,7 +189,7 @@ export const inboxController = {
           isSpam: conv.is_spam || false,
           updatedAt: toUtcIsoString(conv.updated_at),
           createdAt: toUtcIsoString(conv.created_at),
-          messages: msgsResult.rows.map((m) => {
+          messages: rawMsgs.map((m) => {
             const rawTime = m.created_at || m.timestamp;
             const isoString = toUtcIsoString(rawTime);
             return {
@@ -183,8 +205,8 @@ export const inboxController = {
               messageType: m.message_type || 'text',
             };
           }),
-        });
-      }
+        };
+      });
 
       res.json({ success: true, count: conversations.length, data: conversations });
     } catch (error) {
@@ -206,8 +228,11 @@ export const inboxController = {
       const isoNow = now.toISOString();
       const initialText = initialMessage || `Hi ${name.trim()}, thank you for connecting with ARCO Communication!`;
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+
       const newConv = await db.insert('conversations', {
         id: convId,
+        user_id: effectiveUserId,
         name: name.trim(),
         channel: channel || 'whatsapp',
         status: 'Online',
@@ -223,6 +248,7 @@ export const inboxController = {
 
       const newMsg = await db.insert('messages', {
         id: msgId,
+        user_id: effectiveUserId,
         conversation_id: convId,
         sender: 'me',
         text: initialText,
@@ -277,8 +303,14 @@ export const inboxController = {
         return res.status(400).json({ success: false, error: 'Message text is required' });
       }
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const conv = await db.findOne('conversations', 'id = $1', [id]);
       if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+      if (!isAdminNilesh && conv.user_id && conv.user_id !== effectiveUserId) {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
@@ -336,6 +368,7 @@ export const inboxController = {
 
       const newMsg = await db.insert('messages', {
         id: msgId,
+        user_id: conv.user_id || effectiveUserId,
         conversation_id: id,
         sender: sender || 'me',
         text: cleanText,
@@ -385,8 +418,14 @@ export const inboxController = {
   markAsRead: async (req, res, next) => {
     try {
       const { id } = req.params;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const conv = await db.findOne('conversations', 'id = $1', [id]);
       if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+      if (!isAdminNilesh && conv.user_id && conv.user_id !== effectiveUserId) {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
@@ -425,8 +464,14 @@ export const inboxController = {
   getConversationById: async (req, res, next) => {
     try {
       const { id } = req.params;
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const conv = await db.findOne('conversations', 'id = $1', [id]);
       if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+      if (!isAdminNilesh && conv.user_id && conv.user_id !== effectiveUserId) {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
@@ -548,8 +593,14 @@ export const inboxController = {
         userId,
       } = req.body;
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
       const conv = await db.findOne('conversations', 'id = $1', [id]);
       if (!conv) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+      if (!isAdminNilesh && conv.user_id && conv.user_id !== effectiveUserId) {
         return res.status(404).json({ success: false, error: 'Conversation not found' });
       }
 
@@ -1043,6 +1094,7 @@ export const inboxController = {
         const msgId = `m_act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         newMsg = await db.insert('messages', {
           id: msgId,
+          user_id: conv.user_id || req.user?.id || 'usr_1790574599220',
           conversation_id: conv.id,
           sender: 'me',
           text: messageText,

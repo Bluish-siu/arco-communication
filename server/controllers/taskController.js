@@ -30,6 +30,16 @@ export const taskController = {
         WHERE 1=1
       `;
       const params = [];
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+
+      if (isAdminNilesh) {
+        params.push('usr_1790574599220');
+        sql += ` AND (t.user_id = $${params.length} OR t.user_id IS NULL)`;
+      } else {
+        params.push(effectiveUserId);
+        sql += ` AND t.user_id = $${params.length}`;
+      }
 
       // 1. Search Query
       if (search && search.trim()) {
@@ -216,6 +226,12 @@ export const taskController = {
       }
 
       const t = result.rows[0];
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+      if (!isAdminNilesh && t.user_id && t.user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Task not found' });
+      }
+
       const isOverdue = t.due_date && new Date(t.due_date) < new Date() && t.status !== 'Completed' && t.status !== 'Done';
 
       res.json({
@@ -255,12 +271,13 @@ export const taskController = {
         return res.status(400).json({ success: false, error: 'Task title is required' });
       }
 
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
       const id = `tsk_${Date.now()}`;
       const result = await query(
-        `INSERT INTO tasks (id, title, description, contact_id, assigned_to, due_date, priority, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `INSERT INTO tasks (id, user_id, title, description, contact_id, assigned_to, due_date, priority, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          RETURNING *`,
-        [id, title.trim(), description || '', contact_id || null, assigned_to || 'Shraddha', due_date || null, priority, status]
+        [id, effectiveUserId, title.trim(), description || '', contact_id || null, assigned_to || 'Shraddha', due_date || null, priority, status]
       );
 
       res.status(201).json({
@@ -284,8 +301,14 @@ export const taskController = {
         return res.status(404).json({ success: false, error: 'Task not found' });
       }
 
-      // IDOR Authorization: Agents can only update their own or unassigned tasks
       const task = existing.rows[0];
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+      if (!isAdminNilesh && task.user_id && task.user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Task not found' });
+      }
+
+      // IDOR Authorization: Agents can only update their own or unassigned tasks
       const userRole = (req.user?.role || 'agent').toLowerCase();
       if (userRole === 'agent') {
         const assignedTo = (task.assigned_to || '').trim().toLowerCase();
@@ -367,8 +390,14 @@ export const taskController = {
         return res.status(404).json({ success: false, error: 'Task not found' });
       }
 
-      // IDOR Authorization: Agents can only update status of their own or unassigned tasks
       const task = existing.rows[0];
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+      if (!isAdminNilesh && task.user_id && task.user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Task not found' });
+      }
+
+      // IDOR Authorization: Agents can only update status of their own or unassigned tasks
       const userRole = (req.user?.role || 'agent').toLowerCase();
       if (userRole === 'agent') {
         const assignedTo = (task.assigned_to || '').trim().toLowerCase();
@@ -415,8 +444,14 @@ export const taskController = {
         return res.status(404).json({ success: false, error: 'Task not found' });
       }
 
-      // IDOR Authorization: Agents can only delete their own tasks; managers/admins can delete any
       const task = existing.rows[0];
+      const effectiveUserId = req.user?.id || 'usr_1790574599220';
+      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+      if (!isAdminNilesh && task.user_id && task.user_id !== effectiveUserId) {
+        return res.status(404).json({ success: false, error: 'Task not found' });
+      }
+
+      // IDOR Authorization: Agents can only delete their own tasks; managers/admins can delete any
       const userRole = (req.user?.role || 'agent').toLowerCase();
       if (userRole === 'agent') {
         const assignedTo = (task.assigned_to || '').trim().toLowerCase();
