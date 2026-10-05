@@ -595,10 +595,11 @@ export const inboxController = {
       const targetPhone = convUpdates.phone || conv.phone;
       const targetName = convUpdates.name || conv.name;
       let matchedContact = null;
+      let digits10 = '';
 
       if (targetPhone) {
         const cleanPhone = targetPhone.replace(/[^0-9+]/g, '');
-        const digits10 = targetPhone.replace(/[^0-9]/g, '').slice(-10);
+        digits10 = targetPhone.replace(/[^0-9]/g, '').slice(-10);
         const contactRes = await query(
           `SELECT * FROM contacts 
            WHERE phone = $1 OR phone = $2 OR name = $3
@@ -658,22 +659,26 @@ export const inboxController = {
         }
       } else if (email || userId || dealValue || notes || whatsappOpted !== undefined) {
         // Create new contact entry linked to this conversation
-        const newContactId = `cnt_${Date.now()}`;
-        const newContact = await db.insert('contacts', {
-          id: newContactId,
-          name: targetName || 'WhatsApp User',
-          phone: targetPhone || '+91 90000 00000',
-          email: email || '',
-          user_id: userId || '',
-          tag: tag || conv.tag || 'Lead',
-          status: 'Open Lead',
-          owner: assignee || conv.assignee || 'Me',
-          channel: conv.channel || 'whatsapp',
-          whatsapp_opted: whatsappOpted !== undefined ? Boolean(whatsappOpted) : true,
-          value: parseFloat(dealValue) || 0,
-          notes: notes || '',
-        });
-        matchedContact = newContact;
+        try {
+          const newContactId = `cnt_${Date.now()}`;
+          const newContact = await db.insert('contacts', {
+            id: newContactId,
+            name: targetName || 'WhatsApp User',
+            phone: targetPhone || '+91 90000 00000',
+            email: email || null,
+            user_id: userId || req.user?.id || null,
+            tag: tag || conv.tag || 'Lead',
+            status: 'Open Lead',
+            owner: assignee || conv.assignee || 'Me',
+            channel: conv.channel || 'whatsapp',
+            whatsapp_opted: whatsappOpted !== undefined ? Boolean(whatsappOpted) : true,
+            value: parseFloat(dealValue) || 0,
+            notes: notes || '',
+          });
+          matchedContact = newContact;
+        } catch (contactErr) {
+          console.warn('[updateConversation] Contact creation sync warning:', contactErr.message);
+        }
       }
 
       res.json({

@@ -16,6 +16,7 @@ router.get('/businesses', authenticateToken, metaController.getBusinesses);
 router.get('/wabas', authenticateToken, metaController.getWabas);
 router.get('/phone-numbers', authenticateToken, metaController.getPhoneNumbers);
 router.post('/connect', authenticateToken, requireAdmin, metaController.connect);
+router.post('/embedded-signup', authenticateToken, requireAdmin, metaController.embeddedSignup);
 router.post('/disconnect', authenticateToken, requireAdmin, metaController.disconnect);
 
 // Protected CTWA (Click-to-WhatsApp Ads) & Facebook Page endpoints

@@ -57,6 +57,130 @@ export default function MetaWhatsAppOnboarding() {
   // Connected integration result
   const [connectedIntegration, setConnectedIntegration] = useState(null);
 
+  // Embedded Signup (Interakt flow) state & configuration
+  const [metaConfig, setMetaConfig] = useState({
+    appId: '2872862256446175',
+    configId: '1131178462664882',
+    isConfigured: true,
+  });
+  const [connectingViaEmbedded, setConnectingViaEmbedded] = useState(false);
+  const [showManualSelect, setShowManualSelect] = useState(false);
+
+  // Initialize Facebook JavaScript SDK for Embedded Signup
+  useEffect(() => {
+    const appId = metaConfig.appId || '2872862256446175';
+
+    if (!window.FB) {
+      window.fbAsyncInit = function () {
+        window.FB.init({
+          appId: appId,
+          cookie: true,
+          xfbml: true,
+          version: 'v21.0',
+        });
+      };
+
+      if (!document.getElementById('facebook-jssdk')) {
+        const script = document.createElement('script');
+        script.id = 'facebook-jssdk';
+        script.src = 'https://connect.facebook.net/en_US/sdk.js';
+        script.async = true;
+        script.defer = true;
+        document.body.appendChild(script);
+      }
+    }
+  }, [metaConfig.appId]);
+
+  // Listen for Meta Embedded Signup message events (WABA ID & Phone Number ID)
+  useEffect(() => {
+    const handleMetaMessage = (event) => {
+      if (
+        event.origin !== 'https://www.facebook.com' &&
+        event.origin !== 'https://web.facebook.com'
+      ) {
+        return;
+      }
+
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data?.type === 'WA_EMBEDDED_SIGNUP') {
+          console.log('[Meta Embedded Signup Event]', data);
+          if (data.data?.phone_number_id) {
+            sessionStorage.setItem('meta_phone_number_id', data.data.phone_number_id);
+          }
+          if (data.data?.waba_id) {
+            sessionStorage.setItem('meta_waba_id', data.data.waba_id);
+          }
+        }
+      } catch (err) {
+        // Non-JSON message from other extensions, ignore
+      }
+    };
+
+    window.addEventListener('message', handleMetaMessage);
+    return () => window.removeEventListener('message', handleMetaMessage);
+  }, []);
+
+  // Launch Meta Embedded Signup popup dialog (Interakt flow)
+  const handleLaunchEmbeddedSignup = () => {
+    setError('');
+    setConnectingViaEmbedded(true);
+
+    const configId = metaConfig.configId || '1131178462664882';
+    const appId = metaConfig.appId || '2872862256446175';
+
+    if (!window.FB) {
+      // Fallback: If FB SDK is blocked by browser ad blocker, open Meta hosted onboarding page
+      const hostedUrl = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=${appId}&config_id=${configId}`;
+      window.open(hostedUrl, '_blank', 'width=750,height=800');
+      setConnectingViaEmbedded(false);
+      return;
+    }
+
+    window.FB.login(
+      async (response) => {
+        if (response.authResponse?.code) {
+          const code = response.authResponse.code;
+          const wabaId = sessionStorage.getItem('meta_waba_id') || null;
+          const phoneNumberId = sessionStorage.getItem('meta_phone_number_id') || null;
+
+          try {
+            const result = await metaService.embeddedSignup({
+              code,
+              wabaId,
+              phoneNumberId,
+              businessName: businessSetup.companyName || 'ARCO Communication Retail',
+            });
+
+            setConnectedIntegration(result);
+            completeOnboarding();
+            setStep(5);
+          } catch (err) {
+            console.error('[Embedded Signup Error]', err);
+            setError(err.message || 'WhatsApp authorization failed. Please try again.');
+          } finally {
+            setConnectingViaEmbedded(false);
+          }
+        } else {
+          setConnectingViaEmbedded(false);
+          if (response.status !== 'connected') {
+            console.warn('[Embedded Signup] User cancelled or closed the login modal.');
+          }
+        }
+      },
+      {
+        config_id: configId,
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: {
+          feature: 'whatsapp_embedded_signup',
+          version: 4,
+          sessionInfoVersion: 3,
+        },
+      }
+    );
+  };
+
   // Load existing status and business portfolios on mount
   useEffect(() => {
     async function init() {
@@ -69,6 +193,17 @@ export default function MetaWhatsAppOnboarding() {
           setStep(5);
           setLoading(false);
           return;
+        }
+
+        // Fetch Meta Auth configuration (appId, configId)
+        const authData = await metaService.getAuthUrl();
+        if (authData) {
+          setMetaConfig((prev) => ({
+            ...prev,
+            appId: authData.appId || prev.appId,
+            configId: authData.configId || prev.configId,
+            isConfigured: authData.isConfigured ?? prev.isConfigured,
+          }));
         }
 
         // Fetch available business portfolios
@@ -328,21 +463,116 @@ export default function MetaWhatsAppOnboarding() {
             )}
 
             {/* ========================================================================= */}
-            {/* STEP 1: SELECT META BUSINESS PORTFOLIO */}
+            {/* STEP 1: INTERAKT-STYLE 1-CLICK EMBEDDED SIGNUP + MANUAL FALLBACK */}
             {/* ========================================================================= */}
             {step === 1 && (
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-10 space-y-6 animate-in fade-in">
-                <div className="space-y-2">
-                  <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-2xs">
-                    <Building2 className="w-5 h-5 text-red-500" />
+              <div className="space-y-6 animate-in fade-in">
+                {/* 1. PRIMARY HERO: 1-CLICK META EMBEDDED SIGNUP */}
+                <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-slate-900 via-indigo-950 to-slate-900 p-6 sm:p-9 text-white shadow-2xl border border-indigo-500/20">
+                  {/* Subtle ambient lighting */}
+                  <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+                  <div className="absolute -bottom-24 -left-24 w-64 h-64 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
+
+                  <div className="relative z-10 space-y-6">
+                    {/* Badge Row */}
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        Recommended • 1-Click Setup
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium hidden sm:inline-flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        Official Meta Tech Provider
+                      </span>
+                    </div>
+
+                    {/* Heading & Value Proposition */}
+                    <div className="space-y-2">
+                      <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+                        Connect WhatsApp via Meta
+                      </h2>
+                      <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
+                        Log in with Facebook to automatically register or select your WhatsApp Business Account, verify your phone number via SMS OTP, and start messaging in under 2 minutes.
+                      </p>
+                    </div>
+
+                    {/* Action Button */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleLaunchEmbeddedSignup}
+                        disabled={connectingViaEmbedded}
+                        className="px-8 py-4 rounded-2xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.99] text-white font-extrabold text-sm shadow-xl shadow-blue-500/25 flex items-center justify-center gap-3 cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {connectingViaEmbedded ? (
+                          <>
+                            <RotateCw className="w-4 h-4 animate-spin text-white" />
+                            <span>Connecting WhatsApp with Meta...</span>
+                          </>
+                        ) : (
+                          <>
+                            <MetaIcon className="w-5 h-5 text-white" />
+                            <span>Continue with Facebook / WhatsApp</span>
+                            <ArrowRight className="w-4 h-4 text-blue-200" />
+                          </>
+                        )}
+                      </button>
+
+                      {/* Direct Hosted Link Fallback */}
+                      <a
+                        href={`https://business.facebook.com/messaging/whatsapp/onboard/?app_id=${metaConfig.appId}&config_id=${metaConfig.configId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-2 text-center text-xs text-slate-400 hover:text-slate-200 font-semibold underline underline-offset-4"
+                      >
+                        Popup blocked? Open direct link ↗
+                      </a>
+                    </div>
+
+                    {/* Trust Guarantee Badges */}
+                    <div className="pt-4 border-t border-white/10 flex flex-wrap items-center gap-y-2 gap-x-6 text-[11px] text-slate-400 font-medium">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Zero technical setup</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Built-in SMS OTP verification</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Retain 100% number ownership</span>
+                      </div>
+                    </div>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                    Connect your Meta Business
-                  </h2>
-                  <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-                    Select the Meta Business Portfolio you want to connect with ARCO Communication.
-                  </p>
                 </div>
+
+                {/* Divider / Toggle for Manual Portfolio Selector */}
+                <div className="relative py-2 flex items-center justify-center">
+                  <div className="border-t border-slate-200 w-full" />
+                  <button
+                    type="button"
+                    onClick={() => setShowManualSelect(!showManualSelect)}
+                    className="absolute bg-slate-50 px-3 text-[11px] font-bold text-slate-500 hover:text-slate-900 cursor-pointer transition-colors"
+                  >
+                    {showManualSelect ? 'Hide manual portfolio selector ▲' : 'Or select from existing portfolio manually ▼'}
+                  </button>
+                </div>
+
+                {/* 2. MANUAL SELECTOR CARD (Shown when user wants manual flow) */}
+                {showManualSelect && (
+                  <div className="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-10 space-y-6 animate-in fade-in">
+                    <div className="space-y-2">
+                      <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-2xs">
+                        <Building2 className="w-5 h-5 text-red-500" />
+                      </div>
+                      <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                        Select Existing Portfolio
+                      </h3>
+                      <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                        Select an existing Meta Business Portfolio already linked to your Meta Developer Account.
+                      </p>
+                    </div>
 
                 <div className="space-y-3">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -417,6 +647,8 @@ export default function MetaWhatsAppOnboarding() {
                 </div>
               </div>
             )}
+          </div>
+        )}
 
             {/* ========================================================================= */}
             {/* STEP 2: SELECT OR CREATE WHATSAPP BUSINESS ACCOUNT (WABA) */}

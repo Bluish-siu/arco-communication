@@ -67,6 +67,18 @@ export const metaService = {
     }
   },
 
+  embeddedSignup: async ({ code, wabaId, phoneNumberId, businessName, displayPhoneNumber }) => {
+    try {
+      const res = await apiRequest('/meta/embedded-signup', {
+        method: 'POST',
+        body: JSON.stringify({ code, wabaId, phoneNumberId, businessName, displayPhoneNumber }),
+      });
+      return res.data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
   disconnect: async () => {
     try {
       const res = await apiRequest('/meta/disconnect', {
