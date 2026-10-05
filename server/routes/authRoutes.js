@@ -9,6 +9,7 @@ const router = Router();
 router.use(authLimiter);
 
 // Standard login & user info
+router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.post('/demo-login', authController.demoLogin);
 router.post('/phone', authController.loginWithPhone);

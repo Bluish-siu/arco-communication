@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import { useOnboarding } from '../context/OnboardingContext';
+import { authService } from '../services/authService';
 
 // Custom Contextual Instagram Icon
 const InstagramIcon = ({ className }) => (
@@ -50,7 +51,7 @@ export default function Onboarding() {
     }
   }, [isCompleted, navigate]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!phone.trim() || !companyName.trim() || !companyLocation.trim()) {
       setError('Please fill in all required business details.');
@@ -58,8 +59,7 @@ export default function Onboarding() {
     }
     setError('');
 
-    // Save business setup information
-    updateBusinessSetup({
+    const businessSetupPayload = {
       channel: selectedChannel,
       phone,
       companyName,
@@ -68,7 +68,19 @@ export default function Onboarding() {
       annualRevenue,
       hasShopify,
       whatsappUpdates,
-    });
+    };
+
+    // Save business setup information in context
+    updateBusinessSetup(businessSetupPayload);
+
+    // Save to server database asynchronously
+    try {
+      await authService.saveOnboarding({
+        businessSetup: businessSetupPayload,
+      });
+    } catch (err) {
+      console.warn('[Onboarding] Could not save to server:', err);
+    }
 
     // Navigate to Step 1: Industry
     navigate('/onboarding/industry');
