@@ -95,10 +95,7 @@ export default function MetaWhatsAppOnboarding() {
   // Listen for Meta Embedded Signup message events (WABA ID & Phone Number ID)
   useEffect(() => {
     const handleMetaMessage = (event) => {
-      if (
-        event.origin !== 'https://www.facebook.com' &&
-        event.origin !== 'https://web.facebook.com'
-      ) {
+      if (!event.origin || !event.origin.includes('facebook.com')) {
         return;
       }
 
@@ -157,11 +154,10 @@ export default function MetaWhatsAppOnboarding() {
     const configId = metaConfig.configId || '1131178462664882';
     const appId = metaConfig.appId || '2872862256446175';
 
-    // Auto-reset timeout in case browser popup blocker blocks the window or Facebook doesn't return
+    // Safety timeout (5 minutes) in case the popup is abandoned or blocked
     const safetyTimer = setTimeout(() => {
       setConnectingViaEmbedded(false);
-      setError('Facebook login popup was blocked or took too long to open. Please enable popups in Chrome, or click "Fast Connect Active Number" below.');
-    }, 8000);
+    }, 300000);
 
     if (!window.FB) {
       clearTimeout(safetyTimer);
