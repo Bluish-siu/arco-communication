@@ -346,18 +346,28 @@ export const inboxController = {
       let errorMessage = null;
 
       // If channel is whatsapp, dispatch through Meta Cloud API
-      if (conv.channel === 'whatsapp' && cleanText) {
+      if (conv.channel === 'whatsapp') {
         try {
-          const sendResult = await metaWhatsAppService.sendTextMessage({
-            to: conv.phone,
-            text: cleanText,
-            userId: req.user?.id,
-          });
+          let sendResult = null;
+          if (attachment && (attachment.dataUrl || attachment.url)) {
+            sendResult = await metaWhatsAppService.sendMediaAttachmentMessage({
+              to: conv.phone,
+              attachment,
+              caption: text ? text.trim() : undefined,
+              userId: req.user?.id || effectiveUserId,
+            });
+          } else if (cleanText) {
+            sendResult = await metaWhatsAppService.sendTextMessage({
+              to: conv.phone,
+              text: cleanText,
+              userId: req.user?.id || effectiveUserId,
+            });
+          }
 
           if (sendResult?.success) {
             metaMessageId = sendResult.wamid || sendResult.metaMessageId || sendResult.messageId || null;
             msgStatus = 'sent';
-          } else {
+          } else if (sendResult) {
             msgStatus = 'failed';
             errorMessage = sendResult?.error || sendResult?.message || 'Meta WhatsApp dispatch failed';
           }

@@ -922,6 +922,164 @@ export const metaWhatsAppService = {
     }
   },
 
+  // 4a. Send Document / Media Attachment Message via Meta Cloud API (during 24-hour service window)
+  sendMediaAttachmentMessage: async ({ to, attachment, caption, userId = null }) => {
+    if (!to) {
+      return { success: false, error: 'Recipient phone number is required' };
+    }
+    if (!attachment || (!attachment.dataUrl && !attachment.url)) {
+      return { success: false, error: 'Attachment file content is required' };
+    }
+
+    const cleanTo = formatPhoneNumber(to);
+    if (!cleanTo || cleanTo.length < 8) {
+      return {
+        success: false,
+        error: `Invalid phone number format: "${to}". Must be a valid phone number with country code.`,
+      };
+    }
+
+    const creds = await metaWhatsAppService.getCredentials(userId);
+    if (!creds.isConfigured) {
+      return {
+        success: false,
+        error: 'META_CREDENTIALS_MISSING',
+        message: 'WhatsApp Business API is not connected. Please configure your Meta credentials.',
+        missingFields: creds.missingFields,
+      };
+    }
+
+    try {
+      let mediaId = null;
+      const mimeType = attachment.type || 'application/pdf';
+      const isImage = mimeType.startsWith('image/');
+      const mediaType = isImage ? 'image' : 'document';
+      const filename = attachment.name || (isImage ? 'image.jpg' : 'document.pdf');
+
+      // 1. Upload Buffer to Meta /media endpoint if base64 dataUrl is provided
+      if (attachment.dataUrl && attachment.dataUrl.includes('base64,')) {
+        const base64Data = attachment.dataUrl.split('base64,')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        const formData = new FormData();
+        formData.append('messaging_product', 'whatsapp');
+        formData.append('type', mimeType);
+        formData.append('file', new Blob([buffer], { type: mimeType }), filename);
+
+        const uploadRaw = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/media`;
+        const uploadUrl = appendAppSecretProof(uploadRaw, creds.accessToken);
+
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${creds.accessToken}`,
+          },
+          body: formData,
+        });
+
+        const uploadData = await uploadRes.json();
+        if (uploadData.id) {
+          mediaId = uploadData.id;
+          console.log(`[Meta Cloud API Document Upload Success] Uploaded "${filename}" (${mimeType}) -> Media ID: ${mediaId}`);
+        } else {
+          console.warn('[Meta Cloud API Media Upload Failed]:', uploadData.error || uploadData);
+        }
+      }
+
+      // 2. Build WhatsApp Cloud API Payload
+      const rawUrl = `https://graph.facebook.com/${creds.version}/${creds.phoneNumberId}/messages`;
+      const url = appendAppSecretProof(rawUrl, creds.accessToken);
+
+      const mediaPayload = mediaId
+        ? { id: mediaId }
+        : { link: attachment.url || attachment.dataUrl };
+
+      if (!isImage) {
+        mediaPayload.filename = filename;
+      }
+      if (caption && caption.trim()) {
+        mediaPayload.caption = caption.trim();
+      }
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: cleanTo,
+        type: mediaType,
+        [mediaType]: mediaPayload,
+      };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        const customErrorMsg = data.error?.message || `Meta Cloud API media error (HTTP ${response.status})`;
+        console.warn(`[Meta Cloud API Send Media Failed]: ${customErrorMsg}`);
+        return {
+          success: false,
+          error: customErrorMsg,
+          rawError: data.error?.message,
+          errorCode: data.error?.code,
+          payload,
+        };
+      }
+
+      const wamid = data.messages?.[0]?.id || `wamid_${Date.now()}`;
+      const messageStatus = data.messages?.[0]?.message_status || 'accepted';
+
+      console.log(
+        `[Meta Cloud API Media Dispatched] Type: ${mediaType} | Phone ID: ${creds.phoneNumberId} | Recipient: +${cleanTo} | WAMID: ${wamid}`
+      );
+
+      // Persist outbound dispatch in whatsapp_message_logs
+      try {
+        await query(
+          `INSERT INTO whatsapp_message_logs (
+             wamid, recipient_phone, template_name, sender_phone_id,
+             status, raw_payload, raw_response, accepted_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (wamid) DO UPDATE SET
+             status = EXCLUDED.status,
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            wamid,
+            cleanTo,
+            `media_${mediaType}`,
+            creds.phoneNumberId,
+            messageStatus,
+            JSON.stringify(payload),
+            JSON.stringify(data),
+          ]
+        );
+      } catch (logErr) {
+        console.warn('[metaWhatsAppService] Failed to record media message in whatsapp_message_logs:', logErr.message);
+      }
+
+      return {
+        success: true,
+        wamid,
+        metaMessageId: wamid,
+        recipientPhone: cleanTo,
+        status: 'sent',
+        timestamp: new Date().toISOString(),
+        metaResponse: data,
+      };
+    } catch (err) {
+      console.error('[Meta Cloud API Send Media Exception]:', err.message);
+      return {
+        success: false,
+        error: `Media dispatch failed: ${err.message}`,
+      };
+    }
+  },
+
   // 4b. Send Interactive List Message via Meta Cloud API (within 24-hour service window)
   sendInteractiveListMessage: async ({ to, headerText, bodyText, footerText, buttonText = 'Select an option', sections = [], userId = null }) => {
     if (!to) {
