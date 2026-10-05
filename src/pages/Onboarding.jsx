@@ -11,6 +11,7 @@ import {
 import Container from '../components/common/Container';
 import { useOnboarding } from '../context/OnboardingContext';
 import { authService } from '../services/authService';
+import GoogleRecaptcha from '../components/common/GoogleRecaptcha';
 
 // Custom Contextual Instagram Icon
 const InstagramIcon = ({ className }) => (
@@ -387,21 +388,16 @@ export default function Onboarding() {
                     </label>
                   </div>
 
-                  {/* Visual CAPTCHA Placeholder */}
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-300/80 flex items-center justify-between">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={captchaChecked}
-                        onChange={(e) => setCaptchaChecked(e.target.checked)}
-                        className="w-5 h-5 rounded border-slate-300 accent-red-600 cursor-pointer"
-                      />
-                      <span className="text-xs font-bold text-slate-700">I'm not a robot</span>
-                    </label>
-                    <div className="text-right text-[9px] text-slate-400 font-mono leading-tight">
-                      <div>reCAPTCHA</div>
-                      <span className="text-[8px]">Privacy · Terms</span>
-                    </div>
+                  {/* Real Google reCAPTCHA v2 Widget */}
+                  <div className="pt-1 flex flex-col items-start overflow-hidden">
+                    <GoogleRecaptcha
+                      onVerify={(token) => {
+                        setCaptchaChecked(true);
+                        if (error) setError('');
+                      }}
+                      onExpire={() => setCaptchaChecked(false)}
+                      onError={() => setError('reCAPTCHA error. Please refresh the page.')}
+                    />
                   </div>
 
                   {/* Primary CTA */}

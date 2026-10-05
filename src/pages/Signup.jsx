@@ -15,6 +15,7 @@ import {
 import Container from '../components/common/Container';
 import { authService } from '../services/authService';
 import { useOnboarding } from '../context/OnboardingContext';
+import GoogleRecaptcha from '../components/common/GoogleRecaptcha';
 
 // WhatsApp Official SVG Icon
 const WhatsAppIcon = ({ className = 'w-4 h-4' }) => (
@@ -133,7 +134,7 @@ export default function Signup() {
   const [state, setState] = useState('');
   const [annualRevenue, setAnnualRevenue] = useState('₹10 Lakhs - ₹50 Lakhs');
   const [whatsappUpdates, setWhatsappUpdates] = useState(true);
-  const [captchaChecked, setCaptchaChecked] = useState(true);
+  const [captchaToken, setCaptchaToken] = useState('');
 
   // Status & error states
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -195,6 +196,11 @@ export default function Signup() {
       return;
     }
 
+    if (!captchaToken) {
+      setFormError('Please verify that you are not a robot using the reCAPTCHA box.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -207,6 +213,7 @@ export default function Signup() {
         state,
         annualRevenue,
         whatsappUpdates,
+        captchaToken,
       };
 
       const res = await authService.register({
@@ -733,21 +740,16 @@ export default function Signup() {
                           </label>
                         </div>
 
-                        {/* Visual CAPTCHA Box */}
-                        <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-300 flex items-center justify-between">
-                          <label className="flex items-center gap-3 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={captchaChecked}
-                              onChange={(e) => setCaptchaChecked(e.target.checked)}
-                              className="w-5 h-5 rounded border-slate-300 accent-emerald-600 cursor-pointer"
-                            />
-                            <span className="text-xs font-bold text-slate-700">I'm not a robot</span>
-                          </label>
-                          <div className="text-right text-[9px] text-slate-400 font-mono leading-tight">
-                            <div>reCAPTCHA</div>
-                            <span className="text-[8px]">Privacy · Terms</span>
-                          </div>
+                        {/* Real Google reCAPTCHA v2 Widget */}
+                        <div className="pt-1 flex flex-col items-start overflow-hidden">
+                          <GoogleRecaptcha
+                            onVerify={(token) => {
+                              setCaptchaToken(token);
+                              if (formError) setFormError('');
+                            }}
+                            onExpire={() => setCaptchaToken('')}
+                            onError={() => setFormError('reCAPTCHA error. Please refresh the page.')}
+                          />
                         </div>
 
                         {/* Primary CTA: Create Account (Vibrant Green Button) */}
