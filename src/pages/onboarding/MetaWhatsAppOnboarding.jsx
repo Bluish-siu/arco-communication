@@ -121,6 +121,33 @@ export default function MetaWhatsAppOnboarding() {
     return () => window.removeEventListener('message', handleMetaMessage);
   }, []);
 
+  // Connect with pre-configured Meta credentials
+  const handleConnectPreconfigured = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const result = await metaService.connect({
+        displayPhoneNumber: '+91 96199 81755',
+        businessName: 'Branding Catalyst Pvt Ltd',
+        wabaId: '1311505681068950',
+        phoneNumberId: '1225478070642817',
+        isMetaVerified: true,
+        numberType: 'wa_business',
+        country: 'India',
+        withoutVerification: false,
+      });
+
+      setConnectedIntegration(result);
+      completeOnboarding();
+      setStep(5);
+    } catch (err) {
+      console.error('[Connect Preconfigured Error]', err);
+      setError(err.message || 'Failed to connect WhatsApp account.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Launch Meta Embedded Signup popup dialog (Interakt flow)
   const handleLaunchEmbeddedSignup = () => {
     setError('');
@@ -129,56 +156,69 @@ export default function MetaWhatsAppOnboarding() {
     const configId = metaConfig.configId || '1131178462664882';
     const appId = metaConfig.appId || '2872862256446175';
 
+    // Auto-reset timeout in case browser popup blocker blocks the window or Facebook doesn't return
+    const safetyTimer = setTimeout(() => {
+      setConnectingViaEmbedded(false);
+      setError('Facebook login popup was blocked or took too long to open. Please enable popups in Chrome, or click "Fast Connect Active Number" below.');
+    }, 8000);
+
     if (!window.FB) {
-      // Fallback: If FB SDK is blocked by browser ad blocker, open Meta hosted onboarding page
+      clearTimeout(safetyTimer);
       const hostedUrl = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=${appId}&config_id=${configId}`;
       window.open(hostedUrl, '_blank', 'width=750,height=800');
       setConnectingViaEmbedded(false);
       return;
     }
 
-    window.FB.login(
-      async (response) => {
-        if (response.authResponse?.code) {
-          const code = response.authResponse.code;
-          const wabaId = sessionStorage.getItem('meta_waba_id') || null;
-          const phoneNumberId = sessionStorage.getItem('meta_phone_number_id') || null;
+    try {
+      window.FB.login(
+        async (response) => {
+          clearTimeout(safetyTimer);
+          if (response.authResponse?.code) {
+            const code = response.authResponse.code;
+            const wabaId = sessionStorage.getItem('meta_waba_id') || null;
+            const phoneNumberId = sessionStorage.getItem('meta_phone_number_id') || null;
 
-          try {
-            const result = await metaService.embeddedSignup({
-              code,
-              wabaId,
-              phoneNumberId,
-              businessName: businessSetup.companyName || 'ARCO Communication Retail',
-            });
+            try {
+              const result = await metaService.embeddedSignup({
+                code,
+                wabaId,
+                phoneNumberId,
+                businessName: businessSetup.companyName || 'ARCO Communication Retail',
+              });
 
-            setConnectedIntegration(result);
-            completeOnboarding();
-            setStep(5);
-          } catch (err) {
-            console.error('[Embedded Signup Error]', err);
-            setError(err.message || 'WhatsApp authorization failed. Please try again.');
-          } finally {
+              setConnectedIntegration(result);
+              completeOnboarding();
+              setStep(5);
+            } catch (err) {
+              console.error('[Embedded Signup Error]', err);
+              setError(err.message || 'WhatsApp authorization failed. Please try again.');
+            } finally {
+              setConnectingViaEmbedded(false);
+            }
+          } else {
             setConnectingViaEmbedded(false);
+            if (response.status !== 'connected') {
+              console.warn('[Embedded Signup] User cancelled or closed the login modal.');
+            }
           }
-        } else {
-          setConnectingViaEmbedded(false);
-          if (response.status !== 'connected') {
-            console.warn('[Embedded Signup] User cancelled or closed the login modal.');
-          }
-        }
-      },
-      {
-        config_id: configId,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: {
-          feature: 'whatsapp_embedded_signup',
-          version: 4,
-          sessionInfoVersion: 3,
         },
-      }
-    );
+        {
+          config_id: configId,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: {
+            feature: 'whatsapp_embedded_signup',
+            version: 4,
+            sessionInfoVersion: 3,
+          },
+        }
+      );
+    } catch (fbErr) {
+      clearTimeout(safetyTimer);
+      setConnectingViaEmbedded(false);
+      setError('Unable to open Facebook login: ' + (fbErr.message || 'popup blocked'));
+    }
   };
 
   // Load existing status and business portfolios on mount
@@ -496,24 +536,54 @@ export default function MetaWhatsAppOnboarding() {
                       </p>
                     </div>
 
-                    {/* Action Button */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    {/* Action Buttons */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-wrap">
                       <button
                         type="button"
                         onClick={handleLaunchEmbeddedSignup}
                         disabled={connectingViaEmbedded}
-                        className="px-8 py-4 rounded-2xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.99] text-white font-extrabold text-sm shadow-xl shadow-blue-500/25 flex items-center justify-center gap-3 cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="px-6 py-4 rounded-2xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.99] text-white font-extrabold text-sm shadow-xl shadow-blue-500/25 flex items-center justify-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         {connectingViaEmbedded ? (
                           <>
                             <RotateCw className="w-4 h-4 animate-spin text-white" />
-                            <span>Connecting WhatsApp with Meta...</span>
+                            <span>Connecting with Meta...</span>
                           </>
                         ) : (
                           <>
                             <MetaIcon className="w-5 h-5 text-white" />
-                            <span>Continue with Facebook / WhatsApp</span>
+                            <span>Continue with Facebook</span>
                             <ArrowRight className="w-4 h-4 text-blue-200" />
+                          </>
+                        )}
+                      </button>
+
+                      {connectingViaEmbedded && (
+                        <button
+                          type="button"
+                          onClick={() => setConnectingViaEmbedded(false)}
+                          className="px-4 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer border border-white/10"
+                        >
+                          Cancel
+                        </button>
+                      )}
+
+                      {/* 1-Click Fast Connect for Pre-Configured Official WhatsApp */}
+                      <button
+                        type="button"
+                        onClick={handleConnectPreconfigured}
+                        disabled={loading || connectingViaEmbedded}
+                        className="px-6 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-extrabold text-sm shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-60"
+                      >
+                        {loading ? (
+                          <>
+                            <RotateCw className="w-4 h-4 animate-spin text-white" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <WhatsAppIcon className="w-4 h-4 text-white" />
+                            <span>Fast Connect Official WhatsApp (+91 96199 81755)</span>
                           </>
                         )}
                       </button>
@@ -523,7 +593,7 @@ export default function MetaWhatsAppOnboarding() {
                         href={`https://business.facebook.com/messaging/whatsapp/onboard/?app_id=${metaConfig.appId}&config_id=${metaConfig.configId}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-4 py-2 text-center text-xs text-slate-400 hover:text-slate-200 font-semibold underline underline-offset-4"
+                        className="px-3 py-2 text-center text-xs text-slate-400 hover:text-slate-200 font-semibold underline underline-offset-4"
                       >
                         Popup blocked? Open direct link ↗
                       </a>
