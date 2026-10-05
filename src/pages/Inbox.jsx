@@ -53,6 +53,7 @@ import {
   Store,
   Zap,
   RefreshCw,
+  MapPin,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
@@ -407,26 +408,67 @@ export default function Inbox() {
     return count;
   }, [appliedFilters]);
 
-  // Dynamically extract unique non-empty labels present across conversations without hardcoding static default labels
+  // Accumulate all known labels so filtering does not remove other city labels from the modal
+  const [knownLabels, setKnownLabels] = useState([
+    'Surat',
+    'Ahmedabad',
+    'Rajkot',
+    'Jamnagar',
+    'Anand',
+    'Gandhinagar',
+    'Vadodara',
+  ]);
+
+  useEffect(() => {
+    if (conversations && conversations.length > 0) {
+      setKnownLabels((prev) => {
+        const next = new Set(prev);
+        conversations.forEach((c) => {
+          if (
+            c.label &&
+            typeof c.label === 'string' &&
+            c.label.trim() &&
+            c.label !== 'none' &&
+            c.label !== 'No Label Attached'
+          ) {
+            next.add(c.label.trim());
+          }
+        });
+        return Array.from(next);
+      });
+    }
+  }, [conversations]);
+
+  // Dynamically extract unique labels with conversation counts, sorted by highest count first
   const dynamicLabelsList = useMemo(() => {
-    const list = [{ id: 'none', label: 'No Label Attached' }];
-    const uniqueSet = new Set();
+    const counts = {};
+    let noLabelCount = 0;
+
     conversations.forEach((c) => {
-      if (
-        c.label &&
-        typeof c.label === 'string' &&
-        c.label.trim() &&
-        c.label !== 'none' &&
-        c.label !== 'No Label Attached'
-      ) {
-        uniqueSet.add(c.label.trim());
+      const lbl = c.label && typeof c.label === 'string' ? c.label.trim() : '';
+      if (!lbl || lbl === 'none' || lbl === 'No Label Attached') {
+        noLabelCount++;
+      } else {
+        counts[lbl] = (counts[lbl] || 0) + 1;
       }
     });
-    uniqueSet.forEach((lbl) => {
-      list.push({ id: lbl, label: lbl });
+
+    const list = [{ id: 'none', label: 'No Label Attached', count: noLabelCount }];
+
+    const sortedLabels = Array.from(new Set([...knownLabels, ...Object.keys(counts)]));
+    sortedLabels.sort((a, b) => {
+      const countA = counts[a] || 0;
+      const countB = counts[b] || 0;
+      if (countB !== countA) return countB - countA;
+      return a.localeCompare(b);
     });
+
+    sortedLabels.forEach((lbl) => {
+      list.push({ id: lbl, label: lbl, count: counts[lbl] || 0 });
+    });
+
     return list;
-  }, [conversations]);
+  }, [conversations, knownLabels]);
 
   // Apply filters from modal
   const handleApplyFilters = async () => {
@@ -1451,8 +1493,9 @@ export default function Inbox() {
                               {chat.tag}
                             </span>
                             {chat.label && (
-                              <span className="text-[9px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                                {chat.label}
+                              <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50/90 px-1.5 py-0.5 rounded border border-indigo-200/90 flex items-center gap-1 shadow-2xs">
+                                <MapPin className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
+                                <span className="truncate max-w-[90px]">{chat.label}</span>
                               </span>
                             )}
                           </div>
@@ -2334,17 +2377,34 @@ export default function Inbox() {
 
                     {/* Custom Label */}
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Conversation Label
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Conversation Label / City
+                        </label>
+                        {inspectorLabel && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectorLabel('');
+                              handleSaveContactInspector({ tag: inspectorTag, label: '' });
+                            }}
+                            className="text-[10px] font-semibold text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={inspectorLabel}
-                          onChange={(e) => setInspectorLabel(e.target.value)}
-                          placeholder="e.g. VIP, Wholesale, Priority"
-                          className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:bg-white focus:outline-none focus:border-emerald-600"
-                        />
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            value={inspectorLabel}
+                            onChange={(e) => setInspectorLabel(e.target.value)}
+                            placeholder="e.g. Surat, Ahmedabad, VIP"
+                            className="w-full pl-7 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:bg-white focus:outline-none focus:border-emerald-600"
+                          />
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleSaveContactInspector({ tag: inspectorTag, label: inspectorLabel })}
@@ -2353,6 +2413,27 @@ export default function Inbox() {
                         >
                           Save
                         </button>
+                      </div>
+
+                      {/* Quick City Selector Chips */}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {['Surat', 'Ahmedabad', 'Rajkot', 'Jamnagar', 'Anand', 'Gandhinagar', 'Vadodara'].map((city) => (
+                          <button
+                            key={city}
+                            type="button"
+                            onClick={() => {
+                              setInspectorLabel(city);
+                              handleSaveContactInspector({ tag: inspectorTag, label: city });
+                            }}
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                              inspectorLabel === city
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200'
+                            }`}
+                          >
+                            {city}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -2558,27 +2639,37 @@ export default function Inbox() {
                             return (
                               <label
                                 key={item.id}
-                                className="flex items-center gap-2.5 cursor-pointer text-xs text-slate-700 hover:text-slate-900 select-none py-0.5"
+                                className="flex items-center justify-between gap-2.5 cursor-pointer text-xs text-slate-700 hover:text-slate-900 select-none py-1.5 px-2 rounded-xl hover:bg-slate-50 transition-colors"
                               >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setDraftFilters({
-                                        ...draftFilters,
-                                        labels: [...draftFilters.labels, item.id],
-                                      });
-                                    } else {
-                                      setDraftFilters({
-                                        ...draftFilters,
-                                        labels: draftFilters.labels.filter((l) => l !== item.id),
-                                      });
-                                    }
-                                  }}
-                                  className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer accent-emerald-600"
-                                />
-                                <span>{item.label}</span>
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setDraftFilters({
+                                          ...draftFilters,
+                                          labels: [...draftFilters.labels, item.id],
+                                        });
+                                      } else {
+                                        setDraftFilters({
+                                          ...draftFilters,
+                                          labels: draftFilters.labels.filter((l) => l !== item.id),
+                                        });
+                                      }
+                                    }}
+                                    className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer accent-emerald-600"
+                                  />
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    {item.id !== 'none' && <MapPin className="w-3 h-3 text-indigo-500 shrink-0" />}
+                                    <span className="font-semibold text-slate-800 truncate">{item.label}</span>
+                                  </div>
+                                </div>
+                                {item.count !== undefined && item.count > 0 && (
+                                  <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-full shrink-0">
+                                    {item.count}
+                                  </span>
+                                )}
                               </label>
                             );
                           })

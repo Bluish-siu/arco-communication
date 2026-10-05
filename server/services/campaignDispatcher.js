@@ -261,21 +261,30 @@ export async function dispatchBatch(campaign, recipients) {
 
           const contactName = recipient.name || `WhatsApp User (${clean10})`;
 
+          const rawCity = rawCsv.City || rawCsv.city || rawCsv.csvData?.City || rawCsv.csvData?.city || null;
+          const detectedCity = typeof rawCity === 'string' && rawCity.trim() && !/^\d+$/.test(rawCity.trim()) ? rawCity.trim() : null;
+
           if (convRes.rows.length > 0) {
             convId = convRes.rows[0].id;
+            if (detectedCity) {
+              await query(
+                `UPDATE conversations SET label = COALESCE(NULLIF(label, ''), $1) WHERE id = $2`,
+                [detectedCity, convId]
+              );
+            }
           } else {
             convId = `cnv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             await query(
               `INSERT INTO conversations (
                  id, user_id, name, channel, status, phone, unread_count, last_message_time,
-                 tag, status_filter, assignee, reply_status, response_window,
+                 tag, label, status_filter, assignee, reply_status, response_window,
                  is_spam, created_at, updated_at
                ) VALUES (
                  $1, $2, $3, 'whatsapp', 'Online', $4, 0, 'Just now',
-                 'Campaign Lead', 'open', 'Unassigned', 'replied', 'active',
+                 'Campaign Lead', $5, 'open', 'Unassigned', 'replied', 'active',
                  false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                )`,
-              [convId, campaign.user_id || 'usr_1790574599220', contactName, fromPhone]
+              [convId, campaign.user_id || 'usr_1790574599220', contactName, fromPhone, detectedCity]
             );
           }
 
