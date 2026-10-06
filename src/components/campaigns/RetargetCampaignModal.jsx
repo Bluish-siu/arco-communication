@@ -147,7 +147,7 @@ export default function RetargetCampaignModal({
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-white">1-Click Campaign Retargeting</h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Interakt Style
+                  Smart Cohorts
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5 truncate max-w-md">

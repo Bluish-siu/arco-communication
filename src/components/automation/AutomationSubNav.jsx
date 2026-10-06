@@ -35,7 +35,7 @@ export default function AutomationSubNav() {
 
   const utilityLinks = [
     { label: 'WhatsApp Forms', path: '/automation/whatsapp-forms/view', icon: FileCheck },
-    { label: 'Interaktive List', path: '/automation/interactive-list', icon: ListFilter },
+    { label: 'Interactive List', path: '/automation/interactive-list', icon: ListFilter },
   ];
 
   return (

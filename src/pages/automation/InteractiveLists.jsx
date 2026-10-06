@@ -315,8 +315,8 @@ export default function InteractiveLists() {
                   <List className="w-5 h-5 stroke-[2.5]" />
                 </div>
                 <div>
-                  <h1 className="text-base font-bold text-slate-900 leading-tight">Interaktive Lists</h1>
-                  <p className="text-xs text-slate-500">Set up and manage Interaktive List Messages for your account</p>
+                  <h1 className="text-base font-bold text-slate-900 leading-tight">Interactive Lists</h1>
+                  <p className="text-xs text-slate-500">Set up and manage Interactive List Messages for your account</p>
                 </div>
               </div>
 
@@ -346,7 +346,7 @@ export default function InteractiveLists() {
               <div className="space-y-0.5 leading-relaxed">
                 <span className="font-bold text-sky-950">Automate Conversations with users</span>
                 <p className="text-slate-600">
-                  Create Interaktive List Messages for Frequently Asked Questions or otherwise to automate your conversations. This helps save time and improve user experience.{' '}
+                  Create Interactive List Messages for Frequently Asked Questions or otherwise to automate your conversations. This helps save time and improve user experience.{' '}
                   <a href="#help" onClick={(e) => { e.preventDefault(); alert('Interactive lists trigger custom auto-replies seamlessly.'); }} className="text-blue-600 font-medium hover:underline">Learn More</a>
                 </p>
               </div>
@@ -355,7 +355,7 @@ export default function InteractiveLists() {
             {/* Description Paragraph and "Include new Reply" button row */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pt-1">
               <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
-                Interaktive List Messages are used to trigger Custom Auto Replies in form of a List Message. This gives customers the flexibility to enter their query, converse with your business via, free text or List Messages thereby improving the overall customer experience. You can add upto 10 items and re-order them as well. Click{' '}
+                Interactive List Messages are used to trigger Custom Auto Replies in form of a List Message. This gives customers the flexibility to enter their query, converse with your business via, free text or List Messages thereby improving the overall customer experience. You can add upto 10 items and re-order them as well. Click{' '}
                 <a href="#read" onClick={(e) => { e.preventDefault(); alert('List messages allow up to 10 options divided into sections.'); }} className="text-blue-600 hover:underline">here</a> to read more.
               </p>
 
@@ -371,7 +371,7 @@ export default function InteractiveLists() {
             {/* Interactive List Name field */}
             <div className="space-y-1.5 pt-2">
               <div className="flex items-center gap-1 text-xs font-semibold text-slate-700">
-                <span>Interaktive list Name</span>
+                <span>Interactive List Name</span>
                 <Info className="w-3.5 h-3.5 text-slate-400" />
               </div>
 
@@ -572,7 +572,7 @@ export default function InteractiveLists() {
             
             {/* Dark Green Modal Header */}
             <div className="px-5 py-3.5 bg-[#0d3b30] text-white flex items-center justify-between">
-              <h3 className="font-bold text-xs tracking-tight">Setup Interaktive List</h3>
+              <h3 className="font-bold text-xs tracking-tight">Setup Interactive List</h3>
               <button
                 type="button"
                 onClick={handleCloseModal}

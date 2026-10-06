@@ -95,7 +95,7 @@ export default function DripSequencesTab({ showToast }) {
               WhatsApp Drip Sequences & Smart Retargeting
             </h2>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800">
-              Interakt Match
+              Multi-Day Journeys
             </span>
           </div>
           <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">

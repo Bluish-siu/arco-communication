@@ -551,7 +551,7 @@ export default function GreetingFlowModal({
               >
                 here
               </button>
-              <span>to enable Interaktive List for auto replies</span>
+              <span>to enable Interactive List for auto replies</span>
             </div>
           </div>
 

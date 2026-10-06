@@ -88,7 +88,7 @@ export default function GenerateReportModal({
       const diffTime = Math.abs(to - from);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       if (diffDays > 31) {
-        setDateError('Custom date range cannot exceed 31 days (Interakt limit)');
+        setDateError('Custom date range cannot exceed 31 days');
         return;
       }
 

@@ -902,7 +902,7 @@ export default function WhatsAppForms({ initialTab }) {
                 </div>
                 <div>
                   <h1 className="text-sm font-bold text-slate-900 leading-tight">WhatsApp Forms</h1>
-                  <p className="text-xs text-slate-500">Transform leadgen via interaktive WhatsApp Forms</p>
+                  <p className="text-xs text-slate-500">Transform leadgen via interactive WhatsApp Forms</p>
                 </div>
               </div>
 
@@ -1115,7 +1115,7 @@ export default function WhatsAppForms({ initialTab }) {
                                   <label className="flex items-center gap-3 cursor-pointer">
                                     <input
                                       type="radio"
-                                      name="interakt_template"
+                                      name="form_template"
                                       checked={isSelected}
                                       onChange={() => applyTemplate(tmpl.id)}
                                       className="w-4 h-4 text-[#00875a] accent-[#00875a] border-slate-300 focus:ring-[#00875a] cursor-pointer"

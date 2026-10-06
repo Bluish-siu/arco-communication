@@ -399,7 +399,7 @@ export default function Campaigns() {
                 <Workflow className="w-3.5 h-3.5 text-purple-600" />
                 <span>Drip Sequences</span>
                 <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-purple-100 text-purple-700 border border-purple-200">
-                  Interakt Style
+                  Automated
                 </span>
               </button>
             </div>

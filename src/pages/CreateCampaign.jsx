@@ -57,8 +57,8 @@ const WhatsAppIcon = ({ className }) => (
   </svg>
 );
 
-// 14 Exact Interakt Sample Templates in exact order
-const EXACT_14_INTERAKT_SAMPLES = [
+// 14 Exact ARCO Sample Templates in exact order
+const SAMPLE_CAMPAIGN_TEMPLATES = [
   {
     id: 'tmpl_sample_01',
     name: 'Promotional Offer 01',
@@ -239,14 +239,14 @@ export default function CreateCampaign() {
       };
     }
     if (templateIdParam) {
-      const found = EXACT_14_INTERAKT_SAMPLES.find((t) => t.id === templateIdParam);
+      const found = SAMPLE_CAMPAIGN_TEMPLATES.find((t) => t.id === templateIdParam);
       if (found) return found;
     }
-    return EXACT_14_INTERAKT_SAMPLES[0];
+    return SAMPLE_CAMPAIGN_TEMPLATES[0];
   });
   const [templateTab, setTemplateTab] = useState('active'); // 'active' (Meta Approved) | 'samples'
   const [searchTheme, setSearchTheme] = useState('');
-  const [sampleTemplates, setSampleTemplates] = useState(EXACT_14_INTERAKT_SAMPLES);
+  const [sampleTemplates, setSampleTemplates] = useState(SAMPLE_CAMPAIGN_TEMPLATES);
   const [activeTemplates, setActiveTemplates] = useState([]);
   const [metaApprovedTemplates, setMetaApprovedTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -500,7 +500,7 @@ export default function CreateCampaign() {
   const [scheduleTimezone, setScheduleTimezone] = useState('Asia/Kolkata');
   const [recurringFrequency, setRecurringFrequency] = useState('Daily');
 
-  // Step 5: Advanced Reply Flows (Real 5 Interakt-compatible reply flow configurations)
+  // Step 5: Advanced Reply Flows (Real 5 ARCO-compatible reply flow configurations)
   const [replyFlowConfigs, setReplyFlowConfigs] = useState({
     optOut: {
       enabled: false,
@@ -749,7 +749,7 @@ export default function CreateCampaign() {
         }
       } else {
         const samples = await campaignsService.getTemplates({ isSample: true, search: searchTheme });
-        const list = Array.isArray(samples) && samples.length > 0 ? samples : EXACT_14_INTERAKT_SAMPLES;
+        const list = Array.isArray(samples) && samples.length > 0 ? samples : SAMPLE_CAMPAIGN_TEMPLATES;
         const filtered = searchTheme.trim()
           ? list.filter(
               (t) =>
@@ -765,7 +765,7 @@ export default function CreateCampaign() {
       }
     } catch (err) {
       console.warn('Failed to load templates from API, using default exact 14 samples:', err);
-      setSampleTemplates(EXACT_14_INTERAKT_SAMPLES);
+      setSampleTemplates(SAMPLE_CAMPAIGN_TEMPLATES);
     } finally {
       setLoadingTemplates(false);
     }
@@ -836,7 +836,7 @@ export default function CreateCampaign() {
 
   // Select Sample Template & Advance to Full Builder (Screen 2)
   const handleUseSample = (tmpl) => {
-    const templateToUse = tmpl || selectedTemplate || sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0];
+    const templateToUse = tmpl || selectedTemplate || sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0];
     if (templateToUse) {
       setSelectedTemplate(templateToUse);
       setCampaignName(`${templateToUse.name} Broadcast`);
@@ -1167,7 +1167,7 @@ export default function CreateCampaign() {
                               type="button"
                               onClick={() => {
                                 setTemplateTab('samples');
-                                setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                                setSelectedTemplate(sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0]);
                               }}
                               className="w-full sm:w-auto h-7 px-3.5 text-[11px] font-bold text-white bg-[#0d3b30] hover:bg-[#154d3f] rounded cursor-pointer shadow-2xs transition-colors flex items-center justify-center gap-1.5"
                             >
@@ -1332,7 +1332,7 @@ export default function CreateCampaign() {
                               type="button"
                               onClick={() => {
                                 setTemplateTab('samples');
-                                setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                                setSelectedTemplate(sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0]);
                               }}
                               className="mt-1 px-2.5 py-1 text-[9px] font-bold text-white bg-[#0d3b30] hover:bg-[#154d3f] rounded cursor-pointer transition-colors shadow-2xs"
                             >
@@ -1358,7 +1358,7 @@ export default function CreateCampaign() {
                   type="button"
                   onClick={() => {
                     setTemplateTab('samples');
-                    setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                    setSelectedTemplate(sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0]);
                   }}
                   className="h-8 px-5 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-semibold text-xs rounded shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
                 >
@@ -2017,7 +2017,7 @@ export default function CreateCampaign() {
                         </div>
                       )}
 
-                      {/* Interakt Ads Help Banner */}
+                      {/* ARCO Ads Help Banner */}
                       <div className="text-[11px] text-gray-500 bg-gray-50 p-2.5 rounded border border-gray-200 flex items-center justify-between">
                         <span>Don't have an audience? Click here to build your WhatsApp audience via Ads.</span>
                         <a href="#ads" className="text-emerald-800 font-semibold hover:underline flex items-center gap-1">

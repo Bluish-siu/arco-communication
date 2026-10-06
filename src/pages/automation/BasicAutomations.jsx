@@ -619,7 +619,7 @@ export default function BasicAutomations() {
                         >
                           here
                         </Link>{' '}
-                        to enable Interaktive List for auto replies
+                        to enable Interactive List for auto replies
                       </span>
                     </div>
 
@@ -686,7 +686,7 @@ export default function BasicAutomations() {
                             className="w-4 h-4 accent-emerald-700 cursor-pointer"
                           />
                           <span className="font-semibold text-slate-900">
-                            Enable Interaktive List Message
+                            Enable Interactive List Message
                           </span>
                         </label>
                       </div>
@@ -1262,7 +1262,7 @@ export default function BasicAutomations() {
                         >
                           here
                         </Link>{' '}
-                        to enable Interaktive List for auto replies
+                        to enable Interactive List for auto replies
                       </span>
                     </div>
 
@@ -1329,7 +1329,7 @@ export default function BasicAutomations() {
                             className="w-4 h-4 accent-emerald-700 cursor-pointer"
                           />
                           <span className="font-semibold text-slate-900">
-                            Enable Interaktive List Message
+                            Enable Interactive List Message
                           </span>
                         </label>
                       </div>

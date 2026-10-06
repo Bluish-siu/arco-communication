@@ -119,7 +119,7 @@ const createEmptyEventTrait = (defaultTrait = '') => ({
 // Factory for condition blocks
 const createInitialCondition = () => ({
   id: `cond_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-  tab: 'fields', // Condition 1 defaults to Fields (matching Interakt)
+  tab: 'fields', // Condition 1 defaults to Fields (standard ARCO configuration)
   // Field state
   field: 'id',
   operator: 'is',
@@ -136,7 +136,7 @@ const createInitialCondition = () => ({
 
 const createNewConditionBlock = () => ({
   id: `cond_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-  tab: 'tags', // Added conditions default to Tags (matching Interakt)
+  tab: 'tags', // Added conditions default to Tags (standard ARCO configuration)
   // Field state
   field: '',
   operator: 'is',
@@ -160,7 +160,7 @@ export default function SaveSegmentModal({
   isSaving = false,
 }) {
   const [logic, setLogic] = useState('AND'); // Global logic (default: AND)
-  const [whatsappOpted, setWhatsappOpted] = useState(true); // Default = ON (matching Interakt)
+  const [whatsappOpted, setWhatsappOpted] = useState(true); // Default = ON (standard ARCO configuration)
 
   // Condition Blocks Array
   const [conditions, setConditions] = useState([createInitialCondition()]);

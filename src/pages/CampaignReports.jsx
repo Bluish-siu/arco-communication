@@ -172,7 +172,7 @@ export default function CampaignReports() {
                 <div className="flex items-center gap-2">
                   <Target className="w-4 h-4 text-purple-300" />
                   <span className="font-bold text-sm">1-Click Campaign Retargeting & Drip Journeys</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white">Interakt Match</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white">Smart Journeys</span>
                 </div>
                 <p className="text-xs text-purple-200 max-w-xl leading-relaxed">
                   Re-engage contacts who read but didn't reply, retry failed dispatches, or manage multi-day timed follow-up sequences.

@@ -2999,7 +2999,7 @@ export default function Workflows() {
                                                   updatedCards[cIdx] = { ...updatedCards[cIdx], buttons: updatedButtons };
                                                   handleUpdateNodeData(selectedNode.id, 'carouselCards', updatedCards);
                                                 }}
-                                                placeholder="Enter url, example: www.interakt.shop"
+                                                placeholder="Enter url, example: www.yourbrand.com"
                                                 maxLength={2000}
                                                 className="w-full text-xs text-slate-800 placeholder:text-slate-400 outline-none bg-transparent"
                                               />
@@ -5352,7 +5352,7 @@ export default function Workflows() {
                       </p>
                       <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pt-0.5">
                         <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>₹0.2 per successful intent match will be deducted from Interakt wallet.</span>
+                        <span>₹0.2 per successful intent match will be deducted from ARCO wallet.</span>
                         <Link to="/automation/ai-intent-matching" className="text-teal-700 hover:underline">
                           Know how pricing works?
                         </Link>

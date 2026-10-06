@@ -54,7 +54,7 @@ export function initMetaSdk(appId = DEFAULT_APP_ID) {
 }
 
 /**
- * Launch Meta Embedded Signup Popup (Same popup as Interakt)
+ * Launch Meta Embedded Signup Popup (Official Meta Flow)
  */
 export function launchMetaEmbeddedSignup({
   appId = DEFAULT_APP_ID,

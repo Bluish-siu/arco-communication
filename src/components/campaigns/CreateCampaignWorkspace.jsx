@@ -15,8 +15,8 @@ import {
 } from 'lucide-react';
 import { campaignsService } from '../../services/campaignsService';
 
-// Exact 14 Interakt Samples
-const EXACT_14_INTERAKT_SAMPLES = [
+// Exact 14 ARCO Samples
+const SAMPLE_CAMPAIGN_TEMPLATES = [
   {
     id: 'tmpl_sample_01',
     name: 'Promotional Offer 01',
@@ -179,10 +179,10 @@ export default function CreateCampaignWorkspace({
   const [phoneOs, setPhoneOs] = useState('android'); // 'android' | 'ios'
 
   // Templates Data
-  const [sampleTemplates, setSampleTemplates] = useState(EXACT_14_INTERAKT_SAMPLES);
+  const [sampleTemplates, setSampleTemplates] = useState(SAMPLE_CAMPAIGN_TEMPLATES);
   const [metaApprovedTemplates, setMetaApprovedTemplates] = useState([]);
   const [activeTemplates, setActiveTemplates] = useState([]);
-  const [selectedTemplate, setSelectedTemplate] = useState(EXACT_14_INTERAKT_SAMPLES[0]);
+  const [selectedTemplate, setSelectedTemplate] = useState(SAMPLE_CAMPAIGN_TEMPLATES[0]);
 
   // Load Templates from API on mount & tab change
   const loadTemplatesData = async () => {
@@ -195,7 +195,7 @@ export default function CreateCampaignWorkspace({
 
       // 2. Fetch Sample Ideas (28 templates)
       const samplesRes = await campaignsService.getTemplates({ isSample: true, search: searchTheme });
-      const sampleList = Array.isArray(samplesRes) && samplesRes.length > 0 ? samplesRes : EXACT_14_INTERAKT_SAMPLES;
+      const sampleList = Array.isArray(samplesRes) && samplesRes.length > 0 ? samplesRes : SAMPLE_CAMPAIGN_TEMPLATES;
       const filteredSamples = searchTheme.trim()
         ? sampleList.filter(
             (t) =>
@@ -227,7 +227,7 @@ export default function CreateCampaignWorkspace({
         }
       }
     } catch {
-      setSampleTemplates(EXACT_14_INTERAKT_SAMPLES);
+      setSampleTemplates(SAMPLE_CAMPAIGN_TEMPLATES);
     } finally {
       setLoadingTemplates(false);
     }
@@ -435,7 +435,7 @@ export default function CreateCampaignWorkspace({
                           type="button"
                           onClick={() => {
                             setTemplateTab('samples');
-                            setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                            setSelectedTemplate(sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0]);
                           }}
                           className="w-full sm:w-auto h-7 px-3.5 text-[11px] font-bold text-white bg-[#0d3b30] hover:bg-[#154d3f] rounded cursor-pointer shadow-2xs transition-colors flex items-center justify-center gap-1.5"
                         >
@@ -605,7 +605,7 @@ export default function CreateCampaignWorkspace({
                           type="button"
                           onClick={() => {
                             setTemplateTab('samples');
-                            setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                            setSelectedTemplate(sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0]);
                           }}
                           className="mt-1 px-2.5 py-1 text-[9px] font-bold text-white bg-[#0d3b30] hover:bg-[#154d3f] rounded cursor-pointer transition-colors shadow-2xs"
                         >
@@ -627,7 +627,7 @@ export default function CreateCampaignWorkspace({
                   type="button"
                   onClick={() => {
                     setTemplateTab('samples');
-                    setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                    setSelectedTemplate(sampleTemplates[0] || SAMPLE_CAMPAIGN_TEMPLATES[0]);
                   }}
                   className="h-7 px-4 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-semibold text-xs rounded shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
                 >
