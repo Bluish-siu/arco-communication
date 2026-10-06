@@ -15,6 +15,8 @@ export const inboxController = {
         tag,
         labels,
         label,
+        campaigns,
+        campaign,
         readUnread,
         replyStatus,
         responseWindow,
@@ -91,6 +93,26 @@ export const inboxController = {
         });
         if (conditions.length > 0) {
           sql += ` AND (${conditions.join(' OR ')})`;
+        }
+      }
+
+      // 4b. Campaigns (Multi-select OR + Organic / No Campaign)
+      const rawCampaigns = campaigns || campaign;
+      if (rawCampaigns && rawCampaigns !== 'all') {
+        const campaignList = Array.isArray(rawCampaigns)
+          ? rawCampaigns
+          : rawCampaigns.split(',').map((c) => c.trim());
+        const campaignConditions = [];
+        campaignList.forEach((c) => {
+          if (c === 'none' || c === 'No Campaign' || c === 'No Campaign Attached' || c === 'Organic') {
+            campaignConditions.push('(campaign_name IS NULL OR campaign_name = \'\')');
+          } else {
+            params.push(c);
+            campaignConditions.push(`campaign_name = $${params.length}`);
+          }
+        });
+        if (campaignConditions.length > 0) {
+          sql += ` AND (${campaignConditions.join(' OR ')})`;
         }
       }
 
@@ -178,6 +200,11 @@ export const inboxController = {
           lastMessageTime: conv.last_message_time,
           tag: conv.tag || 'Lead',
           label: conv.label || null,
+          campaignId: conv.campaign_id || null,
+          campaignName: conv.campaign_name || null,
+          templateName: conv.template_name || null,
+          campaignSentAt: conv.campaign_sent_at ? toUtcIsoString(conv.campaign_sent_at) : null,
+          campaignStatus: conv.campaign_status || null,
           statusFilter: conv.status_filter || 'open',
           assignee: conv.assignee || 'Unassigned',
           replyStatus: conv.reply_status || 'replied_manually',
@@ -525,6 +552,11 @@ export const inboxController = {
           lastMessageTime: conv.last_message_time || 'Just now',
           tag: conv.tag || contact?.tag || 'Lead',
           label: conv.label || null,
+          campaignId: conv.campaign_id || null,
+          campaignName: conv.campaign_name || null,
+          templateName: conv.template_name || null,
+          campaignSentAt: conv.campaign_sent_at ? toUtcIsoString(conv.campaign_sent_at) : null,
+          campaignStatus: conv.campaign_status || null,
           statusFilter: conv.status_filter || 'open',
           assignee: conv.assignee || contact?.owner || 'Me',
           replyStatus: conv.reply_status || 'replied_manually',
@@ -645,6 +677,9 @@ export const inboxController = {
       if (assignee !== undefined) convUpdates.assignee = assignee;
       if (tag !== undefined) convUpdates.tag = tag;
       if (label !== undefined) convUpdates.label = label;
+      if (req.body.campaignId !== undefined) convUpdates.campaign_id = req.body.campaignId;
+      if (req.body.campaignName !== undefined) convUpdates.campaign_name = req.body.campaignName;
+      if (req.body.templateName !== undefined) convUpdates.template_name = req.body.templateName;
       
       const newStatusFilter = statusFilter || chatStatus;
       if (newStatusFilter !== undefined) convUpdates.status_filter = newStatusFilter;
@@ -760,6 +795,11 @@ export const inboxController = {
           lastMessageTime: updatedConv.last_message_time,
           tag: updatedConv.tag,
           label: updatedConv.label,
+          campaignId: updatedConv.campaign_id || null,
+          campaignName: updatedConv.campaign_name || null,
+          templateName: updatedConv.template_name || null,
+          campaignSentAt: updatedConv.campaign_sent_at ? toUtcIsoString(updatedConv.campaign_sent_at) : null,
+          campaignStatus: updatedConv.campaign_status || null,
           statusFilter: updatedConv.status_filter,
           assignee: updatedConv.assignee,
           replyStatus: updatedConv.reply_status,

@@ -343,7 +343,7 @@ export default function GreetingFlowModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] relative">
         {/* ========================================================================= */}
-        {/* HEADER MATCHING INTERAKT SCREENSHOT */}
+        {/* MODAL HEADER */}
         {/* ========================================================================= */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
           <div className="flex items-center gap-2.5">
@@ -808,7 +808,7 @@ export default function GreetingFlowModal({
         </div>
 
         {/* ========================================================================= */}
-        {/* FIXED STICKY FOOTER (MATCHING INTERAKT SCREENSHOT) */}
+        {/* FIXED STICKY FOOTER */}
         {/* ========================================================================= */}
         <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-end shrink-0">
           <button

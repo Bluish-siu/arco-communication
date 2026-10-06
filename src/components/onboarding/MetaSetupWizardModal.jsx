@@ -431,7 +431,7 @@ export default function MetaSetupWizardModal({
         )}
 
         {/* ========================================================================= */}
-        {/* STEP 2: VERIFY YOUR BUSINESS (INTERAKT REPLICA) */}
+        {/* STEP 2: VERIFY YOUR BUSINESS */}
         {/* ========================================================================= */}
         {step === 2 && (
           <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6">

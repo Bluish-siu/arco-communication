@@ -266,25 +266,35 @@ export async function dispatchBatch(campaign, recipients) {
 
           if (convRes.rows.length > 0) {
             convId = convRes.rows[0].id;
-            if (detectedCity) {
-              await query(
-                `UPDATE conversations SET label = COALESCE(NULLIF(label, ''), $1) WHERE id = $2`,
-                [detectedCity, convId]
-              );
-            }
+            await query(
+              `UPDATE conversations SET 
+                 label = COALESCE(NULLIF(label, ''), $1),
+                 campaign_id = $2,
+                 campaign_name = $3,
+                 template_name = $4,
+                 campaign_sent_at = CURRENT_TIMESTAMP,
+                 campaign_status = 'sent',
+                 tag = COALESCE(NULLIF(tag, ''), 'Campaign Lead'),
+                 updated_at = CURRENT_TIMESTAMP
+               WHERE id = $5`,
+              [detectedCity, campaign.id, campaign.name, campaign.template_name || null, convId]
+            );
           } else {
             convId = `cnv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             await query(
               `INSERT INTO conversations (
                  id, user_id, name, channel, status, phone, unread_count, last_message_time,
                  tag, label, status_filter, assignee, reply_status, response_window,
-                 is_spam, created_at, updated_at
+                 is_spam, campaign_id, campaign_name, template_name, campaign_sent_at, campaign_status,
+                 created_at, updated_at
                ) VALUES (
                  $1, $2, $3, 'whatsapp', 'Online', $4, 0, 'Just now',
                  'Campaign Lead', $5, 'open', 'Unassigned', 'replied', 'active',
-                 false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                 false, $6, $7, $8, CURRENT_TIMESTAMP, 'sent',
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                )`,
-              [convId, campaign.user_id || 'usr_1790574599220', contactName, fromPhone, detectedCity]
+              [convId, campaign.user_id || 'usr_1790574599220', contactName, fromPhone, detectedCity,
+               campaign.id, campaign.name, campaign.template_name || null]
             );
           }
 

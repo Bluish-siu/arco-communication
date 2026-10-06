@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Search, Check, Tag as TagIcon } from 'lucide-react';
 
-// Exact 11 Tag Options matching Interakt specification
+// Standard Tag Options
 export const TAG_FILTER_OPTIONS = [
   { value: 'all', label: 'Tag: All' },
   { value: 'Campaign Lead', label: 'Campaign Lead' },

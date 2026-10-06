@@ -558,7 +558,7 @@ export default function BasicAutomations() {
                   <span>{settings?.out_of_office?.sentCount || 0} Out of Office Messages sent</span>
                 </div>
 
-                {/* EXPANDED INTERAKT-STYLE INLINE CONFIGURATION PANEL */}
+                {/* EXPANDED INLINE CONFIGURATION PANEL */}
                 {expandedCard === 'out_of_office' && (
                   <div className="border-t border-emerald-200/80 p-5 md:p-6 bg-white space-y-5 animate-in fade-in duration-150">
                     
@@ -608,7 +608,7 @@ export default function BasicAutomations() {
                       />
                     </div>
 
-                    {/* 3. Yellow Notice Banner for Interaktive List */}
+                    {/* 3. Yellow Notice Banner for Interactive List */}
                     <div className="bg-[#fff9e6] border border-[#ffe58f] text-[#ad6800] p-3 rounded-lg text-xs flex items-center gap-2">
                       <span className="text-amber-500 font-bold">💡</span>
                       <span>
@@ -674,7 +674,7 @@ export default function BasicAutomations() {
                         )}
                       </div>
 
-                      {/* Option 2: Enable Interaktive List Message */}
+                      {/* Option 2: Enable Interactive List Message */}
                       <div>
                         <label className="flex items-center gap-2.5 cursor-pointer">
                           <input
@@ -1266,7 +1266,7 @@ export default function BasicAutomations() {
                       </span>
                     </div>
 
-                    {/* 4. Action Radio Options (Matching Interakt Screenshot 3) */}
+                    {/* 4. Action Radio Options */}
                     <div className="space-y-3.5 pt-1 text-xs text-slate-800">
                       
                       {/* Option 1: Product Collections */}

@@ -97,7 +97,7 @@ export default function TemplateCard({
           )}
         </div>
 
-        {/* Message Bubble (Interakt-style Light Green Preview) */}
+        {/* Message Bubble (WhatsApp-style Light Green Preview) */}
         <div className="bg-[#e7f7ec] border border-[#d2edd8] rounded-xl p-3 text-[11px] text-slate-800 space-y-2 shadow-2xs overflow-hidden">
           
           {/* Header if present */}

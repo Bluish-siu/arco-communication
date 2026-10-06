@@ -22,7 +22,7 @@ export default function GoogleSheetsModal({
   onConfigChange,
   showToast,
 }) {
-  // Step 1: Overview (Exact Interakt Reference UI) | Step 2: Configuration & Column Mapping
+  // Step 1: Overview | Step 2: Configuration & Column Mapping
   const [step, setStep] = useState(1);
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
 
@@ -109,7 +109,7 @@ export default function GoogleSheetsModal({
         </div>
 
         {/* ========================================================================= */}
-        {/* STEP 1: EXACT INTERAKT 2-COLUMN OVERVIEW & VIDEO PREVIEW                  */}
+        {/* STEP 1: 2-COLUMN OVERVIEW & VIDEO PREVIEW                                  */}
         {/* ========================================================================= */}
         {step === 1 && (
           <div className="flex-1 flex flex-col md:flex-row min-h-[300px]">
@@ -125,7 +125,7 @@ export default function GoogleSheetsModal({
                   Send a WhatsApp notification when:
                 </p>
 
-                {/* Bullet Points Matching Interakt */}
+                {/* Feature Bullet Points */}
                 <ul className="space-y-2.5 text-xs text-gray-600 list-disc pl-4 leading-relaxed">
                   <li>
                     A new row is added to a connected sheet

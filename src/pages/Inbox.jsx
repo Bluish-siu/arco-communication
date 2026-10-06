@@ -62,7 +62,7 @@ import { inboxService } from '../services/inboxService';
 import { contactsService } from '../services/contactsService';
 import { formatMessageTime, formatConversationTime } from '../utils/dateUtils';
 
-// 7 Pre-Approved Interakt & Meta Style Quick Replies
+// 7 Pre-Approved Standard Quick Replies
 const STANDARD_QUICK_REPLIES = [
   {
     id: 'qr_welcome',
@@ -136,6 +136,7 @@ const COUNTRY_CODES = [
 
 const FILTER_CATEGORIES = [
   { id: 'labels', label: 'Labels' },
+  { id: 'campaigns', label: 'Campaigns' },
   { id: 'tags', label: 'Tags' },
   { id: 'chat_status', label: 'Chat Status' },
   { id: 'assignee', label: 'Assignee' },
@@ -175,6 +176,7 @@ const STANDARD_AGENTS = [
 
 const DEFAULT_FILTERS = {
   labels: [], // array of strings, 'none' for no label
+  campaigns: [], // array of strings, 'none' for no campaign / organic
   tags: [], // array of strings
   chatStatus: 'open', // 'all' | 'open' | 'closed'
   assignees: [], // array of strings
@@ -252,7 +254,7 @@ export default function Inbox() {
   const [toast, setToast] = useState(null);
 
   // =========================================================================
-  // FUNNEL / FILTERS MODAL STATE (Interakt Replication)
+  // FUNNEL / FILTERS MODAL STATE
   // =========================================================================
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [activeFilterCategory, setActiveFilterCategory] = useState('labels');
@@ -261,6 +263,7 @@ export default function Inbox() {
 
   // Separate in-modal filter searches
   const [filterLabelSearch, setFilterLabelSearch] = useState('');
+  const [filterCampaignSearch, setFilterCampaignSearch] = useState('');
   const [filterTagSearch, setFilterTagSearch] = useState('');
   const [filterAgentSearch, setFilterAgentSearch] = useState('');
 
@@ -379,6 +382,7 @@ export default function Inbox() {
         status: filtersToApply.chatStatus !== 'all' ? filtersToApply.chatStatus : undefined,
         tags: filtersToApply.tags.length ? filtersToApply.tags : undefined,
         labels: filtersToApply.labels.length ? filtersToApply.labels : undefined,
+        campaigns: filtersToApply.campaigns?.length ? filtersToApply.campaigns : undefined,
         assignees: filtersToApply.assignees.length ? filtersToApply.assignees : undefined,
         replyStatus: filtersToApply.replyStatus.length ? filtersToApply.replyStatus : undefined,
         readUnread: filtersToApply.readUnread !== 'all' ? filtersToApply.readUnread : undefined,
@@ -431,6 +435,7 @@ export default function Inbox() {
   const handleOpenFilterModal = () => {
     setDraftFilters({ ...appliedFilters });
     setFilterLabelSearch('');
+    setFilterCampaignSearch('');
     setFilterTagSearch('');
     setFilterAgentSearch('');
     setIsFilterModalOpen(true);
@@ -440,6 +445,7 @@ export default function Inbox() {
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (appliedFilters.labels?.length > 0) count += appliedFilters.labels.length;
+    if (appliedFilters.campaigns?.length > 0) count += appliedFilters.campaigns.length;
     if (appliedFilters.tags?.length > 0) count += appliedFilters.tags.length;
     if (appliedFilters.chatStatus && appliedFilters.chatStatus !== 'open') count += 1;
     if (appliedFilters.assignees?.length > 0) count += appliedFilters.assignees.length;
@@ -512,6 +518,37 @@ export default function Inbox() {
 
     return list;
   }, [conversations, knownLabels]);
+
+  // Dynamically extract unique campaigns with conversation counts, sorted by highest count first
+  const dynamicCampaignsList = useMemo(() => {
+    const counts = {};
+    let noCampaignCount = 0;
+
+    conversations.forEach((c) => {
+      const camp = c.campaignName && typeof c.campaignName === 'string' ? c.campaignName.trim() : '';
+      if (!camp || camp === 'none' || camp === 'No Campaign' || camp === 'No Campaign Attached' || camp === 'Organic') {
+        noCampaignCount++;
+      } else {
+        counts[camp] = (counts[camp] || 0) + 1;
+      }
+    });
+
+    const list = [{ id: 'none', label: 'No Campaign (Organic)', count: noCampaignCount }];
+
+    const sortedCampaigns = Object.keys(counts);
+    sortedCampaigns.sort((a, b) => {
+      const countA = counts[a] || 0;
+      const countB = counts[b] || 0;
+      if (countB !== countA) return countB - countA;
+      return a.localeCompare(b);
+    });
+
+    sortedCampaigns.forEach((camp) => {
+      list.push({ id: camp, label: camp, count: counts[camp] || 0 });
+    });
+
+    return list;
+  }, [conversations]);
 
   // Apply filters from modal
   const handleApplyFilters = async () => {
@@ -787,6 +824,13 @@ export default function Inbox() {
         const matchesNoLabel = appliedFilters.labels.includes('none') && (!chat.label || chat.label === '');
         const matchesSpecificLabel = chat.label && appliedFilters.labels.includes(chat.label);
         if (!matchesNoLabel && !matchesSpecificLabel) return false;
+      }
+
+      // 4b. Campaigns (OR logic inside campaigns category)
+      if (appliedFilters.campaigns?.length > 0) {
+        const matchesNoCampaign = (appliedFilters.campaigns.includes('none') || appliedFilters.campaigns.includes('No Campaign') || appliedFilters.campaigns.includes('Organic')) && (!chat.campaignName || chat.campaignName === '');
+        const matchesSpecificCampaign = chat.campaignName && appliedFilters.campaigns.includes(chat.campaignName);
+        if (!matchesNoCampaign && !matchesSpecificCampaign) return false;
       }
 
       // 5. Assignee (OR logic inside assignee category)
@@ -1559,7 +1603,7 @@ export default function Inbox() {
                   )}
                 </div>
 
-                {/* FUNNEL / FILTERS BUTTON (Interakt Centered Modal Trigger) */}
+                {/* FUNNEL / FILTERS BUTTON (Centered Modal Trigger) */}
                 <button
                   type="button"
                   onClick={handleOpenFilterModal}
@@ -1593,8 +1637,14 @@ export default function Inbox() {
                   )}
 
                   {appliedFilters.labels.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-md bg-purple-50 border border-purple-200 text-[10px] font-bold text-purple-700">
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-[10px] font-bold text-indigo-700">
                       {appliedFilters.labels.length} {appliedFilters.labels.length === 1 ? 'Label' : 'Labels'}
+                    </span>
+                  )}
+
+                  {appliedFilters.campaigns?.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-md bg-purple-50 border border-purple-200 text-[10px] font-bold text-purple-700">
+                      {appliedFilters.campaigns.length} {appliedFilters.campaigns.length === 1 ? 'Campaign' : 'Campaigns'}
                     </span>
                   )}
 
@@ -1693,7 +1743,7 @@ export default function Inbox() {
                         </p>
 
                         <div className="mt-1.5 flex items-center justify-between gap-1 flex-wrap">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 flex-wrap">
                             <span className="text-[9px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[90px]">
                               {chat.tag}
                             </span>
@@ -1701,6 +1751,15 @@ export default function Inbox() {
                               <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50/90 px-1.5 py-0.5 rounded border border-indigo-200/90 flex items-center gap-1 shadow-2xs">
                                 <MapPin className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
                                 <span className="truncate max-w-[90px]">{chat.label}</span>
+                              </span>
+                            )}
+                            {chat.campaignName && (
+                              <span
+                                title={`Source Campaign: ${chat.campaignName}`}
+                                className="text-[9px] font-bold text-purple-700 bg-purple-50/90 px-1.5 py-0.5 rounded border border-purple-200/90 flex items-center gap-1 shadow-2xs"
+                              >
+                                <Send className="w-2.5 h-2.5 text-purple-600 shrink-0" />
+                                <span className="truncate max-w-[110px]">{chat.campaignName}</span>
                               </span>
                             )}
                           </div>
@@ -1719,7 +1778,7 @@ export default function Inbox() {
             </div>
 
             {/* ========================================================================= */}
-            {/* STEP 1: COMPACT ATTACHED NEW CHAT PANEL (Matching Interakt) */}
+            {/* STEP 1: COMPACT ATTACHED NEW CHAT PANEL */}
             {/* ========================================================================= */}
             {isNewChatPanelOpen && (
               <div className="absolute bottom-16 left-3 right-3 z-30 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3.5 space-y-3 animate-in slide-in-from-bottom-3 duration-150">
@@ -1861,10 +1920,19 @@ export default function Inbox() {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5">
+                        <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5 flex-wrap">
                           <span>{selectedChat.phone}</span>
                           <span>•</span>
                           <span className="capitalize">{selectedChat.channel}</span>
+                          {selectedChat.campaignName && (
+                            <>
+                              <span>•</span>
+                              <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded font-sans font-bold flex items-center gap-1 border border-purple-200">
+                                <Send className="w-2.5 h-2.5 text-purple-600" />
+                                {selectedChat.campaignName}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2838,6 +2906,66 @@ export default function Inbox() {
                     </div>
                   </div>
 
+                  {/* Campaign Attribution & Source */}
+                  <div className="space-y-3 pt-3 border-t border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                        Campaign Source & Attribution
+                      </h5>
+                      {selectedChat.campaignName ? (
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                          Dispatched
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                          Organic
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="p-3 bg-purple-50/60 rounded-2xl border border-purple-100 space-y-2.5">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                          <Send className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 block">
+                            Source Campaign
+                          </span>
+                          <p className="text-xs font-bold text-slate-900 truncate">
+                            {selectedChat.campaignName || 'Direct / Organic Inbound'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedChat.templateName && (
+                        <div className="pl-9 text-xs">
+                          <span className="text-[10px] font-medium text-slate-500 block">
+                            Template Dispatched:
+                          </span>
+                          <span className="font-mono text-[11px] font-semibold text-purple-900 bg-white px-2 py-0.5 rounded border border-purple-200/80 inline-block mt-0.5">
+                            {selectedChat.templateName}
+                          </span>
+                        </div>
+                      )}
+
+                      {selectedChat.campaignSentAt && (
+                        <div className="pl-9 flex items-center gap-1.5 text-[11px] text-slate-500">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          <span>
+                            Sent on {new Date(selectedChat.campaignSentAt).toLocaleDateString('en-IN', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Section 2: Opt-In & Spam Flags */}
                   <div className="space-y-3 pt-3 border-t border-slate-200">
                     <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
@@ -2950,7 +3078,7 @@ export default function Inbox() {
       </div>
 
       {/* ========================================================================= */}
-      {/* INTERAKT REPLICATION: CENTERED "FILTERS" MODAL */}
+      {/* CENTERED "FILTERS" MODAL */}
       {/* ========================================================================= */}
       {isFilterModalOpen && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
@@ -2972,10 +3100,22 @@ export default function Inbox() {
             {/* Modal Body: Left Categories + Right Content */}
             <div className="flex-1 flex overflow-hidden min-h-[380px]">
               
-              {/* LEFT CATEGORIES NAVIGATION (Exact Interakt Sequence) */}
+              {/* LEFT CATEGORIES NAVIGATION */}
               <div className="w-48 sm:w-52 border-r border-slate-200 bg-slate-50/70 overflow-y-auto py-2 shrink-0">
                 {FILTER_CATEGORIES.map((cat) => {
                   const isActive = activeFilterCategory === cat.id;
+                  let catCount = 0;
+                  if (cat.id === 'labels') catCount = draftFilters.labels?.length || 0;
+                  if (cat.id === 'campaigns') catCount = draftFilters.campaigns?.length || 0;
+                  if (cat.id === 'tags') catCount = draftFilters.tags?.length || 0;
+                  if (cat.id === 'chat_status' && draftFilters.chatStatus !== 'all' && draftFilters.chatStatus !== 'open') catCount = 1;
+                  if (cat.id === 'assignee') catCount = draftFilters.assignees?.length || 0;
+                  if (cat.id === 'reply_status') catCount = draftFilters.replyStatus?.length || 0;
+                  if (cat.id === 'read_unread' && draftFilters.readUnread !== 'all') catCount = 1;
+                  if (cat.id === 'response_window' && draftFilters.responseWindow !== 'all') catCount = 1;
+                  if (cat.id === 'spam_chats' && draftFilters.spamChats) catCount = 1;
+                  if (cat.id === 'last_message_time' && (draftFilters.fromDate || draftFilters.toDate)) catCount = 1;
+
                   return (
                     <button
                       key={cat.id}
@@ -2988,6 +3128,11 @@ export default function Inbox() {
                       }`}
                     >
                       <span>{cat.label}</span>
+                      {catCount > 0 && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          {catCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -3067,6 +3212,94 @@ export default function Inbox() {
                                 </div>
                                 {item.count !== undefined && item.count > 0 && (
                                   <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-full shrink-0">
+                                    {item.count}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 1B. CAMPAIGNS */}
+                {activeFilterCategory === 'campaigns' && (() => {
+                  const filteredCampaigns = dynamicCampaignsList.filter((item) =>
+                    item.label.toLowerCase().includes(filterCampaignSearch.toLowerCase().trim())
+                  );
+
+                  return (
+                    <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                      <div className="flex items-center justify-between pb-1">
+                        <h4 className="text-xs font-bold text-slate-900">Campaigns</h4>
+                        {draftFilters.campaigns?.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setDraftFilters({ ...draftFilters, campaigns: [] })}
+                            className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer transition-colors"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={filterCampaignSearch}
+                          onChange={(e) => setFilterCampaignSearch(e.target.value)}
+                          placeholder="Search Campaigns"
+                          className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-emerald-600 font-medium"
+                        />
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto space-y-2 pt-1">
+                        {filteredCampaigns.length === 0 ? (
+                          <div className="py-8 text-center text-xs text-slate-400">
+                            No campaigns found
+                          </div>
+                        ) : (
+                          filteredCampaigns.map((item) => {
+                            const isChecked = draftFilters.campaigns?.includes(item.id);
+                            return (
+                              <label
+                                key={item.id}
+                                className="flex items-center justify-between gap-2.5 cursor-pointer text-xs text-slate-700 hover:text-slate-900 select-none py-1.5 px-2 rounded-xl hover:bg-slate-50 transition-colors"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const currentList = draftFilters.campaigns || [];
+                                      if (e.target.checked) {
+                                        setDraftFilters({
+                                          ...draftFilters,
+                                          campaigns: [...currentList, item.id],
+                                        });
+                                      } else {
+                                        setDraftFilters({
+                                          ...draftFilters,
+                                          campaigns: currentList.filter((c) => c !== item.id),
+                                        });
+                                      }
+                                    }}
+                                    className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer accent-emerald-600"
+                                  />
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    {item.id !== 'none' ? (
+                                      <Send className="w-3 h-3 text-purple-600 shrink-0" />
+                                    ) : (
+                                      <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                                    )}
+                                    <span className="font-semibold text-slate-800 truncate">{item.label}</span>
+                                  </div>
+                                </div>
+                                {item.count !== undefined && item.count > 0 && (
+                                  <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200/80 px-2 py-0.5 rounded-full shrink-0">
                                     {item.count}
                                   </span>
                                 )}
@@ -3518,7 +3751,7 @@ export default function Inbox() {
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 2: CENTERED "NEW CONTACT" MODAL (Matching Interakt Screenshot) */}
+      {/* STEP 2: CENTERED "NEW CONTACT" MODAL */}
       {/* ========================================================================= */}
       {isNewContactModalOpen && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
@@ -3607,7 +3840,7 @@ export default function Inbox() {
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3: "CREATE CONTACTS" RIGHT-SIDE DRAWER (Matching Interakt Screenshot) */}
+      {/* STEP 3: "CREATE CONTACTS" RIGHT-SIDE DRAWER */}
       {/* ========================================================================= */}
       {isCreateContactDrawerOpen && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-50 flex justify-end animate-in fade-in duration-150">

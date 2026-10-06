@@ -174,7 +174,7 @@ export default function ConnectWhatsAppModal({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Connect With Verification Form Submit (Launches Meta Login Popup like Interakt)
+  // Connect With Verification Form Submit (Launches Meta Login Popup)
   const handleConnectWithVerification = async (e) => {
     if (e) e.preventDefault();
     setActionError('');
@@ -382,7 +382,7 @@ export default function ConnectWhatsAppModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* ========================================================================= */}
-        {/* MODAL HEADER WITH INTERAKT PROGRESS & PILL */}
+        {/* MODAL HEADER WITH PROGRESS & PILL */}
         {/* ========================================================================= */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
           {!isConnected ? (
@@ -514,7 +514,7 @@ export default function ConnectWhatsAppModal({
             </div>
           ) : step === 1 ? (
             /* ========================================================================= */
-            /* STEP 1: 2 WAYS TO SETUP WHATSAPP API NUMBER (EXACT INTERAKT REPLICA) */
+            /* STEP 1: 2 WAYS TO SETUP WHATSAPP API NUMBER */
             /* ========================================================================= */
             <div className="space-y-6">
               <div>
@@ -715,7 +715,7 @@ export default function ConnectWhatsAppModal({
             </div>
           ) : (
             /* ========================================================================= */
-            /* STEP 2: VERIFY YOUR BUSINESS (EXACT INTERAKT REPLICA) */
+            /* STEP 2: VERIFY YOUR BUSINESS */
             /* ========================================================================= */
             <form onSubmit={handleConnectWithVerification} className="space-y-5">
               <div>
@@ -971,7 +971,7 @@ export default function ConnectWhatsAppModal({
                 </div>
               )}
 
-              {/* Bottom Action Buttons matching Interakt screenshot */}
+              {/* Bottom Action Buttons */}
               <div className="pt-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-100">
                 <div className="flex items-center gap-3">
                   <button

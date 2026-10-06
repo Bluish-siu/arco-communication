@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Bookmark, ChevronDown, Tag as TagIcon } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 
-// Available Tag Options (Exact 10 options matching Interakt with SVG tag icon)
+// Available Tag Options
 const TAG_OPTIONS = [
   { value: 'Campaign Lead', label: 'Campaign Lead', icon: TagIcon },
   { value: 'Lead', label: 'Lead', icon: TagIcon },
@@ -22,7 +22,7 @@ const TAG_OPTIONS = [
   { value: 'Abandoned Cart', label: 'Abandoned Cart', icon: TagIcon },
 ];
 
-// Available Contact Fields (Matching Interakt Reference in exact order)
+// Available Contact Fields
 const FIELD_OPTIONS = [
   { value: 'id', label: 'id', type: 'text' },
   { value: 'user_id', label: 'User Id', type: 'text' },
@@ -48,7 +48,7 @@ const FIELD_OPTIONS = [
   { value: 'failure_reason', label: 'Failure Reason', type: 'text' },
 ];
 
-// Available Events Options (Exact 5 items matching Interakt)
+// Available Events Options
 const EVENT_OPTIONS = [
   { value: 'Phone Number Updated', label: 'Phone Number Updated' },
   { value: 'Flow Completed', label: 'Flow Completed' },
