@@ -206,27 +206,24 @@ export default function CreateCampaignWorkspace({
         : sampleList;
       setSampleTemplates(filteredSamples);
 
-      // 3. Populate current active list depending on active tab
+      // 3. Populate current active list depending on active tab (strict isolation per connected account)
       if (templateTab === 'active' || templateTab === 'meta') {
-        let list = realMetaApproved;
-        if (list.length === 0) {
-          const fallbackActive = await campaignsService.getTemplates({ isSample: false, search: searchTheme });
-          list = Array.isArray(fallbackActive) ? fallbackActive : [];
-        }
         const filtered = searchTheme.trim()
-          ? list.filter(
+          ? realMetaApproved.filter(
               (t) =>
-                t.name.toLowerCase().includes(searchTheme.toLowerCase()) ||
+                t.name?.toLowerCase().includes(searchTheme.toLowerCase()) ||
                 (t.category && t.category.toLowerCase().includes(searchTheme.toLowerCase()))
             )
-          : list;
+          : realMetaApproved;
         setActiveTemplates(filtered);
         if (filtered.length > 0) {
-          setSelectedTemplate((prev) => (prev && list.some((t) => t.id === prev.id) ? prev : filtered[0]));
+          setSelectedTemplate((prev) => (prev && realMetaApproved.some((t) => t.id === prev.id) ? prev : filtered[0]));
+        } else {
+          setSelectedTemplate(null);
         }
       } else {
-        if (filteredSamples.length > 0 && !selectedTemplate) {
-          setSelectedTemplate(filteredSamples[0]);
+        if (filteredSamples.length > 0) {
+          setSelectedTemplate((prev) => (prev && filteredSamples.some((t) => t.id === prev.id) ? prev : filteredSamples[0]));
         }
       }
     } catch {
@@ -323,7 +320,7 @@ export default function CreateCampaignWorkspace({
               <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600" />
               <span>Meta Approved</span>
               <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                {metaApprovedTemplates.length || activeTemplates.length}
+                {metaApprovedTemplates.length}
               </span>
             </button>
 
@@ -409,9 +406,69 @@ export default function CreateCampaignWorkspace({
                   <p className="text-xs">Loading templates...</p>
                 </div>
               ) : currentTemplateList.length === 0 ? (
-                <div className="p-12 text-center text-gray-400">
-                  No templates found matching your query
-                </div>
+                templateTab === 'active' ? (
+                  <div className="p-6 text-center flex flex-col items-center justify-center my-auto space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                      <WhatsAppIcon className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-bold text-gray-900">
+                        {searchTheme.trim() ? 'No Matching Approved Templates' : 'No Meta Approved Templates Yet'}
+                      </h4>
+                      <p className="text-[11px] text-gray-500 leading-relaxed max-w-xs mx-auto">
+                        {searchTheme.trim()
+                          ? `No approved templates match "${searchTheme}". Try clearing your search.`
+                          : 'Your connected WhatsApp account does not have any approved templates in Meta yet. Templates are verified and isolated by Meta per WhatsApp Business Account.'}
+                      </p>
+                    </div>
+                    {searchTheme.trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTheme('')}
+                        className="h-7 px-3 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 cursor-pointer transition-colors"
+                      >
+                        Clear Search
+                      </button>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row items-center gap-2 pt-1 w-full max-w-xs justify-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTemplateTab('samples');
+                            setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                          }}
+                          className="w-full sm:w-auto h-7 px-3.5 text-[11px] font-bold text-white bg-[#0d3b30] hover:bg-[#154d3f] rounded cursor-pointer shadow-2xs transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          <span>Explore Sample Ideas ({sampleTemplates.length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onClose) onClose();
+                            navigate('/templates/new');
+                          }}
+                          className="w-full sm:w-auto h-7 px-3 text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-50 rounded border border-gray-300 cursor-pointer transition-colors flex items-center justify-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Create Template</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-gray-400 text-xs space-y-2">
+                    <p>No sample templates found matching your query.</p>
+                    {searchTheme.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTheme('')}
+                        className="text-xs text-emerald-700 font-semibold underline hover:no-underline cursor-pointer"
+                      >
+                        Clear Search
+                      </button>
+                    )}
+                  </div>
+                )
               ) : (
                 currentTemplateList.map((tmpl) => {
                   const isSelected = selectedTemplate?.id === tmpl.id;
@@ -531,8 +588,30 @@ export default function CreateCampaignWorkspace({
 
                     </div>
                   ) : (
-                    <div className="p-4 text-center text-gray-400 italic text-[10px]">
-                      Select a template to preview
+                    <div className="p-4 my-auto text-center space-y-2">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                        <WhatsAppIcon className="w-4 h-4" />
+                      </div>
+                      <div className="text-[11px] font-bold text-gray-800">
+                        No Template Selected
+                      </div>
+                      <p className="text-[9px] text-gray-500 leading-tight">
+                        {templateTab === 'active'
+                          ? 'Your connected WhatsApp account has no approved templates in Meta yet. Switch to Sample Ideas to preview pre-made messages.'
+                          : 'Select a template from the list on the left to preview.'}
+                      </p>
+                      {templateTab === 'active' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTemplateTab('samples');
+                            setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                          }}
+                          className="mt-1 px-2.5 py-1 text-[9px] font-bold text-white bg-[#0d3b30] hover:bg-[#154d3f] rounded cursor-pointer transition-colors shadow-2xs"
+                        >
+                          Explore Sample Ideas
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -541,16 +620,31 @@ export default function CreateCampaignWorkspace({
               </div>
             </div>
 
-            {/* Bottom Action inside preview column: [ Use this Sample ] */}
+            {/* Bottom Action inside preview column: [ Use this Sample / Explore Sample Ideas ] */}
             <div className="w-full mt-3 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => handleUseSample(selectedTemplate)}
-                className="h-7 px-4 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-semibold text-xs rounded shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <span>Use this Sample</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+              {templateTab === 'active' && activeTemplates.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTemplateTab('samples');
+                    setSelectedTemplate(sampleTemplates[0] || EXACT_14_INTERAKT_SAMPLES[0]);
+                  }}
+                  className="h-7 px-4 bg-[#0d3b30] hover:bg-[#154d3f] text-white font-semibold text-xs rounded shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>Explore Sample Ideas ({sampleTemplates.length})</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!selectedTemplate}
+                  onClick={() => handleUseSample(selectedTemplate)}
+                  className="h-7 px-4 bg-[#0d3b30] hover:bg-[#154d3f] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs rounded shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>{templateTab === 'active' ? 'Use this Template' : 'Use this Sample'}</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
           </div>

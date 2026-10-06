@@ -1353,53 +1353,56 @@ export const metaWhatsAppService = {
           customError = 'WhatsApp template not found for the selected language. Please select an approved template from your connected Meta WhatsApp Business account.';
         }
 
-        // Safe Fallback: Check local PostgreSQL database for active approved Meta templates
-        try {
-          const dbTmpls = await query(
-            `SELECT id, name, category, language, status, header_type, header_text, body_text, footer_text, buttons
-             FROM campaign_templates 
-             WHERE is_sample = false AND status = 'APPROVED'
-             ORDER BY created_at ASC`
-          );
-          if (dbTmpls.rows.length > 0) {
-            const cachedApproved = dbTmpls.rows.map((t) => {
-              const buttons = typeof t.buttons === 'string' ? JSON.parse(t.buttons || '[]') : (t.buttons || []);
-              const bodyText = t.body_text || '';
-              const bodyVariables = [];
-              const matches = bodyText.match(/\{\{(\d+)\}\}/g);
-              if (matches) {
-                matches.forEach((m) => {
-                  const num = m.replace(/\D/g, '');
-                  if (!bodyVariables.includes(num)) bodyVariables.push(num);
-                });
-              }
-              return {
-                id: t.id,
-                name: t.name,
-                status: t.status,
-                category: t.category || 'MARKETING',
-                language: t.language || 'en_US',
-                headerText: t.header_text || '',
-                bodyText,
-                bodyVariables,
-                footerText: t.footer_text || '',
-                buttons,
-              };
-            });
+        // Safe Fallback: Only for default environment credentials if Meta API is temporarily offline.
+        // Never leak default company templates to custom connected WABAs (e.g. Bcat).
+        if (creds.source === 'env') {
+          try {
+            const dbTmpls = await query(
+              `SELECT id, name, category, language, status, header_type, header_text, body_text, footer_text, buttons
+               FROM campaign_templates 
+               WHERE is_sample = false AND status = 'APPROVED'
+               ORDER BY created_at ASC`
+            );
+            if (dbTmpls.rows.length > 0) {
+              const cachedApproved = dbTmpls.rows.map((t) => {
+                const buttons = typeof t.buttons === 'string' ? JSON.parse(t.buttons || '[]') : (t.buttons || []);
+                const bodyText = t.body_text || '';
+                const bodyVariables = [];
+                const matches = bodyText.match(/\{\{(\d+)\}\}/g);
+                if (matches) {
+                  matches.forEach((m) => {
+                    const num = m.replace(/\D/g, '');
+                    if (!bodyVariables.includes(num)) bodyVariables.push(num);
+                  });
+                }
+                return {
+                  id: t.id,
+                  name: t.name,
+                  status: t.status,
+                  category: t.category || 'MARKETING',
+                  language: t.language || 'en_US',
+                  headerText: t.header_text || '',
+                  bodyText,
+                  bodyVariables,
+                  footerText: t.footer_text || '',
+                  buttons,
+                };
+              });
 
-            return {
-              success: true,
-              fromCache: true,
-              data: cachedApproved,
-              approved: cachedApproved,
-              total: cachedApproved.length,
-              approvedCount: cachedApproved.length,
-              metaError: customError,
-              errorCode: data.error?.code,
-            };
+              return {
+                success: true,
+                fromCache: true,
+                data: cachedApproved,
+                approved: cachedApproved,
+                total: cachedApproved.length,
+                approvedCount: cachedApproved.length,
+                metaError: customError,
+                errorCode: data.error?.code,
+              };
+            }
+          } catch (dbErr) {
+            console.warn('[metaWhatsAppService] DB template fallback query error:', dbErr.message);
           }
-        } catch (dbErr) {
-          console.warn('[metaWhatsAppService] DB template fallback query error:', dbErr.message);
         }
 
         return {
