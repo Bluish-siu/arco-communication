@@ -16,11 +16,14 @@ import {
   X,
   Clock,
   Send,
+  Workflow,
+  Target,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
 import CreateCampaignWorkspace from '../components/campaigns/CreateCampaignWorkspace';
+import DripSequencesTab from '../components/campaigns/DripSequencesTab';
 import { formatDateTime } from '../utils/dateUtils';
 
 // WhatsApp Contextual SVG Icon
@@ -146,6 +149,7 @@ export default function Campaigns() {
 
   // Load Campaigns from PostgreSQL Backend
   const loadCampaigns = async (showSpinner = false) => {
+    if (currentTab === 'drip') return;
     if (showSpinner) setRefreshing(true);
     try {
       const data = await campaignsService.getCampaigns({
@@ -382,9 +386,29 @@ export default function Campaigns() {
               >
                 API campaigns
               </button>
+
+              <button
+                type="button"
+                onClick={() => handleTabChange('drip')}
+                className={`pb-2.5 transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  currentTab === 'drip'
+                    ? 'border-b-2 border-purple-600 text-purple-700 font-bold -mb-[1px]'
+                    : 'text-gray-500 hover:text-gray-800 font-medium'
+                }`}
+              >
+                <Workflow className="w-3.5 h-3.5 text-purple-600" />
+                <span>Drip Sequences</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-purple-100 text-purple-700 border border-purple-200">
+                  Interakt Style
+                </span>
+              </button>
             </div>
 
-            {/* FILTER BAR: Search by name 0/200 | WhatsApp ▼ | Status ▼ | Category ▼ | Created by ▼ | Date Set Live ▼ | Refresh */}
+            {currentTab === 'drip' ? (
+              <DripSequencesTab showToast={showToast} />
+            ) : (
+              <>
+                {/* FILTER BAR: Search by name 0/200 | WhatsApp ▼ | Status ▼ | Category ▼ | Created by ▼ | Date Set Live ▼ | Refresh */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <div className="flex flex-wrap items-center gap-2">
                 
@@ -655,6 +679,8 @@ export default function Campaigns() {
                   </table>
                 </div>
               </div>
+            )}
+              </>
             )}
 
           </div>

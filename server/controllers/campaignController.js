@@ -1442,4 +1442,327 @@ export const campaignController = {
       next(error);
     }
   },
+
+  // POST /api/campaigns/:id/retarget (1-Click Retargeting by Cohort)
+  retarget: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const {
+        cohort = 'read_no_reply', // 'read_no_reply' | 'delivered_no_read' | 'failed' | 'replied' | 'all_unresponsive'
+        name,
+        templateName,
+        templateLanguage = 'en_US',
+        templateCategory = 'MARKETING',
+        templatePayload = {},
+        variableMapping = {},
+      } = req.body;
+
+      // 1. Fetch original campaign
+      const originalRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      if (originalRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Original campaign not found' });
+      }
+      const orig = originalRes.rows[0];
+
+      // 2. Query target recipients based on cohort filter
+      let filterClause = '';
+      let cohortLabel = '';
+      if (cohort === 'read_no_reply') {
+        filterClause = `AND (status = 'read' OR read_at IS NOT NULL) AND (status != 'replied' AND replied_at IS NULL)`;
+        cohortLabel = 'Read No Reply';
+      } else if (cohort === 'delivered_no_read') {
+        filterClause = `AND (status = 'delivered' OR delivered_at IS NOT NULL) AND read_at IS NULL AND replied_at IS NULL`;
+        cohortLabel = 'Delivered Unread';
+      } else if (cohort === 'failed') {
+        filterClause = `AND status = 'failed'`;
+        cohortLabel = 'Failed Delivery';
+      } else if (cohort === 'replied') {
+        filterClause = `AND (status = 'replied' OR replied_at IS NOT NULL)`;
+        cohortLabel = 'Replied Leads';
+      } else {
+        filterClause = `AND (status != 'replied' AND replied_at IS NULL)`;
+        cohortLabel = 'Unresponsive Contacts';
+      }
+
+      const recipsRes = await query(
+        `SELECT DISTINCT ON (phone) id, name, phone, email, country_code, csv_data, whatsapp_opted 
+         FROM campaign_recipients 
+         WHERE campaign_id = $1 ${filterClause}
+         ORDER BY phone, created_at DESC`,
+        [id]
+      );
+
+      const targetRecipients = recipsRes.rows;
+      if (targetRecipients.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: `No contacts found matching the selected cohort (${cohortLabel}).`,
+        });
+      }
+
+      // 3. Create the new Retargeting Campaign in DRAFT status (Will NOT send automatically)
+      const retargetCampaignId = `camp_retarget_${Date.now()}`;
+      const campaignName = name?.trim() || `[Retarget] ${orig.name} - ${cohortLabel}`;
+      const initialStatus = 'Draft';
+
+      await query(
+        `INSERT INTO campaigns (
+           id, name, description, channel, type, category, status,
+           recipients, delivered, read, replied, audience_type,
+           template_name, template_language, template_category,
+           template_payload, variable_mapping, user_id, created_by,
+           created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          retargetCampaignId,
+          campaignName,
+          `1-Click Retargeted from campaign "${orig.name}" (${cohortLabel} cohort of ${targetRecipients.length} contacts).`,
+          'whatsapp',
+          'retarget',
+          'Marketing',
+          initialStatus,
+          targetRecipients.length,
+          'retarget_cohort',
+          templateName || orig.template_name,
+          templateLanguage || orig.template_language || 'en_US',
+          templateCategory || orig.template_category || 'MARKETING',
+          JSON.stringify(templatePayload || {}),
+          JSON.stringify(variableMapping || {}),
+          req.user?.id || orig.user_id || 'usr_1790574599220',
+          req.user?.name || 'Admin',
+        ]
+      );
+
+      // 4. Populate campaign_recipients for the new retargeting campaign
+      for (let i = 0; i < targetRecipients.length; i++) {
+        const r = targetRecipients[i];
+        const rId = `rcp_${retargetCampaignId}_${i + 1}`;
+        const batchNum = Math.floor(i / 100) + 1;
+        await query(
+          `INSERT INTO campaign_recipients (
+             id, campaign_id, name, phone, email, country_code,
+             status, whatsapp_opted, batch_number, csv_data, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            rId,
+            retargetCampaignId,
+            r.name,
+            r.phone,
+            r.email,
+            r.country_code || '91',
+            r.whatsapp_opted !== false,
+            batchNum,
+            JSON.stringify(r.csv_data || {}),
+          ]
+        );
+      }
+
+      res.status(201).json({
+        success: true,
+        message: `Retargeting campaign created successfully with ${targetRecipients.length} contacts in Draft mode.`,
+        data: {
+          campaignId: retargetCampaignId,
+          name: campaignName,
+          cohort: cohortLabel,
+          recipientCount: targetRecipients.length,
+          status: initialStatus,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/campaigns/drip-sequences
+  getDripSequences: async (req, res, next) => {
+    try {
+      const result = await query(
+        `SELECT * FROM drip_sequences ORDER BY created_at DESC`
+      );
+
+      res.json({
+        success: true,
+        count: result.rows.length,
+        data: result.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          status: r.status,
+          audienceType: r.audience_type,
+          audienceFilter: r.audience_filter || {},
+          steps: r.steps || [],
+          stats: r.stats || {},
+          createdBy: r.created_by,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/campaigns/drip-sequences/:id
+  getDripSequenceById: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const result = await query('SELECT * FROM drip_sequences WHERE id = $1', [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Drip sequence not found' });
+      }
+      const r = result.rows[0];
+      res.json({
+        success: true,
+        data: {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          status: r.status,
+          audienceType: r.audience_type,
+          audienceFilter: r.audience_filter || {},
+          steps: r.steps || [],
+          stats: r.stats || {},
+          createdBy: r.created_by,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/campaigns/drip-sequences (Creates new Drip Sequence in Draft mode)
+  createDripSequence: async (req, res, next) => {
+    try {
+      const {
+        name,
+        description,
+        audienceType = 'all',
+        audienceFilter = {},
+        steps = [],
+      } = req.body;
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'Sequence name is required' });
+      }
+
+      const seqId = `drip_seq_${Date.now()}`;
+      // STRICT SAFETY: Always start in Draft / Paused status
+      const initialStatus = 'Draft';
+
+      await query(
+        `INSERT INTO drip_sequences (
+           id, name, description, status, audience_type, audience_filter, steps, stats, user_id, created_by, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          seqId,
+          name.trim(),
+          description || '',
+          initialStatus,
+          audienceType,
+          JSON.stringify(audienceFilter),
+          JSON.stringify(steps),
+          JSON.stringify({ enrolled: 0, step1_sent: 0, step2_sent: 0, replied: 0, moved_to_crm: 0 }),
+          req.user?.id || 'usr_1790574599220',
+          req.user?.name || 'Admin',
+        ]
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Drip sequence created in Draft mode. It will not execute until explicitly activated.',
+        data: {
+          id: seqId,
+          name: name.trim(),
+          status: initialStatus,
+          steps,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // PUT /api/campaigns/drip-sequences/:id
+  updateDripSequence: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { name, description, audienceType, audienceFilter, steps } = req.body;
+
+      const result = await query(
+        `UPDATE drip_sequences
+         SET name = COALESCE($1, name),
+             description = COALESCE($2, description),
+             audience_type = COALESCE($3, audience_type),
+             audience_filter = COALESCE($4, audience_filter),
+             steps = COALESCE($5, steps),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6
+         RETURNING *`,
+        [
+          name,
+          description,
+          audienceType,
+          audienceFilter ? JSON.stringify(audienceFilter) : null,
+          steps ? JSON.stringify(steps) : null,
+          id,
+        ]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Drip sequence not found' });
+      }
+
+      res.json({ success: true, message: 'Drip sequence updated', data: result.rows[0] });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // PATCH /api/campaigns/drip-sequences/:id/status
+  updateDripSequenceStatus: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body; // 'Draft' | 'Paused' | 'Active'
+
+      if (!['Draft', 'Paused', 'Active'].includes(status)) {
+        return res.status(400).json({ success: false, error: 'Invalid status. Must be Draft, Paused, or Active.' });
+      }
+
+      const result = await query(
+        `UPDATE drip_sequences SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+        [status, id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Drip sequence not found' });
+      }
+
+      res.json({
+        success: true,
+        message: `Drip sequence status updated to ${status}.`,
+        data: result.rows[0],
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // DELETE /api/campaigns/drip-sequences/:id
+  deleteDripSequence: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const result = await query('DELETE FROM drip_sequences WHERE id = $1 RETURNING id', [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Drip sequence not found' });
+      }
+      res.json({ success: true, message: 'Drip sequence deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

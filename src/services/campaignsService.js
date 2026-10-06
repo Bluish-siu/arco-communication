@@ -160,4 +160,65 @@ export const campaignsService = {
       return { success: false, error: err.message };
     }
   },
+
+  // POST /api/campaigns/:id/retarget (1-Click Retargeting by Cohort)
+  retargetCampaign: async (id, retargetPayload) => {
+    const res = await apiRequest(`/campaigns/${id}/retarget`, {
+      method: 'POST',
+      body: JSON.stringify(retargetPayload),
+    });
+    return res;
+  },
+
+  // GET /api/campaigns/drip-sequences
+  getDripSequences: async () => {
+    try {
+      const res = await apiRequest('/campaigns/drip-sequences');
+      return res.data || [];
+    } catch (err) {
+      console.warn('[Campaigns Service] getDripSequences failed:', err);
+      return [];
+    }
+  },
+
+  // GET /api/campaigns/drip-sequences/:id
+  getDripSequence: async (id) => {
+    const res = await apiRequest(`/campaigns/drip-sequences/${id}`);
+    return res.data;
+  },
+
+  // POST /api/campaigns/drip-sequences
+  createDripSequence: async (sequenceData) => {
+    const res = await apiRequest('/campaigns/drip-sequences', {
+      method: 'POST',
+      body: JSON.stringify(sequenceData),
+    });
+    return res;
+  },
+
+  // PUT /api/campaigns/drip-sequences/:id
+  updateDripSequence: async (id, sequenceData) => {
+    const res = await apiRequest(`/campaigns/drip-sequences/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(sequenceData),
+    });
+    return res;
+  },
+
+  // PATCH /api/campaigns/drip-sequences/:id/status
+  updateDripSequenceStatus: async (id, status) => {
+    const res = await apiRequest(`/campaigns/drip-sequences/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    return res;
+  },
+
+  // DELETE /api/campaigns/drip-sequences/:id
+  deleteDripSequence: async (id) => {
+    const res = await apiRequest(`/campaigns/drip-sequences/${id}`, {
+      method: 'DELETE',
+    });
+    return res;
+  },
 };

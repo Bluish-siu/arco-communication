@@ -31,11 +31,13 @@ import {
   Zap,
   Check,
   RotateCcw,
+  Target,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
 import { formatTime, formatDate, formatDateTime } from '../utils/dateUtils';
+import RetargetCampaignModal from '../components/campaigns/RetargetCampaignModal';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -54,6 +56,7 @@ export default function CampaignDetails() {
   const [campaign, setCampaign] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [retargetModalOpen, setRetargetModalOpen] = useState(false);
 
   // Recipient Queue & Delivery Log State
   const [recipientsList, setRecipientsList] = useState([]);
@@ -275,6 +278,16 @@ export default function CampaignDetails() {
               <span className="hidden sm:inline">Refresh</span>
             </button>
 
+            {/* 1-Click Retargeting Action Button */}
+            <button
+              onClick={() => setRetargetModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+              title="1-Click Retargeting (Read no reply, delivered unread, or failed numbers)"
+            >
+              <Target className="w-3.5 h-3.5" />
+              <span>1-Click Retarget</span>
+            </button>
+
             {/* Retry Failed Recipients */}
             {(campaign?.status === 'Failed' || (statusCounts?.failed || 0) > 0 || (campaign?.failed || 0) > 0) && (
               <button
@@ -410,10 +423,21 @@ export default function CampaignDetails() {
             </div>
 
             {/* 3. Read */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs border-l-4 border-l-emerald-500">
-              <div className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Read</div>
-              <div className="mt-1 text-2xl font-extrabold text-emerald-900">{campaign.read.toLocaleString()}</div>
-              <div className="mt-1 text-[11px] text-emerald-700 font-semibold">{campaign.rates?.readRate} Read Rate</div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs border-l-4 border-l-emerald-500 flex flex-col justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Read</div>
+                <div className="mt-1 text-2xl font-extrabold text-emerald-900">{campaign.read.toLocaleString()}</div>
+                <div className="mt-1 text-[11px] text-emerald-700 font-semibold">{campaign.rates?.readRate} Read Rate</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRetargetModalOpen(true)}
+                className="mt-2 text-[10px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 cursor-pointer transition-colors"
+                title="Retarget prospects who read but haven't replied"
+              >
+                <Target className="w-3 h-3 text-emerald-600" />
+                <span>Retarget Unreplied</span>
+              </button>
             </div>
 
             {/* 4. Replied */}
@@ -424,10 +448,23 @@ export default function CampaignDetails() {
             </div>
 
             {/* 5. Failed */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-              <div className="text-[11px] font-bold text-red-600 uppercase tracking-wider">Failed</div>
-              <div className="mt-1 text-2xl font-extrabold text-slate-800">{campaign.failureCount}</div>
-              <div className="mt-1 text-[11px] text-slate-400">Undelivered / Bounced</div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-red-600 uppercase tracking-wider">Failed</div>
+                <div className="mt-1 text-2xl font-extrabold text-slate-800">{campaign.failureCount}</div>
+                <div className="mt-1 text-[11px] text-slate-400">Undelivered / Bounced</div>
+              </div>
+              {campaign.failureCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setRetargetModalOpen(true)}
+                  className="mt-2 text-[10px] font-bold text-red-600 hover:text-red-800 flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Retarget failed numbers"
+                >
+                  <Target className="w-3 h-3 text-red-500" />
+                  <span>Retarget Failed</span>
+                </button>
+              )}
             </div>
 
             {/* 6. Pending in Queue */}
@@ -848,6 +885,18 @@ export default function CampaignDetails() {
           </div>
         </div>
       )}
+
+      {/* 1-Click Retargeting Modal */}
+      <RetargetCampaignModal
+        isOpen={retargetModalOpen}
+        onClose={() => setRetargetModalOpen(false)}
+        campaign={campaign}
+        statusCounts={statusCounts}
+        onSuccess={(data) => {
+          showToast(`Retargeting campaign "${data.name}" created successfully in Draft mode!`);
+          navigate(`/campaigns/${data.campaignId}`);
+        }}
+      />
 
       {/* Toast Notification */}
       {toast && (

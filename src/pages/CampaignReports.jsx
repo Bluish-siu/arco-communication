@@ -13,6 +13,8 @@ import {
   Layers,
   FileText,
   Mail,
+  Target,
+  ChevronRight,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -162,6 +164,27 @@ export default function CampaignReports() {
                 </a>
                 .
               </p>
+            </div>
+
+            {/* 1-Click Retargeting & Drip Sequences Navigation Banner */}
+            <div className="bg-gradient-to-r from-purple-900 to-indigo-900 rounded-2xl p-5 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-purple-300" />
+                  <span className="font-bold text-sm">1-Click Campaign Retargeting & Drip Journeys</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white">Interakt Match</span>
+                </div>
+                <p className="text-xs text-purple-200 max-w-xl leading-relaxed">
+                  Re-engage contacts who read but didn't reply, retry failed dispatches, or manage multi-day timed follow-up sequences.
+                </p>
+              </div>
+              <Link
+                to="/campaigns?type=drip"
+                className="px-4 py-2 rounded-xl bg-white text-purple-950 font-bold text-xs hover:bg-purple-50 transition-all shadow-sm shrink-0 self-start sm:self-auto flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>View Drip Sequences</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
             </div>
 
             {/* Recent Generated Reports Table (if any generated in session) */}
