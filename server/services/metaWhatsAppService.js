@@ -198,7 +198,7 @@ export const metaWhatsAppService = {
             const decrypted = decryptToken(row.access_token_encrypted);
             if (decrypted && (decrypted.startsWith('EAA') || decrypted.length > 30)) {
               effectiveToken = decrypted;
-            } else if (!row.access_token_encrypted.includes(':') && row.access_token_encrypted.startsWith('EAA')) {
+            } else if (!row.access_token_encrypted.includes(':')) {
               effectiveToken = row.access_token_encrypted;
             }
           }
