@@ -347,6 +347,13 @@ export default function Inbox() {
   const quickReplyRef = useRef(null);
 
   const messagesEndRef = useRef(null);
+  const chatScrollContainerRef = useRef(null);
+  const isNearBottomRef = useRef(true);
+  const prevSelectedChatIdRef = useRef(null);
+  const prevMessagesLengthRef = useRef(0);
+  const prevLastMessageIdRef = useRef(null);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -638,10 +645,120 @@ export default function Inbox() {
     }
   }, [selectedChatId]);
 
-  // Auto scroll messages to bottom on new message or chat select
+  // Smoothly scroll messages to bottom
+  const scrollToBottom = (smooth = true) => {
+    requestAnimationFrame(() => {
+      const container = chatScrollContainerRef.current;
+      if (container) {
+        if (smooth) {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth',
+          });
+        } else {
+          container.scrollTop = container.scrollHeight;
+        }
+      } else if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+      }
+    });
+  };
+
+  // Scroll listener on messages container
+  const handleChatScroll = () => {
+    const el = chatScrollContainerRef.current;
+    if (!el) return;
+
+    // Distance from bottom in px (threshold: 100px)
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const isNear = distanceFromBottom < 100;
+    isNearBottomRef.current = isNear;
+
+    if (isNear) {
+      setShowScrollBottomBtn(false);
+      setHasNewMessagesBelow(false);
+    } else {
+      setShowScrollBottomBtn(true);
+    }
+  };
+
+  const handleManualScrollToBottom = () => {
+    isNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    setHasNewMessagesBelow(false);
+    scrollToBottom(true);
+  };
+
+  // Intelligent chat auto-scroll:
+  // 1. Swapping chats -> jump to bottom immediately
+  // 2. User sends a message -> scroll smoothly to bottom
+  // 3. Inbound message received while user is reading at the bottom -> scroll smoothly to bottom
+  // 4. Inbound message received while user is scrolled up reading previous history -> DO NOT force scroll down! Keep reading position intact and show subtle "New messages" indicator
+  // 5. Background polling with identical messages -> DO NOT touch scroll position at all
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [selectedChat?.messages]);
+    if (!selectedChatId) {
+      prevSelectedChatIdRef.current = null;
+      prevMessagesLengthRef.current = 0;
+      prevLastMessageIdRef.current = null;
+      return;
+    }
+
+    const currentMessages = selectedChat?.messages || [];
+    const currentCount = currentMessages.length;
+    const lastMsg = currentCount > 0 ? currentMessages[currentCount - 1] : null;
+    const lastMsgId = lastMsg?.id;
+
+    const isChatSwitch = prevSelectedChatIdRef.current !== selectedChatId;
+    const isNewMessageAdded =
+      currentCount > prevMessagesLengthRef.current ||
+      (Boolean(lastMsgId) && lastMsgId !== prevLastMessageIdRef.current);
+
+    // Update tracking refs
+    prevSelectedChatIdRef.current = selectedChatId;
+    prevMessagesLengthRef.current = currentCount;
+    prevLastMessageIdRef.current = lastMsgId;
+
+    if (isChatSwitch) {
+      // Switched to a new conversation: reset states and jump straight to the bottom
+      isNearBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+      setHasNewMessagesBelow(false);
+      scrollToBottom(false);
+      // Fallback micro-delay to ensure dynamic DOM content settles
+      setTimeout(() => {
+        if (isNearBottomRef.current) {
+          scrollToBottom(false);
+        }
+      }, 60);
+      return;
+    }
+
+    // If no new messages were added (e.g. 3.5s background poll or delivery checkmark update):
+    // ABSOLUTELY DO NOT SCROLL. Leave user's scroll position untouched!
+    if (!isNewMessageAdded) {
+      return;
+    }
+
+    // A new message has truly arrived!
+    const isMyMessage =
+      lastMsg?.sender === 'me' ||
+      lastMsg?.sender === 'agent' ||
+      lastMsg?.sender === 'business' ||
+      lastMsg?.sender === 'system';
+
+    if (isMyMessage || isNearBottomRef.current) {
+      // User sent it, or user is already at the bottom viewing the conversation
+      isNearBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+      setHasNewMessagesBelow(false);
+      scrollToBottom(true);
+    } else {
+      // User is scrolled up reading earlier messages: DO NOT yank the viewport!
+      // Keep their position and alert them with the floating button
+      setHasNewMessagesBelow(true);
+      setShowScrollBottomBtn(true);
+    }
+  }, [selectedChatId, selectedChat?.messages]);
 
   // Comprehensive conversation filtering (Combines API results with real-time UI filtering)
   const filteredConversations = useMemo(() => {
@@ -796,6 +913,10 @@ export default function Inbox() {
     setMessageInput('');
     setSelectedAttachment(null);
     setIsEmojiPickerOpen(false);
+    isNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    setHasNewMessagesBelow(false);
+    scrollToBottom(true);
 
     const sentRes = await inboxService.sendMessage(selectedChatId, msgText, 'me', {
       attachment: attachmentToSend,
@@ -1799,7 +1920,12 @@ export default function Inbox() {
                   </div>
 
                   {/* Chat Messages Area */}
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                  <div className="flex-1 relative min-h-0 flex flex-col">
+                    <div
+                      ref={chatScrollContainerRef}
+                      onScroll={handleChatScroll}
+                      className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4"
+                    >
                     {selectedChat.messages.map((msg) => {
                       const isMe = msg.sender === 'me' || msg.sender === 'agent' || msg.sender === 'business' || msg.sender === 'system';
                       return (
@@ -1892,6 +2018,41 @@ export default function Inbox() {
                     })}
                     <div ref={messagesEndRef} />
                   </div>
+
+                  {/* Floating Scroll to Bottom Button */}
+                  {showScrollBottomBtn && (
+                    <div className="absolute bottom-4 right-6 z-20 pointer-events-auto">
+                      <button
+                        type="button"
+                        onClick={handleManualScrollToBottom}
+                        className={`flex items-center gap-2 px-3.5 py-2 rounded-full shadow-lg border backdrop-blur-md transition-all duration-200 hover:scale-105 active:scale-95 text-xs font-semibold cursor-pointer group ${
+                          hasNewMessagesBelow
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-emerald-600/20'
+                            : 'bg-white/95 hover:bg-white text-slate-700 hover:text-emerald-700 border-slate-200 shadow-slate-900/10'
+                        }`}
+                        title={
+                          hasNewMessagesBelow
+                            ? 'New messages received - Click to scroll down'
+                            : 'Scroll to latest messages'
+                        }
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                            hasNewMessagesBelow
+                              ? 'bg-white text-emerald-600'
+                              : 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white'
+                          }`}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 transition-transform group-hover:translate-y-0.5" />
+                        </div>
+                        <span>{hasNewMessagesBelow ? 'New message' : 'Scroll down'}</span>
+                        {hasNewMessagesBelow && (
+                          <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                   {/* Message Composer with Quick Reply Popover */}
                   <div className="relative">
