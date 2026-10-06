@@ -68,10 +68,29 @@ export default function CampaignDetails() {
   const [statusCounts, setStatusCounts] = useState({});
   const [processingBatch, setProcessingBatch] = useState(false);
   const [retryingFailed, setRetryingFailed] = useState(false);
+  const [sendingLive, setSendingLive] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleSendNow = async () => {
+    setSendingLive(true);
+    try {
+      const res = await campaignsService.sendNow(id);
+      if (res?.success) {
+        showToast(res.message || 'Campaign dispatch started! Delivering messages now...', 'success');
+        await loadCampaign(true);
+        await loadRecipients();
+      } else {
+        showToast(res?.message || res?.error || 'Failed to dispatch campaign', 'error');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || err.message || 'Failed to dispatch campaign', 'error');
+    } finally {
+      setSendingLive(false);
+    }
   };
 
   const loadCampaign = async (showSpinner = false) => {
@@ -300,8 +319,21 @@ export default function CampaignDetails() {
               </button>
             )}
 
+            {/* Live Campaign Dispatcher / Send Now Button */}
+            {(campaign.status === 'Draft' || (campaign.pending > 0 && campaign.status !== 'Sending')) && (
+              <button
+                onClick={handleSendNow}
+                disabled={sendingLive}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                title="Launch and send all messages to recipients immediately via Meta WhatsApp"
+              >
+                <Send className={`w-3.5 h-3.5 ${sendingLive ? 'animate-spin' : ''}`} />
+                <span>{sendingLive ? 'Sending Messages...' : `🚀 Send All ${campaign.pending > 0 ? `(${campaign.pending})` : ''} Now`}</span>
+              </button>
+            )}
+
             {/* Batch Dispatch Runner */}
-            {campaign.pending > 0 && (
+            {campaign.pending > 100 && (
               <button
                 onClick={handleProcessBatch}
                 disabled={processingBatch}
@@ -315,7 +347,7 @@ export default function CampaignDetails() {
             {campaign.status === 'Active' || campaign.status === 'Scheduled' || campaign.status === 'Sending' ? (
               <button
                 onClick={() => handleStatusChange('Paused')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
               >
                 <PauseCircle className="w-4 h-4 text-slate-500" />
                 <span>Pause</span>
@@ -323,7 +355,7 @@ export default function CampaignDetails() {
             ) : campaign.status === 'Paused' ? (
               <button
                 onClick={() => handleStatusChange('Active')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold transition-all cursor-pointer"
               >
                 <PlayCircle className="w-4 h-4" />
                 <span>Resume</span>
@@ -343,6 +375,33 @@ export default function CampaignDetails() {
         {/* Content Area */}
         <div className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
           
+          {/* Draft / Ready to Send Notice Banner */}
+          {(campaign.status === 'Draft' || (campaign.pending > 0 && campaign.status !== 'Sending')) && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <Send className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-emerald-950">
+                    Campaign is Ready to Send ({campaign.pending || campaign.recipients || 0} messages pending)
+                  </h3>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    Contacts and template are ready. Click "Send All Messages Now" to dispatch them live via Meta WhatsApp Business API.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleSendNow}
+                disabled={sendingLive}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <Send className={`w-4 h-4 ${sendingLive ? 'animate-spin' : ''}`} />
+                <span>{sendingLive ? 'Sending Messages...' : `🚀 Send All ${campaign.pending || campaign.recipients || 0} Messages Now`}</span>
+              </button>
+            </div>
+          )}
+
           {/* Campaign Header Overview Card */}
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -893,7 +952,11 @@ export default function CampaignDetails() {
         campaign={campaign}
         statusCounts={statusCounts}
         onSuccess={(data) => {
-          showToast(`Retargeting campaign "${data.name}" created successfully in Draft mode!`);
+          if (data?.status === 'Sending') {
+            showToast(`🚀 Retargeting campaign "${data.name}" launched! Messages are being dispatched now...`, 'success');
+          } else {
+            showToast(`Retargeting campaign "${data.name}" created in Draft mode!`, 'success');
+          }
           navigate(`/campaigns/${data.campaignId}`);
         }}
       />

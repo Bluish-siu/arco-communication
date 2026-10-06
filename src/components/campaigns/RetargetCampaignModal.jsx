@@ -13,6 +13,8 @@ import {
   ArrowRight,
   RotateCcw,
   Check,
+  Send,
+  Zap,
 } from 'lucide-react';
 import { campaignsService } from '../../services/campaignsService';
 
@@ -94,8 +96,17 @@ export default function RetargetCampaignModal({
     return bodyComp?.text || tpl.body_text || 'No preview available';
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const [sendImmediately, setSendImmediately] = useState(true);
+
+  const getCohortCount = () => {
+    if (cohort === 'read_no_reply') return readNoReplyCount;
+    if (cohort === 'delivered_no_read') return deliveredUnreadCount;
+    if (cohort === 'failed') return totalFailed;
+    if (cohort === 'replied') return totalReplied;
+    return 0;
+  };
+
+  const handleSubmitWithMode = async (immediate) => {
     if (!campaign?.id) return;
     if (!campaignName.trim()) {
       setError('Please provide a name for the retargeted campaign.');
@@ -116,6 +127,7 @@ export default function RetargetCampaignModal({
         templateName: selectedTemplate,
         templateLanguage: currentTemplateObj?.language || 'en_US',
         templateCategory: currentTemplateObj?.category || 'MARKETING',
+        sendImmediately: immediate,
       });
 
       if (res?.success) {
@@ -129,6 +141,11 @@ export default function RetargetCampaignModal({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    handleSubmitWithMode(sendImmediately);
   };
 
   if (!isOpen) return null;
@@ -332,41 +349,121 @@ export default function RetargetCampaignModal({
             )}
           </div>
 
-          {/* SAFETY PROTOCOL NOTICE (STRICT USER COMPLIANCE) */}
-          <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-start gap-2.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-emerald-900 space-y-0.5 leading-relaxed">
-              <p className="font-bold">🔒 Strict Safety Mode (Draft Only)</p>
-              <p className="text-emerald-700">
-                This retargeted campaign will be generated in <strong>DRAFT</strong> mode. Zero messages will be dispatched automatically. You can review the filtered contacts and template in peace, and launch manually whenever you choose.
+          {/* STEP 4: Launch Option (Send Immediately vs Save Draft) */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
+              4. Delivery Options
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setSendImmediately(true)}
+                className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 cursor-pointer ${
+                  sendImmediately
+                    ? 'border-emerald-500 bg-emerald-50/70 shadow-xs ring-1 ring-emerald-500/20'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                  sendImmediately ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300 bg-white'
+                }`}>
+                  {sendImmediately && <Check className="w-2.5 h-2.5 text-white stroke-[3]" />}
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Send className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Send Immediately</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                    Launch campaign now and send messages to all <strong>{getCohortCount()}</strong> contacts.
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSendImmediately(false)}
+                className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 cursor-pointer ${
+                  !sendImmediately
+                    ? 'border-purple-500 bg-purple-50/70 shadow-xs ring-1 ring-purple-500/20'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                  !sendImmediately ? 'border-purple-600 bg-purple-600' : 'border-slate-300 bg-white'
+                }`}>
+                  {!sendImmediately && <Check className="w-2.5 h-2.5 text-white stroke-[3]" />}
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Save as Draft</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                    Create campaign in Draft mode. You can inspect contacts and launch later.
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Delivery Notice */}
+          <div className={`p-3 rounded-2xl flex items-start gap-2.5 border ${
+            sendImmediately ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' : 'bg-slate-50 border-slate-200 text-slate-800'
+          }`}>
+            {sendImmediately ? (
+              <Zap className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <ShieldCheck className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+            )}
+            <div className="text-[11px] space-y-0.5 leading-relaxed">
+              <p className="font-bold">
+                {sendImmediately ? '⚡ Live WhatsApp Dispatch Enabled' : '🔒 Draft Mode Selected'}
+              </p>
+              <p className={sendImmediately ? 'text-emerald-700' : 'text-slate-600'}>
+                {sendImmediately
+                  ? `Clicking "Launch & Send Now" will trigger the Meta WhatsApp Cloud API dispatcher immediately for ${getCohortCount()} targeted recipient(s).`
+                  : 'Zero messages will be sent automatically. You will be able to review audience contacts and launch manually from the campaign screen.'}
               </p>
             </div>
           </div>
 
           {/* Modal Footer Buttons */}
-          <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-slate-100">
+          <div className="pt-2 flex flex-wrap items-center justify-end gap-2.5 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
             >
               Cancel
             </button>
+            
             <button
-              type="submit"
+              type="button"
+              onClick={() => handleSubmitWithMode(false)}
               disabled={submitting || !selectedTemplate}
+              className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+              <span>Save as Draft</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSubmitWithMode(true)}
+              disabled={submitting || !selectedTemplate || getCohortCount() === 0}
               className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {submitting ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Preparing Audience...</span>
+                  <span>Launching Campaign...</span>
                 </>
               ) : (
                 <>
-                  <Target className="w-4 h-4" />
-                  <span>Create Retargeted Campaign (Draft)</span>
+                  <Send className="w-4 h-4" />
+                  <span>🚀 Launch & Send to All {getCohortCount()} Contacts Now</span>
                 </>
               )}
             </button>

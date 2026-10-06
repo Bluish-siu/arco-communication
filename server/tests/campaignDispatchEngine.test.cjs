@@ -16,13 +16,7 @@ try {
   require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 } catch (e) {}
 
-const pool = new Pool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: parseInt(process.env.DB_PORT || '5432', 10),
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '2004',
-  database: process.env.DB_NAME || 'arco_communication',
-});
+let pool = null;
 
 let passedTests = 0;
 let totalTests = 0;
@@ -46,6 +40,9 @@ async function runAllTests() {
   console.log('========================================================================\n');
 
   // Dynamic import of ES modules
+  const dbModule = await import('../config/db.js');
+  pool = dbModule.pool;
+
   const {
     claimNextRecipientBatch,
     dispatchBatch,
@@ -60,13 +57,20 @@ async function runAllTests() {
   const { metaWhatsAppService } = await import('../services/metaWhatsAppService.js');
   const { campaignController } = await import('../controllers/campaignController.js');
 
-  // Save original sendTemplateMessage to restore later
+  // Save original methods to restore later
   const originalSendTemplateMessage = metaWhatsAppService.sendTemplateMessage;
+  const originalGetCredentials = metaWhatsAppService.getCredentials;
 
   // Global mock to ensure ZERO real Meta network requests are ever made
   metaWhatsAppService.sendTemplateMessage = async ({ to }) => {
     return { success: true, wamid: `wamid_mock_${to || Date.now()}` };
   };
+  metaWhatsAppService.getCredentials = async () => ({
+    isConfigured: true,
+    source: 'mock',
+    phoneNumberId: 'mock_phone_123',
+    accessToken: 'mock_token_123',
+  });
 
   try {
     // Initial cleanup of any lingering test records from interrupted runs
@@ -690,13 +694,17 @@ async function runAllTests() {
       // Run poller
       await pollAndProcessDueCampaigns();
 
-      // Wait a tick for async background worker
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for async background worker to finish recalculating stats
+      let campStatus = 'Sending';
+      for (let i = 0; i < 40; i++) {
+        const cCheck = await pool.query('SELECT status FROM campaigns WHERE id = $1', [campId]);
+        campStatus = cCheck.rows[0]?.status;
+        if (campStatus === 'Completed') break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
 
       assert.strictEqual(dispatchedTo, '919876543151', 'Scheduler must pick up and dispatch the pending recipient');
-
-      const campCheck = await pool.query('SELECT status FROM campaigns WHERE id = $1', [campId]);
-      assert.strictEqual(campCheck.rows[0].status, 'Completed', 'Interrupted campaign must transition to Completed');
+      assert.strictEqual(campStatus, 'Completed', 'Interrupted campaign must transition to Completed');
 
       await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [campId]);
       await pool.query('DELETE FROM campaigns WHERE id = $1', [campId]);
@@ -747,7 +755,7 @@ async function runAllTests() {
   } finally {
     // Restore original Meta service
     metaWhatsAppService.sendTemplateMessage = originalSendTemplateMessage;
-    await pool.end();
+    metaWhatsAppService.getCredentials = originalGetCredentials;
   }
 
   console.log('\n========================================================================');

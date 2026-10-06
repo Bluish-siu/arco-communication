@@ -915,34 +915,6 @@ export const campaignController = {
     }
   },
 
-  // POST /api/campaigns/:id/send-now
-  sendNow: async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const campRes = await query('SELECT * FROM campaigns WHERE id = $1', [id]);
-      if (campRes.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Campaign not found' });
-      }
-
-      await query(
-        `UPDATE campaigns
-         SET status = 'Running',
-             scheduled_for = CURRENT_TIMESTAMP,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [id]
-      );
-
-      processCampaign(id).catch((err) => console.error('[Campaign Send-Now Background Error]:', err.message));
-
-      res.json({
-        success: true,
-        message: 'Campaign scheduled for immediate delivery.',
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
 
   // POST /api/campaigns/:id/retry-failed
   retryFailed: async (req, res, next) => {
@@ -1500,10 +1472,11 @@ export const campaignController = {
         });
       }
 
-      // 3. Create the new Retargeting Campaign in DRAFT status (Will NOT send automatically)
+      // 3. Create the new Retargeting Campaign
+      const sendImmediately = req.body.sendImmediately !== false && req.body.sendImmediately !== 'false';
       const retargetCampaignId = `camp_retarget_${Date.now()}`;
       const campaignName = name?.trim() || `[Retarget] ${orig.name} - ${cohortLabel}`;
-      const initialStatus = 'Draft';
+      const initialStatus = sendImmediately ? 'Sending' : 'Draft';
 
       await query(
         `INSERT INTO campaigns (
@@ -1511,9 +1484,10 @@ export const campaignController = {
            recipients, delivered, read, replied, audience_type,
            template_name, template_language, template_category,
            template_payload, variable_mapping, user_id, created_by,
+           scheduled_for, sent_at,
            created_at, updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           retargetCampaignId,
           campaignName,
@@ -1530,7 +1504,9 @@ export const campaignController = {
           JSON.stringify(templatePayload || {}),
           JSON.stringify(variableMapping || {}),
           req.user?.id || orig.user_id || 'usr_1790574599220',
-          req.user?.name || 'Admin',
+          req.user?.name || orig.created_by || 'Admin',
+          sendImmediately ? new Date() : null,
+          sendImmediately ? new Date() : null,
         ]
       );
 
@@ -1559,9 +1535,18 @@ export const campaignController = {
         );
       }
 
+      // If sendImmediately requested, initiate live background delivery immediately
+      if (sendImmediately) {
+        processCampaign(retargetCampaignId).catch((err) =>
+          console.error('[Retarget Instant Launch Error]:', err.message)
+        );
+      }
+
       res.status(201).json({
         success: true,
-        message: `Retargeting campaign created successfully with ${targetRecipients.length} contacts in Draft mode.`,
+        message: sendImmediately
+          ? `Retargeting campaign launched! Delivering messages to ${targetRecipients.length} contacts now.`
+          : `Retargeting campaign created successfully with ${targetRecipients.length} contacts in Draft mode.`,
         data: {
           campaignId: retargetCampaignId,
           name: campaignName,

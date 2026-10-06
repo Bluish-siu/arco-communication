@@ -216,7 +216,7 @@ export async function dispatchBatch(campaign, recipients) {
           screen,
           data: flowData,
           flowToken: `token_${campaign.id}_${recipient.id}`,
-          userId: campaign.created_by,
+          userId: campaign.user_id || campaign.created_by,
         });
       } else {
         metaResult = await metaWhatsAppService.sendTemplateMessage({
@@ -224,7 +224,7 @@ export async function dispatchBatch(campaign, recipients) {
           templateName: campaign.template_name || 'promo_offer',
           languageCode: campaign.template_language || 'en_US',
           variables: resolvedVariables,
-          userId: campaign.created_by,
+          userId: campaign.user_id || campaign.created_by,
         });
       }
 
