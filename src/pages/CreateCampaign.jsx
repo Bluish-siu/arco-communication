@@ -1057,7 +1057,7 @@ export default function CreateCampaign() {
                   <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Meta Approved</span>
                   <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                    {metaApprovedTemplates.length}
+                    {metaApprovedTemplates.length || activeTemplates.length}
                   </span>
                 </button>
 
