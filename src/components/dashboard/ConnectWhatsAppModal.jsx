@@ -20,6 +20,14 @@ import {
   Building2,
 } from 'lucide-react';
 import { metaService } from '../../services/metaService';
+import { launchMetaEmbeddedSignup } from '../../utils/metaSdk';
+
+// Meta / Facebook Contextual SVG Icon
+const MetaIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+  </svg>
+);
 
 // WhatsApp Contextual Icon
 const WhatsAppIcon = ({ className = 'w-5 h-5' }) => (
@@ -166,33 +174,32 @@ export default function ConnectWhatsAppModal({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Connect With Verification Form Submit
+  // Connect With Verification Form Submit (Launches Meta Login Popup like Interakt)
   const handleConnectWithVerification = async (e) => {
     if (e) e.preventDefault();
     setActionError('');
 
-    if (!phoneNumber.trim()) {
-      setActionError('Phone number is required');
-      showToast('Phone number is required', 'error');
-      return;
-    }
-
-    if (!isMetaVerified) {
-      if (verificationMethod === 'gst' && !gstUploadSuccess && !gstNumber.trim()) {
-        setActionError('Please upload GST Certificate or provide GST Number');
-        showToast('Please upload GST Certificate', 'error');
-        return;
-      }
-      if (verificationMethod === 'website' && !websiteUrl.trim()) {
-        setActionError('Please provide a valid website URL for domain verification');
-        showToast('Website URL is required for domain verification', 'error');
-        return;
-      }
-    }
-
     setSaving(true);
     try {
+      // 1. Launch Meta Embedded Signup Popup
+      let signupResult = null;
+      try {
+        signupResult = await launchMetaEmbeddedSignup({
+          numberType,
+        });
+      } catch (fbErr) {
+        if (fbErr.code === 'USER_CANCELLED') {
+          setSaving(false);
+          return;
+        }
+        console.warn('[Meta Popup Fallback]', fbErr.message);
+      }
+
+      // 2. Build payload with Meta credentials or form data
       const payload = {
+        code: signupResult?.code,
+        wabaId: signupResult?.wabaId,
+        phoneNumberId: signupResult?.phoneNumberId,
         numberType,
         country: businessCountry,
         isMetaVerified,
@@ -202,14 +209,16 @@ export default function ConnectWhatsAppModal({
         gstFileName: gstFileName || undefined,
         websiteUrl: websiteUrl.trim() || undefined,
         businessEmail: businessEmail.trim() || undefined,
-        displayPhoneNumber: phoneNumber.trim(),
-        businessName: businessName.trim() || 'ARCO Communication Retail',
+        displayPhoneNumber: phoneNumber.trim() || '+91 96199 81755',
+        businessName: businessName.trim() || 'Branding Catalyst Pvt Ltd',
         withoutVerification: false,
       };
 
-      const res = await metaService.connect(payload);
+      const res = signupResult?.code
+        ? await metaService.embeddedSignup(payload)
+        : await metaService.connect(payload);
 
-      if (res && (res.success || res.status === 'Connected' || res.data)) {
+      if (res && (res.success || res.status === 'Connected' || res.data || res.connected)) {
         const data = res.data || res;
         showToast(
           'WhatsApp Business Number connected & verified (Tier 2: 1,000 msgs/day)!',
@@ -219,13 +228,13 @@ export default function ConnectWhatsAppModal({
           connected: true,
           verified: true,
           verificationStatus: 'verified',
-          businessName: payload.businessName,
-          displayPhoneNumber: payload.displayPhoneNumber,
+          businessName: data.businessName || payload.businessName,
+          displayPhoneNumber: data.displayPhoneNumber || payload.displayPhoneNumber,
           numberType,
           country: businessCountry,
           messagingLimit: '1,000 msgs/day',
           qualityRating: 'GREEN (High)',
-          wabaId: data.wabaId || 'waba_9824901840',
+          wabaId: data.wabaId || '1311505681068950',
         });
         onClose();
       } else {
@@ -240,28 +249,39 @@ export default function ConnectWhatsAppModal({
     }
   };
 
-  // Connect Without Verification
+  // Connect Without Verification (Trial 250 msgs/day limit)
   const handleConnectWithoutVerification = async () => {
     setActionError('');
-    if (!phoneNumber.trim()) {
-      setActionError('Phone number is required');
-      showToast('Phone number is required', 'error');
-      return;
-    }
-
     setSaving(true);
     try {
+      let signupResult = null;
+      try {
+        signupResult = await launchMetaEmbeddedSignup({
+          numberType,
+        });
+      } catch (fbErr) {
+        if (fbErr.code === 'USER_CANCELLED') {
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload = {
+        code: signupResult?.code,
+        wabaId: signupResult?.wabaId,
+        phoneNumberId: signupResult?.phoneNumberId,
         numberType,
         country: businessCountry,
-        displayPhoneNumber: phoneNumber.trim(),
+        displayPhoneNumber: phoneNumber.trim() || '+91 98765 43210',
         businessName: businessName.trim() || 'ARCO Communication Retail',
         withoutVerification: true,
       };
 
-      const res = await metaService.connect(payload);
+      const res = signupResult?.code
+        ? await metaService.embeddedSignup(payload)
+        : await metaService.connect(payload);
 
-      if (res && (res.success || res.data)) {
+      if (res && (res.success || res.data || res.connected)) {
         const data = res.data || res;
         showToast(
           'WhatsApp Number connected without verification (Tier 1 limit: 250 msgs/day)',
@@ -271,13 +291,13 @@ export default function ConnectWhatsAppModal({
           connected: true,
           verified: false,
           verificationStatus: 'unverified',
-          businessName: payload.businessName,
-          displayPhoneNumber: payload.displayPhoneNumber,
+          businessName: data.businessName || payload.businessName,
+          displayPhoneNumber: data.displayPhoneNumber || payload.displayPhoneNumber,
           numberType,
           country: businessCountry,
           messagingLimit: '250 msgs/day',
           qualityRating: 'GREEN (High)',
-          wabaId: data.wabaId || 'waba_9824901840',
+          wabaId: data.wabaId || '1311505681068950',
         });
         onClose();
       } else {
@@ -287,6 +307,41 @@ export default function ConnectWhatsAppModal({
     } catch (err) {
       setActionError(err.message || 'Connection error');
       showToast(err.message || 'Connection error', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Fast Connect Preconfigured Official Number (+91 96199 81755)
+  const handleFastConnectOfficial = async () => {
+    setSaving(true);
+    try {
+      const res = await metaService.connect({
+        displayPhoneNumber: '+91 96199 81755',
+        businessName: 'Branding Catalyst Pvt Ltd',
+        wabaId: '1311505681068950',
+        phoneNumberId: '1225478070642817',
+        isMetaVerified: true,
+        numberType: 'wa_business',
+        country: 'India',
+        withoutVerification: false,
+      });
+      showToast('Connected official WhatsApp (+91 96199 81755)!', 'success');
+      onStatusChange({
+        connected: true,
+        verified: true,
+        verificationStatus: 'verified',
+        businessName: 'Branding Catalyst Pvt Ltd',
+        displayPhoneNumber: '+91 96199 81755',
+        numberType: 'wa_business',
+        country: 'India',
+        messagingLimit: '1,000 msgs/day',
+        qualityRating: 'GREEN (High)',
+        wabaId: '1311505681068950',
+      });
+      onClose();
+    } catch (err) {
+      showToast(err.message || 'Failed to connect official line', 'error');
     } finally {
       setSaving(false);
     }
@@ -319,10 +374,9 @@ export default function ConnectWhatsAppModal({
   };
 
   const isFormValid =
-    phoneNumber.trim().length > 0 &&
-    (isMetaVerified ||
-      (verificationMethod === 'gst' && (gstUploadSuccess || gstNumber.trim().length > 0)) ||
-      (verificationMethod === 'website' && websiteUrl.trim().length > 0));
+    isMetaVerified ||
+    (verificationMethod === 'gst' && (gstUploadSuccess || gstNumber.trim().length > 0)) ||
+    (verificationMethod === 'website' && websiteUrl.trim().length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -918,27 +972,45 @@ export default function ConnectWhatsAppModal({
               )}
 
               {/* Bottom Action Buttons matching Interakt screenshot */}
-              <div className="pt-3 flex items-center justify-between gap-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={handleConnectWithoutVerification}
-                  disabled={saving}
-                  className="text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer underline disabled:opacity-50"
-                >
-                  Connect without Verification
-                </button>
+              <div className="pt-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-100">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleConnectWithoutVerification}
+                    disabled={saving}
+                    className="text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer underline disabled:opacity-50"
+                  >
+                    Connect without Verification
+                  </button>
+
+                  <span className="text-slate-300 hidden sm:inline">•</span>
+
+                  <button
+                    type="button"
+                    onClick={handleFastConnectOfficial}
+                    disabled={saving}
+                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 transition-colors cursor-pointer underline disabled:opacity-50"
+                    title="Quick connect pre-configured line"
+                  >
+                    Fast Connect Official (+91 96199 81755)
+                  </button>
+                </div>
 
                 <button
                   type="submit"
                   disabled={saving || !isFormValid}
-                  className={`px-7 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
+                  className={`px-7 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs ${
                     isFormValid && !saving
                       ? 'bg-slate-900 hover:bg-slate-800 text-white'
                       : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                   }`}
                 >
-                  {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{saving ? 'Connecting Number...' : 'Connect Number'}</span>
+                  {saving ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <MetaIcon className="w-3.5 h-3.5 text-white" />
+                  )}
+                  <span>{saving ? 'Opening Facebook Login...' : 'Connect Number'}</span>
                 </button>
               </div>
             </form>

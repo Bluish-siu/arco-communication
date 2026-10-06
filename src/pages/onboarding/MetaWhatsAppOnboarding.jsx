@@ -15,6 +15,7 @@ import {
 import Container from '../../components/common/Container';
 import { useOnboarding } from '../../context/OnboardingContext';
 import { metaService } from '../../services/metaService';
+import MetaSetupWizardModal from '../../components/onboarding/MetaSetupWizardModal';
 
 // WhatsApp Contextual SVG Icon
 const WhatsAppIcon = ({ className }) => (
@@ -65,6 +66,7 @@ export default function MetaWhatsAppOnboarding() {
   });
   const [connectingViaEmbedded, setConnectingViaEmbedded] = useState(false);
   const [showManualSelect, setShowManualSelect] = useState(false);
+  const [wizardModalOpen, setWizardModalOpen] = useState(false);
 
   // Initialize Facebook JavaScript SDK for Embedded Signup
   useEffect(() => {
@@ -147,7 +149,7 @@ export default function MetaWhatsAppOnboarding() {
   };
 
   // Launch Meta Embedded Signup popup dialog (Interakt flow)
-  const handleLaunchEmbeddedSignup = () => {
+  const handleLaunchEmbeddedSignup = (wizardData = null) => {
     setError('');
     setConnectingViaEmbedded(true);
 
@@ -181,7 +183,12 @@ export default function MetaWhatsAppOnboarding() {
                 code,
                 wabaId,
                 phoneNumberId,
-                businessName: businessSetup.companyName || 'ARCO Communication Retail',
+                businessName: businessSetup.companyName || 'Branding Catalyst Pvt Ltd',
+                numberType: wizardData?.numberType || 'wa_business',
+                country: wizardData?.country || 'India',
+                isMetaVerified: wizardData?.isAlreadyVerified || false,
+                withoutVerification: wizardData?.withoutVerification || false,
+                gstFile: wizardData?.gstFile || null,
               })
               .then((result) => {
                 setConnectedIntegration(result);
@@ -210,6 +217,7 @@ export default function MetaWhatsAppOnboarding() {
             feature: 'whatsapp_embedded_signup',
             version: 4,
             sessionInfoVersion: 3,
+            number_type: wizardData?.numberType || 'wa_business',
           },
         }
       );
@@ -539,7 +547,7 @@ export default function MetaWhatsAppOnboarding() {
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-wrap">
                       <button
                         type="button"
-                        onClick={handleLaunchEmbeddedSignup}
+                        onClick={() => setWizardModalOpen(true)}
                         disabled={connectingViaEmbedded}
                         className="px-6 py-4 rounded-2xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.99] text-white font-extrabold text-sm shadow-xl shadow-blue-500/25 flex items-center justify-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
                       >
@@ -551,7 +559,7 @@ export default function MetaWhatsAppOnboarding() {
                         ) : (
                           <>
                             <MetaIcon className="w-5 h-5 text-white" />
-                            <span>Continue with Facebook</span>
+                            <span>Configure & Connect WhatsApp (2 Steps)</span>
                             <ArrowRight className="w-4 h-4 text-blue-200" />
                           </>
                         )}
@@ -1152,6 +1160,19 @@ export default function MetaWhatsAppOnboarding() {
           </div>
         </div>
       )}
+
+      {/* 2-Step Interakt Replica Onboarding Wizard Modal */}
+      <MetaSetupWizardModal
+        isOpen={wizardModalOpen}
+        onClose={() => setWizardModalOpen(false)}
+        onLaunchMetaPopup={(wizardData) => {
+          setWizardModalOpen(false);
+          handleLaunchEmbeddedSignup(wizardData);
+        }}
+        isConnecting={connectingViaEmbedded}
+        error={error}
+        onFastConnectOfficial={handleConnectPreconfigured}
+      />
 
       {/* Subtle Footer */}
       <footer className="py-6 border-t border-slate-200/60 text-center text-xs text-slate-400">
