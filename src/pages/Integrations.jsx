@@ -19,11 +19,13 @@ import {
   Check,
   Zap,
   MessageSquare,
+  Send,
 } from 'lucide-react';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { integrationService } from '../services/integrationService';
 import { isShopifyEmbedded, getShopifyParams } from '../utils/shopifyAppBridge';
+import { launchInstagramConnect } from '../utils/metaSdk';
 import ShopifyAutomationsManager from '../components/shopify/ShopifyAutomationsManager';
 import ShopifyStorefrontWidgetManager from '../components/shopify/ShopifyStorefrontWidgetManager';
 
@@ -69,6 +71,26 @@ function ShopifyLogo({ className = 'w-9 h-9' }) {
   );
 }
 
+// Instagram Logo SVG
+function InstagramLogo({ className = 'w-9 h-9' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  );
+}
+
+// Facebook Icon SVG
+function FacebookIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+  );
+}
+
 export default function Integrations() {
   const [searchParams] = useSearchParams();
   const { user } = useOnboarding();
@@ -90,6 +112,30 @@ export default function Integrations() {
     status: 'disconnected',
     installedAt: null,
   });
+
+  // Instagram Connection State
+  const [instagramStatus, setInstagramStatus] = useState({
+    connected: false,
+    status: 'disconnected',
+    pageId: null,
+    pageName: null,
+    instagramBusinessAccountId: null,
+    instagramUsername: null,
+    instagramName: null,
+    profilePictureUrl: null,
+  });
+  const [isInstagramModalOpen, setIsInstagramModalOpen] = useState(false);
+  const [instagramModalTab, setInstagramModalTab] = useState('popup'); // 'popup' | 'direct' | 'test'
+  const [igPageId, setIgPageId] = useState('');
+  const [igPageName, setIgPageName] = useState('');
+  const [igAccessToken, setIgAccessToken] = useState('');
+  const [igAccountId, setIgAccountId] = useState('');
+  const [igUsername, setIgUsername] = useState('');
+  const [igTestRecipientId, setIgTestRecipientId] = useState('');
+  const [igTestMessage, setIgTestMessage] = useState('Hello from ARCO Communication! 👋');
+  const [igTestSending, setIgTestSending] = useState(false);
+  const [igModalLoading, setIgModalLoading] = useState(false);
+  const [igModalError, setIgModalError] = useState('');
 
   // Historical Sync State
   const [syncJob, setSyncJob] = useState(null);
@@ -122,12 +168,16 @@ export default function Integrations() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch Shopify Integration Status from Backend
+  // Fetch Shopify & Instagram Integration Status from Backend
   const loadStatus = async () => {
     setLoading(true);
     try {
-      const data = await integrationService.getShopifyStatus();
-      setShopifyStatus(data);
+      const [shopifyData, igData] = await Promise.all([
+        integrationService.getShopifyStatus().catch(() => null),
+        integrationService.getInstagramStatus().catch(() => null),
+      ]);
+      if (shopifyData) setShopifyStatus(shopifyData);
+      if (igData) setInstagramStatus(igData);
     } catch (err) {
       console.warn('[Integrations] Load status error:', err);
     } finally {
@@ -257,6 +307,122 @@ export default function Integrations() {
     }
   };
 
+  // Handle Connect Instagram via Facebook Login popup
+  const handleConnectInstagramPopup = async () => {
+    setIgModalLoading(true);
+    setIgModalError('');
+    try {
+      const auth = await launchInstagramConnect();
+      if (!auth?.accessToken) {
+        throw new Error('No access token received from Facebook Login.');
+      }
+      const res = await integrationService.connectInstagramWithToken(auth.accessToken);
+      if (res?.success) {
+        showToast(`Connected Instagram account @${res.data?.instagramUsername || 'Business'}!`, 'success');
+        setIsInstagramModalOpen(false);
+        loadStatus();
+      } else {
+        setIgModalError(res?.error || 'Failed to link Instagram account.');
+      }
+    } catch (err) {
+      if (err.code === 'USER_CANCELLED') {
+        setIgModalError('Facebook Login popup was closed or cancelled.');
+      } else {
+        setIgModalError(err.message || 'Instagram connection failed. Please ensure your Instagram is connected to a Facebook Page.');
+      }
+    } finally {
+      setIgModalLoading(false);
+    }
+  };
+
+  // Handle Connect Instagram Direct (manual credentials)
+  const handleConnectInstagramDirect = async (e) => {
+    e.preventDefault();
+    if (!igPageId.trim() || !igAccessToken.trim()) {
+      setIgModalError('Page ID and Page Access Token are required.');
+      return;
+    }
+    setIgModalLoading(true);
+    setIgModalError('');
+    try {
+      const res = await integrationService.connectInstagramDirect({
+        pageId: igPageId.trim(),
+        pageName: igPageName.trim() || 'Connected Facebook Page',
+        pageAccessToken: igAccessToken.trim(),
+        igAccountId: igAccountId.trim() || undefined,
+        igUsername: igUsername.trim() || undefined,
+      });
+      if (res?.success) {
+        showToast(`Instagram account @${res.data?.instagramUsername || 'Business'} connected!`, 'success');
+        setIsInstagramModalOpen(false);
+        loadStatus();
+      } else {
+        setIgModalError(res?.error || 'Failed to connect direct credentials.');
+      }
+    } catch (err) {
+      setIgModalError(err.message || 'Direct connection failed.');
+    } finally {
+      setIgModalLoading(false);
+    }
+  };
+
+  // Handle Disconnect Instagram
+  const handleDisconnectInstagram = async () => {
+    if (!window.confirm('Are you sure you want to disconnect Instagram? Direct messages will no longer sync with your ARCO Team Inbox.')) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await integrationService.disconnectInstagram();
+      if (res.success) {
+        setInstagramStatus({
+          connected: false,
+          status: 'disconnected',
+          pageId: null,
+          pageName: null,
+          instagramBusinessAccountId: null,
+          instagramUsername: null,
+          instagramName: null,
+          profilePictureUrl: null,
+        });
+        showToast('Instagram account disconnected.', 'info');
+      } else {
+        showToast(res.error || 'Failed to disconnect', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Disconnect failed', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle Send Instagram Test DM
+  const handleSendInstagramTestDM = async (e) => {
+    e.preventDefault();
+    if (!igTestRecipientId.trim() || !igTestMessage.trim()) {
+      setIgModalError('Recipient ID (IGSID) and Message are required.');
+      return;
+    }
+    setIgTestSending(true);
+    setIgModalError('');
+    try {
+      const res = await integrationService.sendInstagramDirectTest(
+        igTestRecipientId.trim(),
+        igTestMessage.trim()
+      );
+      if (res?.success) {
+        showToast('Instagram test DM dispatched successfully!', 'success');
+        setIgTestRecipientId('');
+      } else {
+        setIgModalError(res?.error || 'Failed to dispatch Instagram test DM.');
+      }
+    } catch (err) {
+      setIgModalError(err.message || 'Error dispatching Instagram test DM.');
+    } finally {
+      setIgTestSending(false);
+    }
+  };
+
   // Filter Logic
   const matchesSearch =
     !searchQuery ||
@@ -270,9 +436,22 @@ export default function Integrations() {
 
   const matchesTab =
     activeTab === 'all' ||
-    activeTab === 'free'; // Shopify is Free plan
+    activeTab === 'free'; // Shopify & Instagram are Free plan
 
   const showShopifyCard = matchesSearch && matchesCategory && matchesTab;
+
+  const matchesInstagramSearch =
+    !searchQuery ||
+    'instagram direct dm meta team inbox unified'.includes(searchQuery.toLowerCase().trim()) ||
+    'marketing automation'.includes(searchQuery.toLowerCase().trim()) ||
+    'helpdesk platform'.includes(searchQuery.toLowerCase().trim());
+
+  const matchesInstagramCategory =
+    selectedCategory === 'All Categories' ||
+    selectedCategory === 'Marketing Automation' ||
+    selectedCategory === 'Helpdesk Platform';
+
+  const showInstagramCard = matchesInstagramSearch && matchesInstagramCategory && matchesTab;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-800 relative">
@@ -342,7 +521,7 @@ export default function Integrations() {
               >
                 All Apps
                 <span className="ml-1.5 px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[10px] rounded-full font-extrabold">
-                  1
+                  2
                 </span>
               </button>
               <button
@@ -355,7 +534,7 @@ export default function Integrations() {
               >
                 Free Apps
                 <span className="ml-1.5 px-1.5 py-0.2 bg-emerald-50 text-emerald-700 text-[10px] rounded-full font-extrabold">
-                  1
+                  2
                 </span>
               </button>
               <button
@@ -435,11 +614,12 @@ export default function Integrations() {
 
           {/* 4. INTEGRATIONS GRID / CARDS */}
           <div className="mt-8">
-            {showShopifyCard ? (
+            {(showShopifyCard || showInstagramCard) ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 
-                {/* SHOPIFY SALES CHANNEL CARD (Interakt Reference Replica) */}
-                <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between relative group">
+                {/* SHOPIFY SALES CHANNEL CARD */}
+                {showShopifyCard && (
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between relative group">
                   
                   {/* Top Bar: Logo + Badges */}
                   <div>
@@ -723,6 +903,151 @@ export default function Integrations() {
                   </div>
 
                 </div>
+                )}
+
+                {/* INSTAGRAM DIRECT & UNIFIED INBOX CARD */}
+                {showInstagramCard && (
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between relative group">
+                    {/* Top Bar: Logo + Badges */}
+                    <div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center p-2.5 shadow-2xs text-white">
+                          <InstagramLogo className="w-9 h-9" />
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1.5">
+                          <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-extrabold uppercase tracking-wider rounded-md border border-purple-200/60">
+                            Free
+                          </span>
+
+                          {loading ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-full">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-600" />
+                              Checking...
+                            </span>
+                          ) : instagramStatus.connected ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-100 text-purple-800 text-[11px] font-bold rounded-full">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                              Connected
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-100 text-slate-600 text-[11px] font-medium rounded-full">
+                              Disconnected
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* App Title & Category */}
+                      <div className="mt-4">
+                        <h3 className="text-base font-bold text-slate-900 group-hover:text-purple-700 transition-colors">
+                          Instagram Direct & DMs
+                        </h3>
+                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
+                          Marketing Automation & Unified Inbox
+                        </p>
+                      </div>
+
+                      {/* Description */}
+                      <p className="mt-2.5 text-xs text-slate-600 leading-relaxed">
+                        Connect your Instagram Professional account via Facebook Login popup. Ingest customer direct messages and send replies straight from the Unified ARCO Team Inbox alongside WhatsApp.
+                      </p>
+
+                      {/* Connected Account Metadata Box */}
+                      {instagramStatus.connected && (
+                        <div className="mt-4 space-y-2.5">
+                          <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between gap-1.5 text-[11px] font-bold text-purple-900">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="w-2 h-2 rounded-full bg-purple-600" />
+                                <span className="truncate">@{instagramStatus.instagramUsername || 'Instagram Business'}</span>
+                              </div>
+                              <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full shrink-0">
+                                Meta Verified
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-purple-700 font-medium">
+                              Page: {instagramStatus.pageName || 'Connected Facebook Page'}
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] space-y-1">
+                            <div className="flex items-center justify-between text-slate-700 font-bold">
+                              <span>Unified Inbox Live Sync</span>
+                              <span className="text-emerald-600 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Listening to DMs
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                              Incoming customer DMs will automatically pop up in ARCO Team Inbox.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bottom Action Area */}
+                    <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+                      {instagramStatus.connected ? (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInstagramModalTab('test');
+                                setIsInstagramModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-colors cursor-pointer"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Test DM Dispatch</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInstagramModalTab('popup');
+                                setIsInstagramModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <span>Settings</span>
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleDisconnectInstagram}
+                            disabled={loading}
+                            className="px-3.5 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-700 rounded-lg transition-colors cursor-pointer"
+                          >
+                            Disconnect
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-[11px] font-medium text-slate-400">
+                            Official Meta Graph API
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInstagramModalTab('popup');
+                              setIgModalError('');
+                              setIsInstagramModalOpen(true);
+                            }}
+                            disabled={loading}
+                            className="inline-flex items-center justify-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 active:from-purple-800 active:to-rose-800 rounded-xl shadow-xs hover:shadow-sm transition-all cursor-pointer"
+                          >
+                            Connect Instagram
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
 
               </div>
             ) : (
@@ -901,6 +1226,271 @@ export default function Integrations() {
               shopDomain={shopifyStatus.shopDomain || embeddedShop || 'arco-test-e2a1thrd.myshopify.com'}
               onToast={showToast}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Instagram Connect & Management Modal */}
+      {isInstagramModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-lg w-full p-6 relative animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setIsInstagramModalOpen(false);
+                setIgModalError('');
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3.5 pb-4 border-b border-slate-100">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center text-white p-2">
+                <InstagramLogo className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {instagramStatus.connected ? 'Instagram Direct Settings' : 'Connect Instagram Professional'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Receive and reply to Instagram DMs inside ARCO Team Inbox
+                </p>
+              </div>
+            </div>
+
+            {/* Tab Switcher */}
+            <div className="mt-4 flex items-center bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setInstagramModalTab('popup')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  instagramModalTab === 'popup'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                Facebook Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setInstagramModalTab('direct')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  instagramModalTab === 'direct'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                Manual Token
+              </button>
+              {instagramStatus.connected && (
+                <button
+                  type="button"
+                  onClick={() => setInstagramModalTab('test')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    instagramModalTab === 'test'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  Test DM Dispatch
+                </button>
+              )}
+            </div>
+
+            {/* Error Banner */}
+            {igModalError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-xs text-red-700 font-medium">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <span>{igModalError}</span>
+              </div>
+            )}
+
+            {/* TAB 1: Facebook Login Popup */}
+            {instagramModalTab === 'popup' && (
+              <div className="mt-5 space-y-4">
+                <div className="p-4 bg-blue-50/60 border border-blue-200/70 rounded-xl space-y-2 text-xs text-blue-900">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <FacebookIcon className="w-4 h-4 text-[#1877F2]" />
+                    <span>Official Facebook Login Popup</span>
+                  </div>
+                  <p className="text-blue-800 text-[11px] leading-relaxed">
+                    Log in with Facebook to automatically detect your Facebook Pages and linked Instagram Business / Creator accounts with verified DM permissions.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-[11px] text-slate-600">
+                  <div className="font-bold text-slate-800">Requirements:</div>
+                  <ul className="space-y-1 list-disc list-inside">
+                    <li>Instagram account must be Professional (Business or Creator)</li>
+                    <li>Connected to your Facebook Page in Instagram account settings</li>
+                    <li>Message access allowed in Instagram App Settings &gt; Messages</li>
+                  </ul>
+                </div>
+
+                <div className="pt-2 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={handleConnectInstagramPopup}
+                    disabled={igModalLoading}
+                    className="w-full inline-flex items-center justify-center gap-2.5 px-6 py-3 text-xs font-bold text-white bg-[#1877F2] hover:bg-[#166fe5] active:bg-[#1567d3] rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {igModalLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Connecting with Facebook...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FacebookIcon className="w-4 h-4" />
+                        <span>Continue with Facebook</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: Direct / Manual Credentials */}
+            {instagramModalTab === 'direct' && (
+              <form onSubmit={handleConnectInstagramDirect} className="mt-5 space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Facebook Page ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 102938475610293"
+                    value={igPageId}
+                    onChange={(e) => setIgPageId(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Page Access Token (Permanent or System User) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="EAAG..."
+                    value={igAccessToken}
+                    onChange={(e) => setIgAccessToken(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Instagram Business Account ID
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 178414000..."
+                      value={igAccountId}
+                      onChange={(e) => setIgAccountId(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                    <span className="text-[10px] text-slate-400">Auto-detected if left empty</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Instagram Username (@handle)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. mybrand"
+                      value={igUsername}
+                      onChange={(e) => setIgUsername(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsInstagramModalOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={igModalLoading}
+                    className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl cursor-pointer disabled:opacity-50"
+                  >
+                    {igModalLoading ? 'Saving...' : 'Verify & Connect'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 3: Test DM & Webhooks */}
+            {instagramModalTab === 'test' && (
+              <div className="mt-5 space-y-4">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
+                  <div className="font-bold text-slate-800">ARCO Webhook URL for Meta App Dashboard:</div>
+                  <div className="font-mono text-[11px] text-purple-700 break-all select-all bg-white p-2 rounded-lg border border-slate-200">
+                    {window.location.origin}/api/instagram/webhook
+                  </div>
+                  <div className="text-[10px] text-slate-500 pt-1">
+                    Verify Token: <span className="font-mono font-bold text-slate-700">arco_meta_webhook_verify_secret_token</span>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSendInstagramTestDM} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Recipient Instagram-Scoped ID (IGSID) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1234567890123456"
+                      value={igTestRecipientId}
+                      onChange={(e) => setIgTestRecipientId(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                    <span className="text-[10px] text-slate-400">
+                      Found in incoming webhook message when a user messages your account.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Message Text
+                    </label>
+                    <input
+                      type="text"
+                      value={igTestMessage}
+                      onChange={(e) => setIgTestMessage(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={igTestSending}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl cursor-pointer disabled:opacity-50"
+                  >
+                    {igTestSending ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Dispatching DM...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Send Test DM</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -137,6 +137,7 @@ const COUNTRY_CODES = [
 const FILTER_CATEGORIES = [
   { id: 'labels', label: 'Labels' },
   { id: 'campaigns', label: 'Campaigns' },
+  { id: 'channel', label: 'Channel' },
   { id: 'tags', label: 'Tags' },
   { id: 'chat_status', label: 'Chat Status' },
   { id: 'assignee', label: 'Assignee' },
@@ -179,6 +180,7 @@ const DEFAULT_FILTERS = {
   campaigns: [], // array of strings, 'none' for no campaign / organic
   tags: [], // array of strings
   chatStatus: 'open', // 'all' | 'open' | 'closed'
+  channel: 'all', // 'all' | 'whatsapp' | 'instagram'
   assignees: [], // array of strings
   replyStatus: [], // 'unreplied' | 'replied_manually' | 'replied_by_bot'
   readUnread: 'all', // 'all' | 'read' | 'unread'
@@ -390,6 +392,7 @@ export default function Inbox() {
         isSpam: filtersToApply.spamChats ? 'true' : undefined,
         fromDate: filtersToApply.fromDate || undefined,
         toDate: filtersToApply.toDate || undefined,
+        channel: filtersToApply.channel && filtersToApply.channel !== 'all' ? filtersToApply.channel : undefined,
       };
 
       const data = await inboxService.getConversations(queryParams);
@@ -873,6 +876,13 @@ export default function Inbox() {
         const toD = new Date(appliedFilters.toDate);
         toD.setHours(23, 59, 59, 999);
         if (chatDate > toD) return false;
+      }
+
+      // 11. Channel Filter ('all' | 'whatsapp' | 'instagram')
+      if (appliedFilters.channel && appliedFilters.channel !== 'all') {
+        const targetChannel = appliedFilters.channel.toLowerCase();
+        const chatChannel = (chat.channel || 'whatsapp').toLowerCase();
+        if (chatChannel !== targetChannel) return false;
       }
 
       return true;
@@ -1623,6 +1633,57 @@ export default function Inbox() {
                 </button>
               </div>
 
+              {/* Quick Channel Filter Tabs: All, WhatsApp, Instagram */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl text-[11px] w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...appliedFilters, channel: 'all' };
+                    setAppliedFilters(next);
+                    loadConversations(next);
+                  }}
+                  className={`flex-1 py-1 rounded-lg font-bold text-center transition-all cursor-pointer ${
+                    appliedFilters.channel === 'all' || !appliedFilters.channel
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...appliedFilters, channel: 'whatsapp' };
+                    setAppliedFilters(next);
+                    loadConversations(next);
+                  }}
+                  className={`flex-1 py-1 rounded-lg font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                    appliedFilters.channel === 'whatsapp'
+                      ? 'bg-white text-emerald-700 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <WhatsAppIcon className="w-3 h-3 text-emerald-600" />
+                  <span>WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...appliedFilters, channel: 'instagram' };
+                    setAppliedFilters(next);
+                    loadConversations(next);
+                  }}
+                  className={`flex-1 py-1 rounded-lg font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                    appliedFilters.channel === 'instagram'
+                      ? 'bg-white text-purple-700 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <InstagramIcon className="w-3 h-3 text-purple-600" />
+                  <span>Instagram</span>
+                </button>
+              </div>
+
               {/* Status / Filter Chips Bar */}
               <div className="flex items-center justify-between text-xs pt-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -1919,9 +1980,22 @@ export default function Inbox() {
                               {selectedChat.responseWindow === 'active' ? '24h Active' : '24h Expired'}
                             </span>
                           )}
+                          {selectedChat.channel === 'instagram' && (
+                            <span
+                              className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-purple-200 bg-purple-50 text-purple-700 flex items-center gap-1"
+                              title="Instagram Direct Messaging Channel"
+                            >
+                              <InstagramIcon className="w-2.5 h-2.5 text-purple-600" />
+                              Instagram Direct
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5 flex-wrap">
-                          <span>{selectedChat.phone}</span>
+                          <span>
+                            {selectedChat.channel === 'instagram'
+                              ? `IGSID: ${selectedChat.phone}`
+                              : selectedChat.phone}
+                          </span>
                           <span>•</span>
                           <span className="capitalize">{selectedChat.channel}</span>
                           {selectedChat.campaignName && (

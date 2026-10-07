@@ -177,5 +177,56 @@ export const integrationService = {
     });
     return res.data;
   },
+
+  // ========================================================
+  // INSTAGRAM INTEGRATION API METHODS
+  // ========================================================
+
+  // GET /api/instagram/status
+  getInstagramStatus: async () => {
+    try {
+      const res = await apiRequest('/instagram/status');
+      return res?.data || { connected: false, status: 'disconnected' };
+    } catch (err) {
+      console.warn('[Integration Service] getInstagramStatus failed:', err.message);
+      return { connected: false, status: 'disconnected' };
+    }
+  },
+
+  // POST /api/instagram/connect (via Facebook Login popup access token)
+  connectInstagramWithToken: async (userAccessToken) => {
+    const res = await apiRequest('/instagram/connect', {
+      method: 'POST',
+      body: JSON.stringify({ userAccessToken }),
+    });
+    return res;
+  },
+
+  // POST /api/instagram/connect-direct (direct Page and IG credentials)
+  connectInstagramDirect: async (credentials) => {
+    const res = await apiRequest('/instagram/connect-direct', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+    return res;
+  },
+
+  // POST /api/instagram/disconnect
+  disconnectInstagram: async () => {
+    const res = await apiRequest('/instagram/disconnect', {
+      method: 'POST',
+    });
+    return res;
+  },
+
+  // POST /api/instagram/send-direct
+  sendInstagramDirectTest: async (recipientId, text) => {
+    const res = await apiRequest('/instagram/send-direct', {
+      method: 'POST',
+      body: JSON.stringify({ recipientId, text }),
+    });
+    return res;
+  },
 };
+
 

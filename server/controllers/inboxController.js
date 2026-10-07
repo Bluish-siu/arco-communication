@@ -1,5 +1,6 @@
 import { db, query } from '../config/db.js';
 import { metaWhatsAppService, isWithin24HourWindow, formatPhoneNumber } from '../services/metaWhatsAppService.js';
+import { metaInstagramService } from '../services/metaInstagramService.js';
 import { toUtcIsoString } from '../utils/dateUtils.js';
 import { basicAutomationEngine } from '../services/basicAutomationEngine.js';
 
@@ -24,6 +25,7 @@ export const inboxController = {
         toDate,
         isSpam,
         search,
+        channel,
       } = req.query;
 
       const effectiveUserId = req.user?.id || 'usr_1790574599220';
@@ -166,6 +168,12 @@ export const inboxController = {
       if (search) {
         params.push(`%${search.toLowerCase()}%`);
         sql += ` AND (LOWER(name) LIKE $${params.length} OR phone LIKE $${params.length})`;
+      }
+
+      // 11. Channel Filter ('all' | 'whatsapp' | 'instagram')
+      if (channel && channel !== 'all') {
+        params.push(channel.toLowerCase().trim());
+        sql += ` AND LOWER(channel) = $${params.length}`;
       }
 
       sql += ' ORDER BY updated_at DESC';
@@ -402,6 +410,36 @@ export const inboxController = {
           console.error('[Inbox Outbound WhatsApp Error]:', apiErr.message);
           msgStatus = 'failed';
           errorMessage = apiErr.message || 'WhatsApp dispatch error';
+        }
+      } else if (conv.channel === 'instagram') {
+        try {
+          let sendResult = null;
+          if (attachment && (attachment.dataUrl || attachment.url)) {
+            sendResult = await metaInstagramService.sendMediaMessage({
+              recipientId: conv.phone,
+              mediaUrl: attachment.url || attachment.dataUrl,
+              mediaType: attachment.type?.startsWith('video') ? 'video' : 'image',
+              userId: req.user?.id || effectiveUserId,
+            });
+          } else if (cleanText) {
+            sendResult = await metaInstagramService.sendTextMessage({
+              recipientId: conv.phone,
+              text: cleanText,
+              userId: req.user?.id || effectiveUserId,
+            });
+          }
+
+          if (sendResult?.success) {
+            metaMessageId = sendResult.messageId || null;
+            msgStatus = 'sent';
+          } else if (sendResult) {
+            msgStatus = 'failed';
+            errorMessage = sendResult?.error || 'Instagram DM dispatch failed';
+          }
+        } catch (apiErr) {
+          console.error('[Inbox Outbound Instagram Error]:', apiErr.message);
+          msgStatus = 'failed';
+          errorMessage = apiErr.message || 'Instagram dispatch error';
         }
       }
 

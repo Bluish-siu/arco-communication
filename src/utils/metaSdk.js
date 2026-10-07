@@ -114,3 +114,48 @@ export function launchMetaEmbeddedSignup({
     }
   });
 }
+
+/**
+ * Launch Meta Instagram Professional Account Connect Dialog (Facebook Login with IG Scopes)
+ */
+export function launchInstagramConnect({ appId = DEFAULT_APP_ID } = {}) {
+  return new Promise((resolve, reject) => {
+    initMetaSdk(appId);
+
+    // If FB SDK is blocked by browser ad blocker or network issue
+    if (!window.FB) {
+      return reject(
+        new Error(
+          'Facebook SDK is not loaded or was blocked by a browser extension. Please disable ad blockers or use Direct Token connect.'
+        )
+      );
+    }
+
+    try {
+      window.FB.login(
+        function (response) {
+          if (response && response.authResponse) {
+            resolve({
+              accessToken: response.authResponse.accessToken,
+              userID: response.authResponse.userID,
+              expiresIn: response.authResponse.expiresIn,
+              status: response.status,
+            });
+          } else {
+            const err = new Error('Facebook Login was cancelled or not authorized.');
+            err.code = 'USER_CANCELLED';
+            reject(err);
+          }
+        },
+        {
+          scope:
+            'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages',
+          return_scopes: true,
+        }
+      );
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+

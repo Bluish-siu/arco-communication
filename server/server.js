@@ -18,6 +18,7 @@ import { initFlowSchema } from './config/initFlowTables.js';
 import { initWhatsAppTemplatesSchema } from './config/initWhatsAppTemplatesTables.js';
 import { initDelayedAutomationSchema } from './config/initDelayedAutomationTables.js';
 import { initMetaIntegrationsTable } from './config/initMetaTable.js';
+import { initInstagramTable } from './config/initInstagramTable.js';
 import { initShopifyWidgetsTable } from './config/initShopifyWidgetsTable.js';
 import { initAuthOtpsTable } from './config/initAuthOtpsTable.js';
 import { migrateMultiTenantDataIsolation } from './config/migrateMultiTenantDataIsolation.js';
@@ -127,6 +128,7 @@ const server = app.listen(PORT, HOST, async () => {
     await initWhatsAppTemplatesSchema();
     await initDelayedAutomationSchema();
     await initMetaIntegrationsTable();
+    await initInstagramTable();
     await initShopifyWidgetsTable();
     await initAuthOtpsTable();
     await migrateMultiTenantDataIsolation();
