@@ -752,6 +752,55 @@ async function runAllTests() {
       await pool.query('DELETE FROM campaigns WHERE id IN ($1, $2)', [campA, campB]);
     });
 
+    // -------------------------------------------------------------------------
+    // TEST 17: Campaign Creation With >100 CSV Recipients Queues All Recipients (No chunk ID collision)
+    // -------------------------------------------------------------------------
+    await reportAsyncTest('TEST 17: Multi-Chunk Campaign Creation: 208 CSV recipients all get queued into campaign_recipients without chunk drop', async () => {
+      const csvContacts = [];
+      for (let i = 0; i < 208; i++) {
+        csvContacts.push({
+          name: `Optician ${i}`,
+          phone: `9198765${String(i).padStart(5, '0')}`,
+          whatsappOpted: true,
+        });
+      }
+
+      const campName = `Multi Chunk Test ${Date.now()}`;
+      let createdCampId = null;
+
+      const req = {
+        user: { id: 'usr_t17', name: 'Test User' },
+        body: {
+          name: campName,
+          status: 'Draft',
+          csvContacts,
+        },
+      };
+
+      let respData = null;
+      const res = {
+        status: (code) => res,
+        json: (data) => { respData = data; return res; },
+      };
+
+      await campaignController.create(req, res, (err) => { if (err) throw err; });
+
+      assert(respData && respData.data && respData.data.id, 'Campaign creation must succeed');
+      createdCampId = respData.data.id;
+
+      // Query database for total recipients queued
+      const rcpCountRes = await pool.query(
+        'SELECT COUNT(*) as total FROM campaign_recipients WHERE campaign_id = $1',
+        [createdCampId]
+      );
+      const queuedTotal = parseInt(rcpCountRes.rows[0].total, 10);
+      assert.strictEqual(queuedTotal, 208, 'All 208 recipients must be successfully inserted into campaign_recipients without chunk drop');
+
+      // Cleanup
+      await pool.query('DELETE FROM campaign_recipients WHERE campaign_id = $1', [createdCampId]);
+      await pool.query('DELETE FROM campaigns WHERE id = $1', [createdCampId]);
+    });
+
   } finally {
     // Restore original Meta service
     metaWhatsAppService.sendTemplateMessage = originalSendTemplateMessage;

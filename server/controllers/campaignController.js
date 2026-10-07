@@ -569,7 +569,7 @@ export const campaignController = {
               `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10})`
             );
             values.push(
-              `rcp_${campaignId}_${idx}`,
+              c.id || `rcp_${campaignId}_${i + idx}`,
               campaignId,
               c.contactId || null,
               c.name || 'Valued Customer',
