@@ -10,31 +10,60 @@ const DEFAULT_CONFIG_ID = '1131178462664882';
 export function initMetaSdk(appId = DEFAULT_APP_ID) {
   if (typeof window === 'undefined') return;
 
-  if (!window.FB) {
-    window.fbAsyncInit = function () {
-      if (window.FB) {
+  const targetAppId = appId || DEFAULT_APP_ID;
+
+  // 1. If FB is already on window and not initialized, initialize it right away!
+  if (window.FB && typeof window.FB.init === 'function') {
+    if (!window._fbInitialized) {
+      try {
         window.FB.init({
-          appId: appId || DEFAULT_APP_ID,
+          appId: targetAppId,
           autoLogAppEvents: true,
           cookie: true,
           xfbml: true,
           version: 'v22.0',
         });
+        window._fbInitialized = true;
+      } catch (err) {
+        console.warn('[Meta SDK] Direct FB.init:', err);
       }
-    };
-
-    if (!document.getElementById('facebook-jssdk')) {
-      const script = document.createElement('script');
-      script.id = 'facebook-jssdk';
-      script.src = 'https://connect.facebook.net/en_US/sdk.js';
-      script.async = true;
-      script.defer = true;
-      script.crossOrigin = 'anonymous';
-      document.body.appendChild(script);
     }
   }
 
-  // Setup Global message listener for Embedded Signup postMessage payloads
+  // 2. Set up fbAsyncInit for when SDK finishes downloading
+  const existingInit = window.fbAsyncInit;
+  window.fbAsyncInit = function () {
+    if (typeof existingInit === 'function') {
+      try { existingInit(); } catch (e) {}
+    }
+    if (window.FB && typeof window.FB.init === 'function') {
+      try {
+        window.FB.init({
+          appId: targetAppId,
+          autoLogAppEvents: true,
+          cookie: true,
+          xfbml: true,
+          version: 'v22.0',
+        });
+        window._fbInitialized = true;
+      } catch (err) {
+        console.warn('[Meta SDK] fbAsyncInit callback error:', err);
+      }
+    }
+  };
+
+  // 3. Inject script tag if not present
+  if (!document.getElementById('facebook-jssdk')) {
+    const script = document.createElement('script');
+    script.id = 'facebook-jssdk';
+    script.src = 'https://connect.facebook.net/en_US/sdk.js';
+    script.async = true;
+    script.defer = true;
+    script.crossOrigin = 'anonymous';
+    document.head.appendChild(script);
+  }
+
+  // 4. Setup Global message listener for Embedded Signup postMessage payloads
   if (!window._metaSignupListenerAttached) {
     window._metaSignupListenerAttached = true;
     window.addEventListener('message', (event) => {
@@ -57,27 +86,106 @@ export function initMetaSdk(appId = DEFAULT_APP_ID) {
 }
 
 /**
- * Wait for Meta SDK to be initialized and ready on window.FB
+ * Wait for Meta SDK to be initialized and ready on window.FB with valid version
  */
 export function waitForMetaSdk(appId = DEFAULT_APP_ID, timeoutMs = 2500) {
   return new Promise((resolve) => {
     initMetaSdk(appId);
-    if (window.FB && typeof window.FB.login === 'function') {
+
+    function tryInitNow() {
+      if (window.FB && typeof window.FB.init === 'function' && !window._fbInitialized) {
+        try {
+          window.FB.init({
+            appId: appId || DEFAULT_APP_ID,
+            autoLogAppEvents: true,
+            cookie: true,
+            xfbml: true,
+            version: 'v22.0',
+          });
+          window._fbInitialized = true;
+        } catch (e) {}
+      }
+      return window.FB && window._fbInitialized && typeof window.FB.login === 'function';
+    }
+
+    if (tryInitNow()) {
       return resolve(window.FB);
     }
 
     const startTime = Date.now();
     const interval = setInterval(() => {
-      if (window.FB && typeof window.FB.login === 'function') {
+      if (tryInitNow()) {
         clearInterval(interval);
         return resolve(window.FB);
       }
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(interval);
-        return resolve(null); // Timed out or blocked by ad blocker
+        return resolve(null);
       }
-    }, 80);
+    }, 60);
   });
+}
+
+/**
+ * Open official Meta OAuth Dialog in popup window (Bypasses SDK issues or ad blockers)
+ */
+function openMetaOAuthDialogFallback({ appId, resolve, reject }) {
+  const redirectUri = encodeURIComponent(`${window.location.origin}/instagram-callback.html`);
+  const scopes = encodeURIComponent(
+    'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages'
+  );
+  const oauthUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}`;
+
+  const width = 650;
+  const height = 750;
+  const left = window.screenX + (window.outerWidth - width) / 2;
+  const top = window.screenY + (window.outerHeight - height) / 2;
+  const popup = window.open(
+    oauthUrl,
+    'MetaInstagramLogin',
+    `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+  );
+
+  if (!popup) {
+    const err = new Error('Popup blocked by browser. Please allow popups or use Direct Token connect.');
+    err.code = 'POPUP_BLOCKED';
+    return reject(err);
+  }
+
+  let resolved = false;
+
+  function handleMessage(event) {
+    if (event.data?.type === 'IG_OAUTH_SUCCESS' && event.data.accessToken) {
+      resolved = true;
+      window.removeEventListener('message', handleMessage);
+      resolve({
+        accessToken: event.data.accessToken,
+        status: 'connected',
+      });
+    } else if (event.data?.type === 'IG_OAUTH_ERROR') {
+      resolved = true;
+      window.removeEventListener('message', handleMessage);
+      const err = new Error(event.data.error || 'Meta authorization was cancelled.');
+      err.code = 'USER_CANCELLED';
+      reject(err);
+    }
+  }
+
+  window.addEventListener('message', handleMessage);
+
+  const checkClosed = setInterval(() => {
+    if (popup.closed) {
+      clearInterval(checkClosed);
+      window.removeEventListener('message', handleMessage);
+      setTimeout(() => {
+        if (!resolved) {
+          const err = new Error('Facebook Login popup was closed.');
+          err.code = 'USER_CANCELLED';
+          reject(err);
+        }
+      }, 500);
+    }
+  }, 600);
 }
 
 /**
@@ -144,13 +252,13 @@ export async function launchMetaEmbeddedSignup({
 
 /**
  * Launch Meta Instagram Professional Account Connect Dialog (Facebook Login with IG Scopes)
- * Supports both official FB.login and standalone OAuth Dialog popup fallback if SDK is blocked.
+ * Dual-tier execution: uses FB.login if SDK is initialized; otherwise automatically uses standalone OAuth Dialog popup.
  */
 export async function launchInstagramConnect({ appId = DEFAULT_APP_ID } = {}) {
-  // 1. Try FB SDK login
-  const fb = await waitForMetaSdk(appId, 2500);
+  const targetAppId = appId || DEFAULT_APP_ID;
+  const fb = await waitForMetaSdk(targetAppId, 1500);
 
-  if (fb && typeof fb.login === 'function') {
+  if (fb && window._fbInitialized && typeof fb.login === 'function') {
     return new Promise((resolve, reject) => {
       try {
         fb.login(
@@ -175,69 +283,15 @@ export async function launchInstagramConnect({ appId = DEFAULT_APP_ID } = {}) {
           }
         );
       } catch (err) {
-        reject(err);
+        console.warn('[Meta SDK] FB.login error, falling back to popup OAuth dialog:', err.message);
+        // Seamless fallback to popup OAuth dialog if FB.login throws
+        openMetaOAuthDialogFallback({ appId: targetAppId, resolve, reject });
       }
     });
   }
 
-  // 2. Fallback: Open official Meta OAuth Dialog in popup window (Bypasses ad blocker on connect.facebook.net)
+  // Fallback: Open official Meta OAuth Dialog in popup window
   return new Promise((resolve, reject) => {
-    const redirectUri = encodeURIComponent(`${window.location.origin}/instagram-callback.html`);
-    const scopes = encodeURIComponent(
-      'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages'
-    );
-    const oauthUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}`;
-
-    const width = 650;
-    const height = 750;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    const popup = window.open(
-      oauthUrl,
-      'MetaInstagramLogin',
-      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-    );
-
-    if (!popup) {
-      const err = new Error('Popup blocked by browser. Please allow popups or use Direct Token connect.');
-      err.code = 'POPUP_BLOCKED';
-      return reject(err);
-    }
-
-    let resolved = false;
-
-    function handleMessage(event) {
-      if (event.data?.type === 'IG_OAUTH_SUCCESS' && event.data.accessToken) {
-        resolved = true;
-        window.removeEventListener('message', handleMessage);
-        resolve({
-          accessToken: event.data.accessToken,
-          status: 'connected',
-        });
-      } else if (event.data?.type === 'IG_OAUTH_ERROR') {
-        resolved = true;
-        window.removeEventListener('message', handleMessage);
-        const err = new Error(event.data.error || 'Meta authorization was cancelled.');
-        err.code = 'USER_CANCELLED';
-        reject(err);
-      }
-    }
-
-    window.addEventListener('message', handleMessage);
-
-    // Watch for popup closed without message
-    const checkClosed = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(checkClosed);
-        window.removeEventListener('message', handleMessage);
-        setTimeout(() => {
-          if (!resolved) {
-            const err = new Error('Facebook Login popup was closed.');
-            err.code = 'USER_CANCELLED';
-            reject(err);
-          }
-        }, 500);
-      }
-    }, 600);
+    openMetaOAuthDialogFallback({ appId: targetAppId, resolve, reject });
   });
 }
