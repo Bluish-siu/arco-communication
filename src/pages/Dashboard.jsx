@@ -30,12 +30,16 @@ import {
   TrendingUp,
   Zap,
   MessageSquare,
+  Gift,
+  Rocket,
+  MessageSquareText,
 } from 'lucide-react';
 import Container from '../components/common/Container';
 import DashboardSidebar from '../components/dashboard/DashboardSidebar';
 import { useOnboarding } from '../context/OnboardingContext';
 import { dashboardService } from '../services/dashboardService';
 import { metaService } from '../services/metaService';
+import { integrationService } from '../services/integrationService';
 
 // Setup Modals
 import ConnectWhatsAppModal from '../components/dashboard/ConnectWhatsAppModal';
@@ -51,6 +55,11 @@ import WhatsAppFormsModal from '../components/dashboard/WhatsAppFormsModal';
 import AutomatedAlertsModal from '../components/dashboard/AutomatedAlertsModal';
 import CtwaAdsModal from '../components/dashboard/CtwaAdsModal';
 import AiAgentModal from '../components/dashboard/AiAgentModal';
+import ConnectInstagramModal from '../components/dashboard/ConnectInstagramModal';
+import InstagramAutoReplyModal from '../components/dashboard/InstagramAutoReplyModal';
+import InstagramGiveawayModal from '../components/dashboard/InstagramGiveawayModal';
+import InstagramLeadGenModal from '../components/dashboard/InstagramLeadGenModal';
+import WebinarModal from '../components/dashboard/WebinarModal';
 import ShopifyAutomationsManager from '../components/shopify/ShopifyAutomationsManager';
 import ShopifyStorefrontWidgetManager from '../components/shopify/ShopifyStorefrontWidgetManager';
 import { isShopifyEmbedded } from '../utils/shopifyAppBridge';
@@ -87,6 +96,15 @@ export default function Dashboard() {
 
   // Active modal name
   const [activeModal, setActiveModal] = useState(null);
+
+  // Instagram Integration State
+  const [instagramStatus, setInstagramStatus] = useState({
+    connected: false,
+    username: '',
+    name: '',
+    followerCount: 0,
+    pageName: '',
+  });
 
   // Shopify Interakt Replacement active tab
   const [shopifyActiveTab, setShopifyActiveTab] = useState('automations'); // 'automations' | 'widget'
@@ -152,6 +170,21 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.warn('[Dashboard] State load fallback:', err.message);
+    }
+
+    try {
+      const igRes = await integrationService.getInstagramStatus();
+      if (igRes?.success && igRes?.data) {
+        setInstagramStatus({
+          connected: !!igRes.data.connected,
+          username: igRes.data.instagramUsername || '',
+          name: igRes.data.instagramName || '',
+          followerCount: igRes.data.followerCount || 0,
+          pageName: igRes.data.pageName || '',
+        });
+      }
+    } catch (igErr) {
+      console.warn('[Dashboard] IG status load:', igErr.message);
     } finally {
       setLoading(false);
     }
@@ -296,301 +329,459 @@ export default function Dashboard() {
                 </h1>
               </div>
 
-              {/* WhatsApp / Instagram Pill Switcher */}
-              <div className="inline-flex items-center gap-2 p-1 rounded-full bg-slate-200/70 border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setActiveChannelTab('whatsapp')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    activeChannelTab === 'whatsapp'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <WhatsAppIcon className="w-3.5 h-3.5" />
-                  <span>WhatsApp</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveChannelTab('instagram')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    activeChannelTab === 'instagram'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <InstagramIcon className="w-3.5 h-3.5" />
-                  <span>Instagram</span>
-                </button>
-              </div>
-
-              {/* 3. HERO AI AGENT BANNER */}
-              <div className="bg-[#eefcf4] rounded-2xl p-5 sm:p-6 border border-emerald-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-start sm:items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                    <Bot className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                      Build Your AI Agent
-                    </h2>
-                    <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
-                      Create an AI agent to handle conversations, answer questions, qualify leads, and assist customers automatically.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => navigate('/automation/whatsapp-ai-agent')}
-                  className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shrink-0 shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
-                >
-                  Create Agent
-                </button>
-              </div>
-
-              {/* 4. QUICK SETUP CARDS GRID (6 CARDS in 3x2) */}
-              <div className="space-y-3">
-                {isQuickSetupExpanded && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Card 1: Connect Number */}
-                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all relative">
-                      {/* Optional Coin Badge */}
-                      <div className="absolute -top-2.5 right-6 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">
-                        <span className="w-3.5 h-3.5 rounded-full bg-amber-400 text-amber-950 flex items-center justify-center text-[8px] font-black">₹</span>
-                        <span>Rs. 400</span>
-                        <Info className="w-2.5 h-2.5 text-amber-600" />
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                          <WhatsAppIcon className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">Connect Number</h4>
-                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
-                            {dashboardState.whatsappStatus.connected ? (
-                              <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                                <Check className="w-3 h-3 text-emerald-600" /> Verified & Active
-                              </span>
-                            ) : (
-                              <>
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                                <span>Not Verified</span>
-                                <Info className="w-3 h-3 text-slate-400" />
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('connect_whatsapp')}
-                        className={`px-5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-                          dashboardState.whatsappStatus.connected
-                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800'
-                            : 'bg-slate-900 hover:bg-slate-800 text-white shadow-xs'
-                        }`}
-                      >
-                        {dashboardState.whatsappStatus.connected ? 'Manage' : 'Connect'}
-                      </button>
-                    </div>
-
-                    {/* Card 2: Greeting Flow */}
-                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center shrink-0">
-                          <Heart className="w-5 h-5 fill-pink-500 text-pink-600" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">Greeting Flow</h4>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                              <Check className="w-2.5 h-2.5 text-emerald-600" /> Activated
-                            </span>
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
-                              <Sparkles className="w-2.5 h-2.5 text-slate-500" /> AI-generated
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('greeting_flow')}
-                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
-                      >
-                        Edit Flow
-                      </button>
-                    </div>
-
-                    {/* Card 3: FAQ Auto-replies */}
-                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
-                          <Grid className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">FAQ Auto-replies</h4>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {dashboardState.faqReplies?.activated !== false ? (
-                              <>
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                  <Check className="w-2.5 h-2.5 text-emerald-600" /> Activated
-                                </span>
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
-                                  <Sparkles className="w-2.5 h-2.5 text-slate-500" /> AI-generated
-                                </span>
-                              </>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" /> Inactive
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => navigate('/automation/custom-reply')}
-                        className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
-                      >
-                        Edit
-                      </button>
-                    </div>
-
-                    {/* Card 4: Add team-members */}
-                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                          <Users className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">Add team-members</h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            {dashboardState.teamMembersCount} member(s)
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('team_members')}
-                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
-                      >
-                        Add More
-                      </button>
-                    </div>
-
-                    {/* Card 5: Add Contacts */}
-                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-                          <BookUser className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">Add Contacts</h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            More contacts, more conversations
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('add_contacts')}
-                        className="px-6 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
-                      >
-                        Add
-                      </button>
-                    </div>
-
-                    {/* Card 6: Update WhatsApp Profile */}
-                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
-                          <User className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">Update WhatsApp Profile</h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            Make a great first impression
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('whatsapp_profile')}
-                        className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
-                      >
-                        Update
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Collapsible toggle */}
-                <div className="flex justify-center pt-1">
+              {/* WhatsApp / Instagram Pill Switcher & Webinar Badge */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="inline-flex items-center gap-1.5 p-1 rounded-full bg-slate-200/70 border border-slate-200 shadow-2xs self-start">
                   <button
                     type="button"
-                    onClick={() => setIsQuickSetupExpanded(!isQuickSetupExpanded)}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    onClick={() => setActiveChannelTab('whatsapp')}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      activeChannelTab === 'whatsapp'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
                   >
-                    <span>{isQuickSetupExpanded ? 'Show Less' : 'Show More'}</span>
-                    {isQuickSetupExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    <WhatsAppIcon className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveChannelTab('instagram')}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      activeChannelTab === 'instagram'
+                        ? 'bg-gradient-to-r from-purple-600 via-rose-500 to-amber-500 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <InstagramIcon className="w-3.5 h-3.5" />
+                    <span>Instagram</span>
+                  </button>
+                </div>
+
+                {/* Right: Demo Webinar Pill */}
+                <div className="flex items-center gap-3 bg-white border border-slate-200/90 rounded-full pl-3.5 pr-2 py-1.5 shadow-2xs self-start sm:self-auto">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                  <div className="text-left pr-1 sm:pr-3">
+                    <div className="text-xs font-bold text-slate-900 leading-tight">Demo Webinar</div>
+                    <div className="text-[10px] text-slate-500 leading-tight">Daily · Free to join</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal('webinar')}
+                    className="px-3.5 py-1.5 rounded-full bg-[#0f4a3c] hover:bg-[#0c3c31] text-white text-xs font-bold transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Join</span>
+                    <ArrowRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
-              {/* SHOPIFY INTERAKT REPLACEMENT SUITE TABS */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShopifyActiveTab('automations')}
-                  className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
-                    shopifyActiveTab === 'automations'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <Zap className="w-4 h-4" />
-                  <span>Step 1: Automated Notifications</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShopifyActiveTab('widget')}
-                  className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
-                    shopifyActiveTab === 'widget'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span>Step 2: Storefront Widget & Buy Button</span>
-                </button>
-              </div>
+              {/* 3. HERO AI AGENT BANNER (WhatsApp Only) */}
+              {activeChannelTab === 'whatsapp' && (
+                <div className="bg-[#eefcf4] rounded-2xl p-5 sm:p-6 border border-emerald-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Bot className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                        Build Your AI Agent
+                      </h2>
+                      <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
+                        Create an AI agent to handle conversations, answer questions, qualify leads, and assist customers automatically.
+                      </p>
+                    </div>
+                  </div>
 
-              {/* ACTIVE TAB CONTENT */}
-              {shopifyActiveTab === 'automations' ? (
-                <ShopifyAutomationsManager
-                  shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
-                  onToast={(msg, type) => {
-                    setToast({ message: msg, type: type || 'success' });
-                    setTimeout(() => setToast(null), 3500);
-                  }}
-                />
+                  <button
+                    type="button"
+                    onClick={() => navigate('/automation/whatsapp-ai-agent')}
+                    className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shrink-0 shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
+                  >
+                    Create Agent
+                  </button>
+                </div>
+              )}
+
+              {/* 4. QUICK SETUP CARDS SECTION */}
+              {activeChannelTab === 'whatsapp' ? (
+                /* WHATSAPP QUICK SETUP (6 CARDS in 3x2) */
+                <div className="space-y-3">
+                  {isQuickSetupExpanded && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Card 1: Connect Number */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all relative">
+                        {/* Optional Coin Badge */}
+                        <div className="absolute -top-2.5 right-6 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">
+                          <span className="w-3.5 h-3.5 rounded-full bg-amber-400 text-amber-950 flex items-center justify-center text-[8px] font-black">₹</span>
+                          <span>Rs. 400</span>
+                          <Info className="w-2.5 h-2.5 text-amber-600" />
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                            <WhatsAppIcon className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">Connect Number</h4>
+                            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
+                              {dashboardState.whatsappStatus.connected ? (
+                                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                  <Check className="w-3 h-3 text-emerald-600" /> Verified & Active
+                                </span>
+                              ) : (
+                                <>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                  <span>Not Verified</span>
+                                  <Info className="w-3 h-3 text-slate-400" />
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('connect_whatsapp')}
+                          className={`px-5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                            dashboardState.whatsappStatus.connected
+                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                              : 'bg-slate-900 hover:bg-slate-800 text-white shadow-xs'
+                          }`}
+                        >
+                          {dashboardState.whatsappStatus.connected ? 'Manage' : 'Connect'}
+                        </button>
+                      </div>
+
+                      {/* Card 2: Greeting Flow */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center shrink-0">
+                            <Heart className="w-5 h-5 fill-pink-500 text-pink-600" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">Greeting Flow</h4>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                <Check className="w-2.5 h-2.5 text-emerald-600" /> Activated
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
+                                <Sparkles className="w-2.5 h-2.5 text-slate-500" /> AI-generated
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('greeting_flow')}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Edit Flow
+                        </button>
+                      </div>
+
+                      {/* Card 3: FAQ Auto-replies */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                            <Grid className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">FAQ Auto-replies</h4>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              {dashboardState.faqReplies?.activated !== false ? (
+                                <>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                    <Check className="w-2.5 h-2.5 text-emerald-600" /> Activated
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
+                                    <Sparkles className="w-2.5 h-2.5 text-slate-500" /> AI-generated
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" /> Inactive
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => navigate('/automation/custom-reply')}
+                          className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Edit
+                        </button>
+                      </div>
+
+                      {/* Card 4: Add team-members */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                            <Users className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">Add team-members</h4>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              {dashboardState.teamMembersCount} member(s)
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('team_members')}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Add More
+                        </button>
+                      </div>
+
+                      {/* Card 5: Add Contacts */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+                            <BookUser className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">Add Contacts</h4>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              More contacts, more conversations
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('add_contacts')}
+                          className="px-6 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Add
+                        </button>
+                      </div>
+
+                      {/* Card 6: Update WhatsApp Profile */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                            <User className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">Update WhatsApp Profile</h4>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Make a great first impression
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('whatsapp_profile')}
+                          className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Update
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Collapsible toggle */}
+                  <div className="flex justify-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickSetupExpanded(!isQuickSetupExpanded)}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    >
+                      <span>{isQuickSetupExpanded ? 'Show Less' : 'Show More'}</span>
+                      {isQuickSetupExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <ShopifyStorefrontWidgetManager
-                  shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
-                  onToast={(msg, type) => {
-                    setToast({ message: msg, type: type || 'success' });
-                    setTimeout(() => setToast(null), 3500);
-                  }}
-                />
+                /* INSTAGRAM QUICK SETUP (4 CARDS 2x2 - Matches Interakt Reference UI) */
+                <div className="space-y-3">
+                  {isQuickSetupExpanded && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Card 1: Connect Instagram Account */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-11 h-11 rounded-2xl bg-rose-50 text-[#E1306C] border border-rose-100 flex items-center justify-center shrink-0">
+                            <InstagramIcon className="w-5 h-5 text-[#E1306C]" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">
+                              Connect Instagram Account
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Engage with followers directly
+                            </p>
+                          </div>
+                        </div>
+
+                        {instagramStatus.connected ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveModal('connect_instagram')}
+                            className="px-4 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all shrink-0 cursor-pointer shadow-2xs flex items-center gap-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>@{instagramStatus.username || 'Connected'}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setActiveModal('connect_instagram')}
+                            className="px-6 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200/80 text-xs font-bold transition-all shrink-0 cursor-pointer"
+                          >
+                            Connect
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Card 2: Auto-reply to PP Queries */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shrink-0">
+                            <MessageSquareText className="w-5 h-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">
+                              Auto-reply to PP Queries
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Answer pricing questions instantly
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('instagram_pp_replies')}
+                          className="px-6 py-2 rounded-xl bg-[#0f4a3c] hover:bg-[#0c3c31] text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+
+                      {/* Card 3: Setup Giveaway Flow */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-500 border border-rose-100 flex items-center justify-center shrink-0">
+                            <Gift className="w-5 h-5 text-rose-500" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">
+                              Setup Giveaway Flow
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Attract, engage, and reward
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('instagram_giveaway')}
+                          className="px-6 py-2 rounded-xl bg-[#0f4a3c] hover:bg-[#0c3c31] text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+
+                      {/* Card 4: Setup LeadGen Flow */}
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:shadow-xs transition-all">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-11 h-11 rounded-2xl bg-sky-50 text-sky-500 border border-sky-100 flex items-center justify-center shrink-0">
+                            <Rocket className="w-5 h-5 text-sky-500" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">
+                              Setup LeadGen Flow
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Collect and qualify leads 24/7
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('instagram_leadgen')}
+                          className="px-6 py-2 rounded-xl bg-[#0f4a3c] hover:bg-[#0c3c31] text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Collapsible toggle */}
+                  <div className="flex justify-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickSetupExpanded(!isQuickSetupExpanded)}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    >
+                      <span>{isQuickSetupExpanded ? 'Show Less' : 'Show More'}</span>
+                      {isQuickSetupExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SHOPIFY INTERAKT REPLACEMENT SUITE TABS (WhatsApp Only) */}
+              {activeChannelTab === 'whatsapp' && (
+                <>
+                  <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShopifyActiveTab('automations')}
+                      className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                        shopifyActiveTab === 'automations'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4" />
+                      <span>Step 1: Automated Notifications</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShopifyActiveTab('widget')}
+                      className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                        shopifyActiveTab === 'widget'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Step 2: Storefront Widget & Buy Button</span>
+                    </button>
+                  </div>
+
+                  {/* ACTIVE TAB CONTENT */}
+                  {shopifyActiveTab === 'automations' ? (
+                    <ShopifyAutomationsManager
+                      shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
+                      onToast={(msg, type) => {
+                        setToast({ message: msg, type: type || 'success' });
+                        setTimeout(() => setToast(null), 3500);
+                      }}
+                    />
+                  ) : (
+                    <ShopifyStorefrontWidgetManager
+                      shopDomain={user?.shopDomain || sessionStorage.getItem('arco_shopify_shop') || 'arco-test-e2a1thrd.myshopify.com'}
+                      onToast={(msg, type) => {
+                        setToast({ message: msg, type: type || 'success' });
+                        setTimeout(() => setToast(null), 3500);
+                      }}
+                    />
+                  )}
+                </>
               )}
 
               {/* 5. OBJECTIVES SECTION (6 High-Fidelity Cards with Realistic Mockups) */}
@@ -602,198 +793,308 @@ export default function Dashboard() {
                 </div>
 
                 {isObjectivesExpanded && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Objective 1: Handle Technical Support & Queries */}
-                    <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          Handle Technical Support & Queries
-                        </h4>
-                        <p className="text-xs text-slate-500">Via WhatsApp Chat Automation</p>
-                      </div>
-
-                      {/* Realistic Mockup Thumbnail: Support Chat */}
-                      <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-2 font-sans select-none">
-                        <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1.5 text-slate-600 font-semibold">
-                          <div className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[8px]">A</div>
-                          <span>ARCO Support Bot</span>
+                  activeChannelTab === 'whatsapp' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Objective 1: Handle Technical Support & Queries */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Handle Technical Support & Queries
+                          </h4>
+                          <p className="text-xs text-slate-500">Via WhatsApp Chat Automation</p>
                         </div>
-                        <div className="bg-white p-2 rounded-lg shadow-2xs text-slate-700 space-y-1">
-                          <p>Hi! Welcome to ARCO. How can we resolve your query today?</p>
-                          <div className="bg-slate-50 p-1 rounded text-[9px] text-slate-500 border border-slate-200">
-                            🔘 1. Bug / Error Report<br/>🔘 2. Talk to Tech Lead
+
+                        {/* Realistic Mockup Thumbnail: Support Chat */}
+                        <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-2 font-sans select-none">
+                          <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1.5 text-slate-600 font-semibold">
+                            <div className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[8px]">A</div>
+                            <span>ARCO Support Bot</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg shadow-2xs text-slate-700 space-y-1">
+                            <p>Hi! Welcome to ARCO. How can we resolve your query today?</p>
+                            <div className="bg-slate-50 p-1 rounded text-[9px] text-slate-500 border border-slate-200">
+                              🔘 1. Bug / Error Report<br/>🔘 2. Talk to Tech Lead
+                            </div>
+                          </div>
+                          <div className="bg-emerald-100 text-emerald-950 p-1.5 rounded-lg text-right text-[9px] font-medium">
+                            Option 1: Bug Report
                           </div>
                         </div>
-                        <div className="bg-emerald-100 text-emerald-950 p-1.5 rounded-lg text-right text-[9px] font-medium">
-                          Option 1: Bug Report
-                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => navigate('/automation/workflows')}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => navigate('/automation/workflows')}
-                        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        Setup
-                      </button>
-                    </div>
-
-                    {/* Objective 2: Promote Software Solutions & IT Services */}
-                    <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          Promote Software Solutions & IT Services
-                        </h4>
-                        <p className="text-xs text-slate-500">Via WhatsApp Bulk Campaigns</p>
-                      </div>
-
-                      {/* Realistic Mockup Thumbnail: Promotional Discount Chat */}
-                      <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-2 font-sans select-none">
-                        <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1.5 text-slate-600 font-semibold">
-                          <div className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[8px]">A</div>
-                          <span>ARCO Marketing</span>
+                      {/* Objective 2: Promote Software Solutions & IT Services */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Promote Software Solutions & IT Services
+                          </h4>
+                          <p className="text-xs text-slate-500">Via WhatsApp Bulk Campaigns</p>
                         </div>
-                        <div className="bg-white p-2 rounded-lg shadow-2xs text-slate-700 space-y-1">
-                          <div className="bg-amber-400 text-amber-950 font-black p-2 rounded text-center text-xs">
-                            30% OFF
+
+                        {/* Realistic Mockup Thumbnail: Promotional Discount Chat */}
+                        <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-2 font-sans select-none">
+                          <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1.5 text-slate-600 font-semibold">
+                            <div className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[8px]">A</div>
+                            <span>ARCO Marketing</span>
                           </div>
-                          <p className="text-[9px] text-slate-600 mt-1">
-                            Hey Lisa! Celebrate our new release with an exclusive 30% discount on all custom plans.
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('campaign_setup')}
-                        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        Setup
-                      </button>
-                    </div>
-
-                    {/* Objective 3: Integrate with Google Sheets */}
-                    <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          Integrate with Google Sheets
-                        </h4>
-                        <p className="text-xs text-slate-500">Auto-sync customer inquiries & leads</p>
-                      </div>
-
-                      {/* Mockup Thumbnail: ARCO 🔗 Google Sheets */}
-                      <div className="bg-slate-100 rounded-xl p-6 border border-slate-200 flex items-center justify-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-xl shadow-xs">
-                          A
-                        </div>
-                        <div className="text-slate-400 font-bold text-lg">🔗</div>
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shadow-xs">
-                          <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('google_sheets')}
-                        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        {dashboardState.objectives?.googleSheets?.connected ? 'Manage' : 'Setup'}
-                      </button>
-                    </div>
-
-                    {/* Objective 4: Collect Technical Requirements & Project Details */}
-                    <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          Collect Technical Requirements & Project Details
-                        </h4>
-                        <p className="text-xs text-slate-500">Via WhatsApp Forms</p>
-                      </div>
-
-                      {/* Mockup Thumbnail: Interactive WhatsApp Form */}
-                      <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-1.5 font-sans select-none">
-                        <div className="bg-white p-2 rounded-lg shadow-2xs space-y-1">
-                          <div className="font-bold text-slate-800 text-[10px]">Your details</div>
-                          <div className="bg-slate-50 p-1 border border-slate-200 rounded text-slate-600 text-[9px]">
-                            Name: Alex Roy
-                          </div>
-                          <div className="bg-slate-50 p-1 border border-slate-200 rounded text-slate-600 text-[9px]">
-                            Budget: $2,000 - $5,000
+                          <div className="bg-white p-2 rounded-lg shadow-2xs text-slate-700 space-y-1">
+                            <div className="bg-amber-400 text-amber-950 font-black p-2 rounded text-center text-xs">
+                              30% OFF
+                            </div>
+                            <p className="text-[9px] text-slate-600 mt-1">
+                              Hey Lisa! Celebrate our new release with an exclusive 30% discount on all custom plans.
+                            </p>
                           </div>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('campaign_setup')}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => navigate('/automation/whatsapp-forms/view')}
-                        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        Setup
-                      </button>
-                    </div>
-
-                    {/* Objective 5: Send Project Updates & Technical Alerts */}
-                    <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          Send Project Updates & Technical Alerts
-                        </h4>
-                        <p className="text-xs text-slate-500">Via WhatsApp Automated Notifications</p>
-                      </div>
-
-                      {/* Mockup Thumbnail: Order Status Tracker Alert */}
-                      <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-1.5 font-sans select-none">
-                        <div className="bg-white p-2 rounded-lg shadow-2xs space-y-1">
-                          <div className="font-bold text-emerald-800 text-[10px] flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                            ORDER SHIPPED
-                          </div>
-                          <p className="text-[9px] text-slate-600">
-                            Your order #ARCO-9812 has been dispatched via Express Courier.
-                          </p>
+                      {/* Objective 3: Integrate with Google Sheets */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Integrate with Google Sheets
+                          </h4>
+                          <p className="text-xs text-slate-500">Auto-sync customer inquiries & leads</p>
                         </div>
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal('automated_alerts')}
-                        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        Setup
-                      </button>
-                    </div>
-
-                    {/* Objective 6: Generate Software Development Leads */}
-                    <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          Generate Software Development Leads
-                        </h4>
-                        <p className="text-xs text-slate-500">Via Click to WhatsApp Ads</p>
-                      </div>
-
-                      {/* Mockup Thumbnail: Meta Ad with WhatsApp CTA */}
-                      <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-1.5 font-sans select-none">
-                        <div className="bg-white p-2 rounded-lg shadow-2xs space-y-1.5">
-                          <div className="font-bold text-slate-800 text-[10px]">Digital Growth Solutions</div>
-                          <div className="bg-slate-900 text-white p-1.5 rounded flex items-center justify-between">
-                            <span className="text-[9px] font-bold">Meta Sponsored Ad</span>
-                            <span className="bg-emerald-500 text-white px-2 py-0.5 rounded text-[8px] font-black flex items-center gap-1">
-                              <WhatsAppIcon className="w-2.5 h-2.5" /> WhatsApp
-                            </span>
+                        {/* Mockup Thumbnail: ARCO 🔗 Google Sheets */}
+                        <div className="bg-slate-100 rounded-xl p-6 border border-slate-200 flex items-center justify-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-xl shadow-xs">
+                            A
+                          </div>
+                          <div className="text-slate-400 font-bold text-lg">🔗</div>
+                          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shadow-xs">
+                            <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
                           </div>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('google_sheets')}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          {dashboardState.objectives?.googleSheets?.connected ? 'Manage' : 'Setup'}
+                        </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => navigate('/analytics/ad-performance')}
-                        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        Setup
-                      </button>
+                      {/* Objective 4: Collect Technical Requirements & Project Details */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Collect Technical Requirements & Project Details
+                          </h4>
+                          <p className="text-xs text-slate-500">Via WhatsApp Forms</p>
+                        </div>
+
+                        {/* Mockup Thumbnail: Interactive WhatsApp Form */}
+                        <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-1.5 font-sans select-none">
+                          <div className="bg-white p-2 rounded-lg shadow-2xs space-y-1">
+                            <div className="font-bold text-slate-800 text-[10px]">Your details</div>
+                            <div className="bg-slate-50 p-1 border border-slate-200 rounded text-slate-600 text-[9px]">
+                              Name: Alex Roy
+                            </div>
+                            <div className="bg-slate-50 p-1 border border-slate-200 rounded text-slate-600 text-[9px]">
+                              Budget: $2,000 - $5,000
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => navigate('/automation/whatsapp-forms/view')}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+
+                      {/* Objective 5: Send Project Updates & Technical Alerts */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Send Project Updates & Technical Alerts
+                          </h4>
+                          <p className="text-xs text-slate-500">Via WhatsApp Automated Notifications</p>
+                        </div>
+
+                        {/* Mockup Thumbnail: Order Status Tracker Alert */}
+                        <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-1.5 font-sans select-none">
+                          <div className="bg-white p-2 rounded-lg shadow-2xs space-y-1">
+                            <div className="font-bold text-emerald-800 text-[10px] flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                              ORDER SHIPPED
+                            </div>
+                            <p className="text-[9px] text-slate-600">
+                              Your order #ARCO-9812 has been dispatched via Express Courier.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('automated_alerts')}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+
+                      {/* Objective 6: Generate Software Development Leads */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Generate Software Development Leads
+                          </h4>
+                          <p className="text-xs text-slate-500">Via Click to WhatsApp Ads</p>
+                        </div>
+
+                        {/* Mockup Thumbnail: Meta Ad with WhatsApp CTA */}
+                        <div className="bg-slate-100 rounded-xl p-2.5 border border-slate-200 text-[10px] space-y-1.5 font-sans select-none">
+                          <div className="bg-white p-2 rounded-lg shadow-2xs space-y-1.5">
+                            <div className="font-bold text-slate-800 text-[10px]">Digital Growth Solutions</div>
+                            <div className="bg-slate-900 text-white p-1.5 rounded flex items-center justify-between">
+                              <span className="text-[9px] font-bold">Meta Sponsored Ad</span>
+                              <span className="bg-emerald-500 text-white px-2 py-0.5 rounded text-[8px] font-black flex items-center gap-1">
+                                <WhatsAppIcon className="w-2.5 h-2.5" /> WhatsApp
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => navigate('/analytics/ad-performance')}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    /* INSTAGRAM OBJECTIVES (3 High-Fidelity Cards - Matches Interakt Screenshot) */
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Card 1: Re-target Qualified Leads in Bulk */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Re-target Qualified Leads in Bulk
+                          </h4>
+                          <p className="text-xs text-slate-500">Via WhatsApp Bulk Campaigns</p>
+                        </div>
+
+                        {/* Visual Mockup: Realistic Smartphone Promo Banner (Matches User Screenshot) */}
+                        <div className="bg-slate-100 rounded-2xl p-3 border border-slate-200/80 flex items-center justify-center min-h-[160px]">
+                          <div className="bg-white w-48 rounded-xl shadow-xs border border-slate-200 p-2 text-[9px] space-y-1.5 font-sans">
+                            <div className="flex items-center gap-1 border-b border-slate-100 pb-1">
+                              <div className="w-3.5 h-3.5 rounded-full bg-slate-900 text-white flex items-center justify-center text-[7px] font-bold">
+                                A
+                              </div>
+                              <span className="font-bold text-slate-800 text-[8px]">ARCO Official</span>
+                            </div>
+                            <div className="bg-amber-400 text-amber-950 font-black p-1.5 rounded text-center text-[10px] tracking-tight">
+                              30% OFF
+                            </div>
+                            <p className="text-[8px] text-slate-600 leading-snug">
+                              Hey Lisa! To celebrate your time with us so far, we are offering you an exclusive deal of flat 30% off on purchases...
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('campaign_setup')}
+                          className="w-full py-2.5 rounded-xl bg-[#0f4a3c] hover:bg-[#0c3c31] text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+
+                      {/* Card 2: Generate High-intent Leads */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Generate High-intent Leads
+                          </h4>
+                          <p className="text-xs text-slate-500">Via Click to WhatsApp Ads</p>
+                        </div>
+
+                        {/* Visual Mockup: Sponsored Social Ad Banner (Matches User Screenshot) */}
+                        <div className="bg-slate-100 rounded-2xl p-3 border border-slate-200/80 flex items-center justify-center min-h-[160px]">
+                          <div className="bg-white w-48 rounded-xl shadow-xs border border-slate-200 overflow-hidden text-[9px] font-sans">
+                            <div className="p-1.5 flex items-center gap-1 border-b border-slate-100">
+                              <div className="w-3.5 h-3.5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[7px] font-bold">
+                                f
+                              </div>
+                              <span className="font-bold text-slate-800 text-[8px]">Sponsored Ad</span>
+                            </div>
+                            <div className="bg-slate-800 text-white p-3 text-center">
+                              <div className="text-[9px] font-bold">🚀 10x Your Sales</div>
+                              <div className="text-[7px] text-slate-300 mt-0.5">Scale with ARCO Growth Automation</div>
+                            </div>
+                            <div className="p-1.5 bg-emerald-50 text-emerald-800 flex items-center justify-between font-bold text-[8px]">
+                              <span>Send Message</span>
+                              <span className="text-emerald-600">→</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('ctwa_ads')}
+                          className="w-full py-2.5 rounded-xl bg-[#0f4a3c] hover:bg-[#0c3c31] text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+
+                      {/* Card 3: Integrate with Google Sheets */}
+                      <div className="border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all bg-white shadow-2xs">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                            Integrate with Google Sheets
+                          </h4>
+                          <p className="text-xs text-slate-500">Auto-sync customer inquiries & leads</p>
+                        </div>
+
+                        {/* Visual Mockup: ARCO Bag 🔗 Google Sheets (Matches User Screenshot) */}
+                        <div className="bg-slate-100 rounded-2xl p-3 border border-slate-200/80 flex items-center justify-center min-h-[160px]">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-[#008069] text-white flex items-center justify-center shadow-xs">
+                              <WhatsAppIcon className="w-6 h-6 text-white" />
+                            </div>
+                            <span className="text-slate-400 font-bold text-xl">🔗</span>
+                            <div className="w-12 h-12 rounded-2xl bg-emerald-100 border border-emerald-200 flex items-center justify-center shadow-xs">
+                              <FileSpreadsheet className="w-6 h-6 text-emerald-700" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveModal('google_sheets')}
+                          className="w-full py-2.5 rounded-xl bg-[#0f4a3c] hover:bg-[#0c3c31] text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          Setup
+                        </button>
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* Collapsible toggle */}
@@ -959,6 +1260,42 @@ export default function Dashboard() {
         onAgentCreated={(agent) => {
           setDashboardState((prev) => ({ ...prev, aiAgentStatus: agent }));
         }}
+        showToast={showToast}
+      />
+
+      {/* Instagram & Webinar Modals */}
+      <ConnectInstagramModal
+        isOpen={activeModal === 'connect_instagram'}
+        onClose={() => setActiveModal(null)}
+        currentStatus={instagramStatus}
+        onStatusChange={(newStatus) => {
+          setInstagramStatus(newStatus);
+          loadDashboardData();
+        }}
+        showToast={showToast}
+      />
+
+      <InstagramAutoReplyModal
+        isOpen={activeModal === 'instagram_pp_replies'}
+        onClose={() => setActiveModal(null)}
+        showToast={showToast}
+      />
+
+      <InstagramGiveawayModal
+        isOpen={activeModal === 'instagram_giveaway'}
+        onClose={() => setActiveModal(null)}
+        showToast={showToast}
+      />
+
+      <InstagramLeadGenModal
+        isOpen={activeModal === 'instagram_leadgen'}
+        onClose={() => setActiveModal(null)}
+        showToast={showToast}
+      />
+
+      <WebinarModal
+        isOpen={activeModal === 'webinar'}
+        onClose={() => setActiveModal(null)}
         showToast={showToast}
       />
     </div>
