@@ -278,6 +278,23 @@ export default function ConnectInstagramModal({
                     </ul>
                   </div>
 
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-[11px] text-amber-900 space-y-1">
+                    <div className="font-semibold flex items-center justify-between">
+                      <span>Developer Configuration:</span>
+                      <a
+                        href="https://developers.facebook.com/apps/2872862256446175/use-cases/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-amber-800 hover:text-amber-950 underline font-medium inline-flex items-center gap-1"
+                      >
+                        Meta Console <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    </div>
+                    <p className="text-[10.5px] text-amber-700 leading-relaxed">
+                      If Meta displays an <em>"Invalid Scopes"</em> warning in the popup, add the <strong>Instagram</strong> Use Case in your Meta Developer App, or switch to the <strong>Direct Token</strong> tab to connect immediately.
+                    </p>
+                  </div>
+
                   <button
                     type="button"
                     onClick={handleOAuthConnect}
@@ -303,13 +320,34 @@ export default function ConnectInstagramModal({
                 </div>
               ) : (
                 <form onSubmit={handleDirectConnect} className="space-y-3.5 pt-1">
-                  <div className="p-3.5 bg-purple-50/70 border border-purple-200/80 rounded-2xl text-xs text-purple-900 space-y-1">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                      <span>Instant Direct Token Connect</span>
+                  <div className="p-3.5 bg-purple-50/70 border border-purple-200/80 rounded-2xl text-xs text-purple-900 space-y-1.5">
+                    <div className="font-bold flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Instant Direct Token Connect</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        <a
+                          href="https://business.facebook.com/latest/settings/pages"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-purple-700 hover:text-purple-900 underline inline-flex items-center gap-0.5"
+                        >
+                          Page Settings <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                        <span>•</span>
+                        <a
+                          href="https://developers.facebook.com/tools/explorer/?app_id=2872862256446175"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-purple-700 hover:text-purple-900 underline inline-flex items-center gap-0.5"
+                        >
+                          Token Explorer <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </div>
                     </div>
                     <p className="text-[11px] text-purple-700 leading-relaxed">
-                      Bypasses browser ad blockers. Enter your Facebook Page ID and Page Access Token (from Meta Business Suite or Graph API Explorer). We'll automatically verify and connect your linked Instagram business account.
+                      Enter your Facebook Page ID and Page Access Token (from Meta Business Suite or Graph API Explorer). ARCO will automatically verify and link your connected Instagram business account.
                     </p>
                   </div>
                   <div>
@@ -326,8 +364,8 @@ export default function ConnectInstagramModal({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Page Access Token (Permanent or System User) <span className="text-red-500">*</span>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>Page Access Token (or System User Token) <span className="text-red-500">*</span></span>
                     </label>
                     <input
                       type="password"
@@ -341,11 +379,11 @@ export default function ConnectInstagramModal({
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Instagram Account ID
+                        Instagram Account ID <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
                       </label>
                       <input
                         type="text"
-                        placeholder="178414..."
+                        placeholder="Auto-detected from Page"
                         value={igAccountId}
                         onChange={(e) => setIgAccountId(e.target.value)}
                         className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
@@ -354,11 +392,11 @@ export default function ConnectInstagramModal({
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Username (@handle)
+                        Username (@handle) <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
                       </label>
                       <input
                         type="text"
-                        placeholder="mybrand"
+                        placeholder="Auto-detected"
                         value={igUsername}
                         onChange={(e) => setIgUsername(e.target.value)}
                         className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
