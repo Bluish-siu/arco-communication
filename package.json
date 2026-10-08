@@ -9,7 +9,7 @@
     "start": "node server/server.js",
     "dev:all": "concurrently \"vite\" \"node server/server.js\"",
     "build": "vite build",
-    "test": "node server/tests/p0SecurityRemediation.test.cjs && node server/tests/securityAuthorizationAndMetaHardening.test.cjs",
+    "test": "node server/tests/p0SecurityRemediation.test.cjs && node server/tests/securityAuthorizationAndMetaHardening.test.cjs && node server/tests/campaignVariableIntegrity.test.cjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },
