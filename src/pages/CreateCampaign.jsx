@@ -43,6 +43,7 @@ import {
 import { useOnboarding } from '../context/OnboardingContext';
 import { campaignsService } from '../services/campaignsService';
 import { segmentsService } from '../services/segmentsService';
+import { contactsService } from '../services/contactsService';
 import SaveSegmentModal from '../components/contacts/SaveSegmentModal';
 import OptOutSetupModal from '../components/campaigns/replyFlows/OptOutSetupModal';
 import ProductsSetupModal from '../components/campaigns/replyFlows/ProductsSetupModal';
@@ -602,19 +603,14 @@ export default function CreateCampaign() {
       let isMounted = true;
       setIsLookingUpContact(true);
       const cleanDigits = rawDigits.slice(-10);
-      fetch(`/api/contacts/lookup?phone=${encodeURIComponent(cleanDigits)}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-        },
-      })
-        .then((res) => res.json())
+      contactsService.lookupByPhone(cleanDigits)
         .then((data) => {
           if (isMounted) {
-            if (data.found && data.contact?.name) {
+            if (data?.found && data?.contact?.name) {
               setResolvedContactName(data.contact.name);
               setVariableValues((prev) => ({
                 ...prev,
-                '1': prev['1'] || data.contact.name,
+                '1': data.contact.name,
               }));
             } else {
               setResolvedContactName('');
@@ -728,8 +724,14 @@ export default function CreateCampaign() {
         });
       }
 
+      let normalizedPhone = rawPhone;
+      const digitsOnly = rawPhone.replace(/\D/g, '');
+      if (digitsOnly.length === 10 && /^[6-9]/.test(digitsOnly)) {
+        normalizedPhone = `+91${digitsOnly}`;
+      }
+
       const payload = {
-        recipientPhone: rawPhone,
+        recipientPhone: normalizedPhone,
         templateName: selectedTemplate.name || selectedTemplate.id,
         templateLanguage: selectedTemplate.language || 'en_US',
         variables: testVariables,
@@ -745,7 +747,7 @@ export default function CreateCampaign() {
           success: true,
           status: 'accepted',
           wamid,
-          recipientPhone: res.data?.recipientPhone || rawPhone,
+          recipientPhone: res.data?.recipientPhone || normalizedPhone,
           templateName: res.data?.templateName || selectedTemplate.name,
           templateLanguage: res.data?.templateLanguage || selectedTemplate.language,
           message: 'Message accepted by Meta WhatsApp Cloud API',
@@ -772,12 +774,15 @@ export default function CreateCampaign() {
         showToast(errorText, 'error');
       }
     } catch (err) {
+      const errMsg = err.message === 'Failed to fetch'
+        ? 'Backend service is waking up or temporarily unavailable. Please retry in 10-15 seconds.'
+        : (err.message || 'Failed to connect to Meta WhatsApp Cloud API endpoint');
       setTestResult({
         success: false,
         status: 'failed',
-        error: err.message || 'Failed to connect to Meta WhatsApp Cloud API endpoint',
+        error: errMsg,
       });
-      showToast(err.message || 'Failed to send test message', 'error');
+      showToast(errMsg, 'error');
     } finally {
       setSendingTest(false);
     }

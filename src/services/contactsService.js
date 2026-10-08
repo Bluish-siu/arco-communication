@@ -87,4 +87,16 @@ export const contactsService = {
     });
     return res;
   },
+
+  // GET /api/contacts/lookup?phone=...
+  lookupByPhone: async (phone) => {
+    try {
+      const res = await apiRequest(`/contacts/lookup?phone=${encodeURIComponent(phone)}`);
+      return res;
+    } catch (err) {
+      console.warn('[Contacts Service] lookupByPhone failed:', err);
+      return { success: false, found: false, contact: null };
+    }
+  },
 };
+
