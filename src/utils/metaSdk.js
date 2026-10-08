@@ -6,6 +6,7 @@
 
 const DEFAULT_APP_ID = '2872862256446175';
 const DEFAULT_CONFIG_ID = '1131178462664882';
+const DEFAULT_INSTAGRAM_APP_ID = import.meta.env.VITE_INSTAGRAM_APP_ID || '1105550695197201';
 
 export function initMetaSdk(appId = DEFAULT_APP_ID) {
   if (typeof window === 'undefined') return;
@@ -254,8 +255,8 @@ export async function launchMetaEmbeddedSignup({
  * Launch official Instagram Business Login popup dialog (Native Instagram OAuth flow as seen in Wati)
  * Directly opens instagram.com/oauth/authorize with native Instagram login UI and optional FB login button.
  */
-export function openInstagramBusinessLoginPopup({ appId = DEFAULT_APP_ID } = {}) {
-  const targetAppId = appId || DEFAULT_APP_ID;
+export function openInstagramBusinessLoginPopup({ appId = DEFAULT_INSTAGRAM_APP_ID } = {}) {
+  const targetAppId = appId || DEFAULT_INSTAGRAM_APP_ID;
   const redirectUri = encodeURIComponent(`${window.location.origin}/instagram-callback.html`);
   const scopes = encodeURIComponent(
     'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments'
@@ -323,6 +324,6 @@ export function openInstagramBusinessLoginPopup({ appId = DEFAULT_APP_ID } = {})
  * Launch Meta Instagram Professional Account Connect Dialog
  * Opens official Instagram Business Login flow (matches Wati).
  */
-export async function launchInstagramConnect({ appId = DEFAULT_APP_ID } = {}) {
+export async function launchInstagramConnect({ appId = DEFAULT_INSTAGRAM_APP_ID } = {}) {
   return openInstagramBusinessLoginPopup({ appId });
 }
