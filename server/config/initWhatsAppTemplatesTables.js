@@ -9,41 +9,55 @@ export async function initWhatsAppTemplatesSchema() {
     // 1. Create table if not exists with all current columns including waba_id
     await query(`
       CREATE TABLE IF NOT EXISTS whatsapp_templates (
-        id VARCHAR(255) PRIMARY KEY,
-        workspace_id VARCHAR(255) DEFAULT 'ws_default',
-        user_id VARCHAR(255) DEFAULT 'usr_1',
-        name VARCHAR(255) NOT NULL,
-        display_name VARCHAR(255) NOT NULL,
-        category VARCHAR(50) DEFAULT 'MARKETING',
-        library_category VARCHAR(50),
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT DEFAULT 'ws_default',
+        user_id TEXT DEFAULT 'usr_1',
+        name TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        category TEXT DEFAULT 'MARKETING',
+        library_category TEXT,
         is_library_template BOOLEAN DEFAULT false,
-        language VARCHAR(50) DEFAULT 'en_US',
-        status VARCHAR(50) DEFAULT 'DRAFT',
-        header_type VARCHAR(50) DEFAULT 'NONE',
+        language TEXT DEFAULT 'en_US',
+        status TEXT DEFAULT 'DRAFT',
+        header_type TEXT DEFAULT 'NONE',
         header_text TEXT,
         header_media_url TEXT,
         body TEXT NOT NULL,
         footer TEXT,
         buttons JSONB DEFAULT '[]',
         variables JSONB DEFAULT '[]',
-        meta_template_id VARCHAR(255),
-        meta_status VARCHAR(50),
-        waba_id VARCHAR(255),
+        meta_template_id TEXT,
+        meta_status TEXT,
+        waba_id TEXT,
         rejection_reason TEXT,
-        created_by VARCHAR(255) DEFAULT 'Shraddha Sharma',
+        created_by TEXT DEFAULT 'Shraddha Sharma',
         deleted_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
 
       -- Idempotent column migrations for existing tables
-      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS waba_id VARCHAR(255);
-      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS meta_template_id VARCHAR(255);
-      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS meta_status VARCHAR(50);
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS waba_id TEXT;
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS meta_template_id TEXT;
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS meta_status TEXT;
       ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
-      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR(255) DEFAULT 'Shraddha Sharma';
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'Shraddha Sharma';
       ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS is_library_template BOOLEAN DEFAULT false;
-      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS library_category VARCHAR(50);
+      ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS library_category TEXT;
+
+      -- Alter column types to TEXT to avoid length overflow exceptions
+      ALTER TABLE whatsapp_templates ALTER COLUMN display_name TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN name TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN created_by TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN meta_template_id TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN waba_id TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN workspace_id TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN user_id TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN category TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN language TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN status TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN header_type TYPE TEXT;
+      ALTER TABLE whatsapp_templates ALTER COLUMN meta_status TYPE TEXT;
 
       -- Idempotent indexes for fast lookup and tenant isolation
       CREATE INDEX IF NOT EXISTS idx_whatsapp_templates_user_id ON whatsapp_templates(user_id);

@@ -241,9 +241,10 @@ export const templateController = {
         return res.status(400).json({ success: false, error: 'Template name and body are required' });
       }
 
-      // Format name: lowercase and underscores
-      const cleanName = String(name).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-      const cleanDisplayName = displayName || name;
+      // Format name: lowercase and underscores, clipped safely
+      let cleanName = String(name).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      if (cleanName.length > 100) cleanName = cleanName.slice(0, 100);
+      const cleanDisplayName = String(displayName || name).trim().slice(0, 200);
       const autoVars = variables && variables.length > 0 ? variables : extractVariables(body);
       const templateId = `tmpl_user_${Date.now()}`;
 
@@ -308,7 +309,7 @@ export const templateController = {
 
       if (displayName !== undefined) {
         updates.push(`display_name = $${updates.length + 1}`);
-        values.push(displayName);
+        values.push(String(displayName).trim().slice(0, 200));
       }
       if (category !== undefined) {
         updates.push(`category = $${updates.length + 1}`);
@@ -483,11 +484,14 @@ export const templateController = {
       const userId = req.user?.id || 'usr_1';
       const { id } = req.params;
       const { sampleValues = {} } = req.body || {};
+      const workspaceId = req.user?.workspace_id || null;
 
       // 1. Fetch template from DB (enforcing tenant isolation)
       const tmplRes = await query(
-        "SELECT * FROM whatsapp_templates WHERE id = $1 AND (user_id = $2 OR user_id = 'usr_1' OR workspace_id = 'ws_default') LIMIT 1",
-        [id, userId]
+        `SELECT * FROM whatsapp_templates 
+         WHERE id = $1 AND (user_id = $2 OR (user_id = 'usr_1' AND $2 = 'usr_1') OR ($3::text IS NOT NULL AND $3 != 'ws_default' AND workspace_id = $3)) 
+         LIMIT 1`,
+        [id, userId, workspaceId]
       );
 
       if (tmplRes.rows.length === 0) {
@@ -510,9 +514,9 @@ export const templateController = {
            SET meta_status = 'REJECTED', 
                rejection_reason = $1, 
                updated_at = CURRENT_TIMESTAMP 
-           WHERE id = $2 AND (user_id = $3 OR user_id = 'usr_1' OR workspace_id = 'ws_default') 
+           WHERE id = $2 AND (user_id = $3 OR (user_id = 'usr_1' AND $3 = 'usr_1') OR ($4::text IS NOT NULL AND $4 != 'ws_default' AND workspace_id = $4)) 
            RETURNING *`,
-          [metaResult.error || 'Template submission rejected by Meta WhatsApp', id, userId]
+          [metaResult.error || 'Template submission rejected by Meta WhatsApp', id, userId, workspaceId]
         );
 
         return res.status(400).json({
@@ -534,9 +538,9 @@ export const templateController = {
              waba_id = $4, 
              rejection_reason = NULL, 
              updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $5 AND (user_id = $6 OR user_id = 'usr_1' OR workspace_id = 'ws_default') 
+         WHERE id = $5 AND (user_id = $6 OR (user_id = 'usr_1' AND $6 = 'usr_1') OR ($7::text IS NOT NULL AND $7 != 'ws_default' AND workspace_id = $7)) 
          RETURNING *`,
-        [initialMetaStatus, initialMetaStatus, metaResult.metaTemplateId, metaResult.wabaId || null, id, userId]
+        [initialMetaStatus, initialMetaStatus, metaResult.metaTemplateId, metaResult.wabaId || null, id, userId, workspaceId]
       );
 
       res.json({

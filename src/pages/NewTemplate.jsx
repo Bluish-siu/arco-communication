@@ -333,7 +333,11 @@ export default function NewTemplate() {
   // Save as Draft
   const handleSave = async (status = 'DRAFT') => {
     if (!name.trim()) {
-      showToast('Please enter a valid template name', 'error');
+      showToast('Please enter a valid template name (e.g. meeting_invite_v1)', 'error');
+      return;
+    }
+    if (name.trim().length > 100) {
+      showToast('Template Identifier Name is too long (max 100 characters). E.g. meeting_invite_v1', 'error');
       return;
     }
     if (!body.trim()) {
@@ -377,6 +381,11 @@ export default function NewTemplate() {
   const handleSubmitForApproval = async () => {
     if (!name.trim() || !body.trim()) {
       showToast('Please fill required fields (Name and Body) before submitting', 'error');
+      return;
+    }
+
+    if (name.trim().length > 100) {
+      showToast('Template Identifier Name is too long (max 100 characters). E.g. meeting_invite_v1', 'error');
       return;
     }
 
@@ -550,14 +559,16 @@ export default function NewTemplate() {
                     </label>
                     <input
                       type="text"
+                      maxLength={100}
                       value={name}
                       onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
                       placeholder="e.g. order_status_update_v1"
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-xs font-medium"
                     />
-                    <span className="text-[10px] text-slate-400 mt-1 block">
-                      Lowercase, numbers, and underscores only
-                    </span>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                      <span>Lowercase, numbers, and underscores only</span>
+                      <span>{name.length} / 100</span>
+                    </div>
                   </div>
 
                   <div>
@@ -566,11 +577,16 @@ export default function NewTemplate() {
                     </label>
                     <input
                       type="text"
+                      maxLength={120}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="e.g. Order Status Update"
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium"
                     />
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                      <span>Friendly label for your dashboard</span>
+                      <span>{displayName.length} / 120</span>
+                    </div>
                   </div>
 
                   <div>
