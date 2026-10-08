@@ -616,7 +616,9 @@ export const metaWhatsAppService = {
       const bodyComp = foundTmpl?.components?.find((c) => c.type === 'BODY');
       if (bodyComp) {
         const matches = (bodyComp.text || '').match(/\{\{(\d+)\}\}/g) || [];
-        const requiredCount = matches.length;
+        const varNums = matches.map((m) => parseInt(m.replace(/\D/g, ''), 10)).filter((n) => !isNaN(n));
+        const requiredCount = varNums.length > 0 ? Math.max(...varNums) : 0;
+
         if (bodyParams.length < requiredCount) {
           const sampleExamples = bodyComp.example?.body_text?.[0] || [];
           for (let i = bodyParams.length; i < requiredCount; i++) {
@@ -648,6 +650,9 @@ export const metaWhatsAppService = {
             }
             bodyParams.push({ type: 'text', text: String(fallbackText) });
           }
+        } else if (bodyParams.length > requiredCount) {
+          // Meta Error #132000 guard: Never submit more parameters than expected by the approved template
+          bodyParams.length = requiredCount;
         }
       }
 

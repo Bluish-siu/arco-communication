@@ -11,34 +11,44 @@ let isPolling = false;
  */
 function resolveVariables(variableMapping, recipient, rawCsv) {
   const resolved = {};
-  Object.entries(variableMapping || {}).forEach(([varKey, mappingTarget]) => {
-    const targetStr = String(mappingTarget).trim();
-    let resolvedVal = null;
+  const hasMappings = variableMapping && typeof variableMapping === 'object' && Object.keys(variableMapping).length > 0;
 
-    if (rawCsv && typeof rawCsv === 'object') {
-      const matchKey = Object.keys(rawCsv).find(
-        (k) => k.toLowerCase() === targetStr.toLowerCase() || `{{${k.toLowerCase()}}}` === targetStr.toLowerCase()
-      );
-      if (matchKey && rawCsv[matchKey] !== undefined && rawCsv[matchKey] !== null) {
-        resolvedVal = rawCsv[matchKey];
+  if (hasMappings) {
+    Object.entries(variableMapping).forEach(([varKey, mappingTarget]) => {
+      const targetStr = String(mappingTarget).trim();
+      let resolvedVal = null;
+
+      if (rawCsv && typeof rawCsv === 'object') {
+        const matchKey = Object.keys(rawCsv).find(
+          (k) => k.toLowerCase() === targetStr.toLowerCase() || `{{${k.toLowerCase()}}}` === targetStr.toLowerCase()
+        );
+        if (matchKey && rawCsv[matchKey] !== undefined && rawCsv[matchKey] !== null) {
+          resolvedVal = rawCsv[matchKey];
+        }
       }
-    }
 
-    if (resolvedVal === null) {
-      const lower = targetStr.toLowerCase();
-      if (lower === 'name' || lower === '{{name}}') {
-        resolvedVal = recipient.name;
-      } else if (lower === 'email' || lower === '{{email}}') {
-        resolvedVal = recipient.email;
-      } else if (lower === 'phone' || lower === '{{phone}}') {
-        resolvedVal = recipient.phone;
-      } else {
-        resolvedVal = targetStr; // Static value
+      if (resolvedVal === null) {
+        const lower = targetStr.toLowerCase();
+        if (lower === 'name' || lower === '{{name}}') {
+          resolvedVal = recipient.name;
+        } else if (lower === 'email' || lower === '{{email}}') {
+          resolvedVal = recipient.email;
+        } else if (lower === 'phone' || lower === '{{phone}}') {
+          resolvedVal = recipient.phone;
+        } else {
+          resolvedVal = targetStr; // Static value
+        }
       }
-    }
 
-    resolved[varKey] = resolvedVal || '';
-  });
+      resolved[varKey] = resolvedVal || '';
+    });
+  } else {
+    // Auto-resolve from CSV columns and recipient details when variable_mapping is not configured
+    const rName = recipient.name || rawCsv?.Name || rawCsv?.name || rawCsv?.['Full Name'] || 'Valued Partner';
+    const rCity = rawCsv?.City || rawCsv?.city || rawCsv?.Area || rawCsv?.area || rawCsv?.Location || rawCsv?.location || 'Mumbai';
+    resolved['1'] = rName;
+    resolved['2'] = rCity;
+  }
   return resolved;
 }
 
