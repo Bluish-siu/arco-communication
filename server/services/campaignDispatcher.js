@@ -325,6 +325,13 @@ export async function dispatchBatch(campaign, recipients) {
             campaignMsgText = (campaign.template_name ? `[Campaign Template: ${campaign.template_name}]` : `[Campaign: ${campaign.name}]`);
           }
 
+          // Interpolate variables so Inbox timeline reflects the exact personalized copy sent to the recipient
+          if (campaignMsgText && resolvedVariables && typeof resolvedVariables === 'object') {
+            Object.entries(resolvedVariables).forEach(([varKey, val]) => {
+              campaignMsgText = campaignMsgText.replace(new RegExp(`\\{\\{${varKey}\\}\\}`, 'g'), val || '');
+            });
+          }
+
           const msgId = `m_cmp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
           await query(
             `INSERT INTO messages (
