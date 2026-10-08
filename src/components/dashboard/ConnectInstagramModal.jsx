@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { integrationService } from '../../services/integrationService';
-import { launchInstagramConnect } from '../../utils/metaSdk';
+import { launchInstagramConnect, initMetaSdk } from '../../utils/metaSdk';
 
 const InstagramIcon = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -43,6 +43,12 @@ export default function ConnectInstagramModal({
   const [pageAccessToken, setPageAccessToken] = useState('');
   const [igAccountId, setIgAccountId] = useState('');
   const [igUsername, setIgUsername] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      initMetaSdk();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -154,9 +160,25 @@ export default function ConnectInstagramModal({
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-5">
           {error && (
-            <div className="p-3.5 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-700 flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="flex-1">{error}</div>
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-700 space-y-2.5">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+                <div className="flex-1 leading-relaxed">{error}</div>
+              </div>
+              <div className="pt-0.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('direct');
+                    setError('');
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-white border border-red-200 text-red-800 text-[11px] font-bold shadow-2xs hover:bg-red-100/50 transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Switch to Direct Token Connect</span>
+                  <span>→</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -280,7 +302,16 @@ export default function ConnectInstagramModal({
                   </p>
                 </div>
               ) : (
-                <form onSubmit={handleDirectConnect} className="space-y-3 pt-1">
+                <form onSubmit={handleDirectConnect} className="space-y-3.5 pt-1">
+                  <div className="p-3.5 bg-purple-50/70 border border-purple-200/80 rounded-2xl text-xs text-purple-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Instant Direct Token Connect</span>
+                    </div>
+                    <p className="text-[11px] text-purple-700 leading-relaxed">
+                      Bypasses browser ad blockers. Enter your Facebook Page ID and Page Access Token (from Meta Business Suite or Graph API Explorer). We'll automatically verify and connect your linked Instagram business account.
+                    </p>
+                  </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       Facebook Page ID <span className="text-red-500">*</span>
