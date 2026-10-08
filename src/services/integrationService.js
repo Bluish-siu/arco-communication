@@ -193,11 +193,12 @@ export const integrationService = {
     }
   },
 
-  // POST /api/instagram/connect (via Facebook Login popup access token)
-  connectInstagramWithToken: async (userAccessToken) => {
+  // POST /api/instagram/connect (via Instagram Business Login code or Facebook token)
+  connectInstagramWithToken: async (payload) => {
+    const body = typeof payload === 'string' ? { userAccessToken: payload } : payload;
     const res = await apiRequest('/instagram/connect', {
       method: 'POST',
-      body: JSON.stringify({ userAccessToken }),
+      body: JSON.stringify(body),
     });
     return res;
   },

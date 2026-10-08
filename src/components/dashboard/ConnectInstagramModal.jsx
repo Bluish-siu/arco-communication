@@ -33,7 +33,10 @@ export default function ConnectInstagramModal({
   onStatusChange,
   showToast,
 }) {
-  const [activeTab, setActiveTab] = useState('oauth'); // 'oauth' | 'direct'
+  const [activeTab, setActiveTab] = useState('instagram'); // 'instagram' | 'direct'
+  const [hasProfessionalAccount, setHasProfessionalAccount] = useState(false);
+  const [hasAdminAccess, setHasAdminAccess] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -52,15 +55,20 @@ export default function ConnectInstagramModal({
 
   if (!isOpen) return null;
 
-  const handleOAuthConnect = async () => {
+  const handleInstagramConnect = async () => {
+    if (!hasProfessionalAccount || !hasAdminAccess) return;
     setLoading(true);
     setError('');
     try {
       const auth = await launchInstagramConnect();
-      if (!auth?.accessToken) {
-        throw new Error('No access token received from Facebook Login.');
+      if (!auth?.code && !auth?.accessToken) {
+        throw new Error('No authorization code or token received from Instagram Login.');
       }
-      const res = await integrationService.connectInstagramWithToken(auth.accessToken);
+      const res = await integrationService.connectInstagramWithToken({
+        code: auth.code,
+        userAccessToken: auth.accessToken,
+        redirectUri: `${window.location.origin}/instagram-callback.html`,
+      });
       if (res?.success) {
         showToast(`Connected Instagram account @${res.data?.instagramUsername || 'Business'}!`, 'success');
         if (onStatusChange) onStatusChange(res.data);
@@ -70,9 +78,9 @@ export default function ConnectInstagramModal({
       }
     } catch (err) {
       if (err.code === 'USER_CANCELLED') {
-        setError('Facebook Login popup was cancelled.');
+        setError('Instagram Login window was closed.');
       } else {
-        setError(err.message || 'Instagram connection failed. Ensure your account is a Professional Instagram account linked to a Facebook Page.');
+        setError(err.message || 'Instagram connection failed. Ensure your account is a Professional account.');
       }
     } finally {
       setLoading(false);
@@ -243,15 +251,15 @@ export default function ConnectInstagramModal({
               <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('oauth')}
+                  onClick={() => setActiveTab('instagram')}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                    activeTab === 'oauth'
+                    activeTab === 'instagram'
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  <FacebookIcon className="w-3.5 h-3.5 text-[#1877F2]" />
-                  <span>1-Click Facebook Login</span>
+                  <InstagramIcon className="w-3.5 h-3.5 text-[#E1306C]" />
+                  <span>Instagram Login</span>
                 </button>
                 <button
                   type="button"
@@ -267,55 +275,92 @@ export default function ConnectInstagramModal({
                 </button>
               </div>
 
-              {activeTab === 'oauth' ? (
+              {activeTab === 'instagram' ? (
                 <div className="space-y-4 pt-1">
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5 text-xs text-slate-600">
-                    <div className="font-bold text-slate-800">Requirements:</div>
-                    <ul className="space-y-1.5 list-disc list-inside text-[11px] text-slate-600">
-                      <li>Instagram account must be Professional (Business or Creator)</li>
-                      <li>Connected to your Facebook Page in Instagram account settings</li>
-                      <li>Message access enabled under Settings &gt; Privacy &gt; Messages</li>
-                    </ul>
-                  </div>
-
-                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-[11px] text-amber-900 space-y-1">
-                    <div className="font-semibold flex items-center justify-between">
-                      <span>Developer Configuration:</span>
-                      <a
-                        href="https://developers.facebook.com/apps/2872862256446175/use-cases/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-amber-800 hover:text-amber-950 underline font-medium inline-flex items-center gap-1"
-                      >
-                        Meta Console <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    </div>
-                    <p className="text-[10.5px] text-amber-700 leading-relaxed">
-                      If Meta displays an <em>"Invalid Scopes"</em> warning in the popup, add the <strong>Instagram</strong> Use Case in your Meta Developer App, or switch to the <strong>Direct Token</strong> tab to connect immediately.
+                  <div className="p-4 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-3.5">
+                    <p className="text-xs text-slate-600 font-medium">
+                      Confirm the below before proceeding with the connection:
                     </p>
+
+                    <div className="space-y-3">
+                      {/* Checkbox 1 */}
+                      <label className="flex items-start gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={hasProfessionalAccount}
+                          onChange={(e) => setHasProfessionalAccount(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                        />
+                        <div className="text-xs text-slate-700 select-none">
+                          <span>I have an Instagram </span>
+                          <span className="font-semibold text-slate-900">professional account</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setShowGuide(!showGuide);
+                            }}
+                            className="ml-1.5 text-[11px] text-purple-600 hover:text-purple-800 underline font-medium cursor-pointer"
+                          >
+                            {showGuide ? '(Hide guide)' : '(How to switch?)'}
+                          </button>
+                        </div>
+                      </label>
+
+                      {/* Guide Callout if toggled */}
+                      {showGuide && (
+                        <div className="ml-7 p-3 bg-purple-50/80 border border-purple-200/80 rounded-xl text-[11px] text-purple-900 space-y-1">
+                          <div className="font-bold">Switching to Professional (30 seconds):</div>
+                          <ol className="list-decimal list-inside space-y-0.5 text-[10.5px] text-purple-800">
+                            <li>Open Instagram App &gt; Profile &gt; Settings &gt; Account type and tools</li>
+                            <li>Tap <strong>Switch to professional account</strong> (Creator or Business)</li>
+                            <li>Under Privacy &gt; Messages, ensure <strong>Allow access to messages</strong> is ON</li>
+                          </ol>
+                        </div>
+                      )}
+
+                      {/* Checkbox 2 */}
+                      <label className="flex items-start gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={hasAdminAccess}
+                          onChange={(e) => setHasAdminAccess(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                        />
+                        <div className="text-xs text-slate-700 select-none">
+                          <span>I have </span>
+                          <span className="font-semibold text-slate-900">admin access</span>
+                          <span> to the professional account</span>
+                        </div>
+                      </label>
+                    </div>
                   </div>
 
                   <button
                     type="button"
-                    onClick={handleOAuthConnect}
-                    disabled={loading}
-                    className="w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 text-xs font-bold text-white bg-[#1877F2] hover:bg-[#166fe5] active:bg-[#1567d3] rounded-2xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    onClick={handleInstagramConnect}
+                    disabled={loading || !hasProfessionalAccount || !hasAdminAccess}
+                    className={`w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 text-xs font-bold rounded-2xl shadow-md transition-all ${
+                      hasProfessionalAccount && hasAdminAccess && !loading
+                        ? 'bg-gradient-to-r from-[#f09433] via-[#dc2743] to-[#bc1888] hover:opacity-95 text-white cursor-pointer active:scale-[0.99]'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                    }`}
                   >
                     {loading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Connecting via Meta...</span>
+                        <span>Connecting with Instagram...</span>
                       </>
                     ) : (
                       <>
-                        <FacebookIcon className="w-4 h-4" />
-                        <span>Continue with Facebook</span>
+                        <InstagramIcon className="w-4 h-4" />
+                        <span>Connect Instagram</span>
                       </>
                     )}
                   </button>
 
                   <p className="text-[10px] text-center text-slate-400">
-                    Official Meta Business Login. Your customer data remains 100% private and protected.
+                    Official Meta Instagram Business Login. Your customer data remains 100% private and protected.
                   </p>
                 </div>
               ) : (

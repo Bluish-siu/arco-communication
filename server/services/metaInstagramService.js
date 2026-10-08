@@ -77,15 +77,121 @@ export const metaInstagramService = {
   },
 
   /**
-   * Connects via Meta user access token obtained from Facebook Login popup.
-   * Discovers connected Facebook Pages and their linked Instagram Business Accounts.
+   * Connects via Instagram Business Login authorization code or Meta user access token.
+   * Discovers connected Instagram Business Accounts and links them to ARCO.
    */
-  async connectWithToken({ userAccessToken, userId }) {
-    if (!userAccessToken) {
-      throw new Error('User access token is required from Facebook Login.');
+  async connectWithToken({ userAccessToken, code, redirectUri, userId }) {
+    if (!userAccessToken && !code) {
+      throw new Error('User access token or authorization code is required from Instagram Login.');
     }
 
-    // 1. Fetch user accounts (Facebook Pages) and linked Instagram Business Accounts
+    // 1. If authorization code received from Instagram Business Login dialog
+    if (code) {
+      const appId = process.env.META_APP_ID || '2872862256446175';
+      const appSecret = process.env.META_APP_SECRET || '4b30fa94b657f4cba6972bde726db072';
+      const cleanRedirectUri =
+        redirectUri ||
+        `${process.env.SHOPIFY_APP_URL || 'https://arco-communication.vercel.app'}/instagram-callback.html`;
+
+      const formData = new URLSearchParams();
+      formData.append('client_id', appId);
+      formData.append('client_secret', appSecret);
+      formData.append('grant_type', 'authorization_code');
+      formData.append('redirect_uri', cleanRedirectUri);
+      formData.append('code', code);
+
+      const tokenResp = await fetch('https://api.instagram.com/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
+      });
+      const tokenData = await tokenResp.json();
+
+      if (!tokenResp.ok || tokenData.error_type || tokenData.error) {
+        throw new Error(
+          tokenData.error_message || tokenData.error?.message || 'Failed to exchange Instagram authorization code'
+        );
+      }
+
+      let igAccessToken = tokenData.access_token;
+      const igUserId = String(tokenData.user_id || `ig_${Date.now()}`);
+
+      // Exchange short-lived token for long-lived token (60 days)
+      try {
+        const longRes = await fetch(
+          `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${appSecret}&access_token=${igAccessToken}`
+        );
+        const longData = await longRes.json();
+        if (longData.access_token) {
+          igAccessToken = longData.access_token;
+        }
+      } catch (e) {
+        console.warn('[Instagram Service] Long token exchange warning:', e.message);
+      }
+
+      // Fetch user profile from Instagram Graph API
+      let igUsername = '';
+      let igName = '';
+      let profilePic = null;
+      try {
+        const profRes = await fetch(
+          `https://graph.instagram.com/v22.0/me?fields=id,username,name,profile_picture_url&access_token=${igAccessToken}`
+        );
+        const profData = await profRes.json();
+        if (profData?.username) {
+          igUsername = profData.username;
+          igName = profData.name || profData.username;
+          profilePic = profData.profile_picture_url || null;
+        }
+      } catch (profErr) {
+        console.warn('[Instagram Service] Profile lookup notice:', profErr.message);
+      }
+
+      const encryptedToken = encryptToken(igAccessToken) || igAccessToken;
+      const integrationId = `ig_${userId || 'usr_default'}_${igUserId}`;
+
+      await query(
+        `INSERT INTO instagram_integrations (
+           id, user_id, page_id, page_name, page_access_token,
+           instagram_business_account_id, instagram_username, instagram_name,
+           profile_picture_url, status, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'connected', CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE SET
+           page_name = EXCLUDED.page_name,
+           page_access_token = EXCLUDED.page_access_token,
+           instagram_username = EXCLUDED.instagram_username,
+           instagram_name = EXCLUDED.instagram_name,
+           profile_picture_url = EXCLUDED.profile_picture_url,
+           status = 'connected',
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          integrationId,
+          userId || 'usr_default',
+          igUserId,
+          igName || igUsername || 'Instagram Account',
+          encryptedToken,
+          igUserId,
+          igUsername,
+          igName || igUsername,
+          profilePic,
+        ]
+      );
+
+      return {
+        success: true,
+        data: {
+          pageId: igUserId,
+          pageName: igName || igUsername || 'Instagram Account',
+          instagramBusinessAccountId: igUserId,
+          instagramUsername: igUsername,
+          instagramName: igName,
+          profilePictureUrl: profilePic,
+          status: 'connected',
+        },
+      };
+    }
+
+    // 2. Fallback: User Access Token from Facebook Pages Login
     const accountsUrl = `${GRAPH_BASE_URL}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${userAccessToken}`;
     const secureAccountsUrl = appendAppSecretProof(accountsUrl, userAccessToken);
 
@@ -100,7 +206,9 @@ export const metaInstagramService = {
 
     const pages = data.data || [];
     if (pages.length === 0) {
-      throw new Error('No Facebook Pages found associated with this Facebook account. Please create or manage a Facebook Page first.');
+      throw new Error(
+        'No Facebook Pages found associated with this Facebook account. Please create or manage a Facebook Page first.'
+      );
     }
 
     // Find the first page with a linked Instagram Business Account

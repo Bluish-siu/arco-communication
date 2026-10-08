@@ -251,47 +251,78 @@ export async function launchMetaEmbeddedSignup({
 }
 
 /**
- * Launch Meta Instagram Professional Account Connect Dialog (Facebook Login with IG Scopes)
- * Dual-tier execution: uses FB.login if SDK is initialized; otherwise automatically uses standalone OAuth Dialog popup.
+ * Launch official Instagram Business Login popup dialog (Native Instagram OAuth flow as seen in Wati)
+ * Directly opens instagram.com/oauth/authorize with native Instagram login UI and optional FB login button.
  */
-export async function launchInstagramConnect({ appId = DEFAULT_APP_ID } = {}) {
+export function openInstagramBusinessLoginPopup({ appId = DEFAULT_APP_ID } = {}) {
   const targetAppId = appId || DEFAULT_APP_ID;
-  const fb = await waitForMetaSdk(targetAppId, 1500);
+  const redirectUri = encodeURIComponent(`${window.location.origin}/instagram-callback.html`);
+  const scopes = encodeURIComponent(
+    'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments'
+  );
 
-  if (fb && window._fbInitialized && typeof fb.login === 'function') {
-    return new Promise((resolve, reject) => {
-      try {
-        fb.login(
-          function (response) {
-            if (response && response.authResponse?.accessToken) {
-              resolve({
-                accessToken: response.authResponse.accessToken,
-                userID: response.authResponse.userID,
-                expiresIn: response.authResponse.expiresIn,
-                status: response.status,
-              });
-            } else {
-              const err = new Error('Facebook Login was cancelled or not authorized.');
-              err.code = 'USER_CANCELLED';
-              reject(err);
-            }
-          },
-          {
-            scope:
-              'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages',
-            return_scopes: true,
-          }
-        );
-      } catch (err) {
-        console.warn('[Meta SDK] FB.login error, falling back to popup OAuth dialog:', err.message);
-        // Seamless fallback to popup OAuth dialog if FB.login throws
-        openMetaOAuthDialogFallback({ appId: targetAppId, resolve, reject });
-      }
-    });
+  // Official Instagram Business Login URL with fallback to Facebook Login enabled
+  const oauthUrl = `https://www.instagram.com/oauth/authorize?enable_fb_login=1&force_authentication=1&client_id=${targetAppId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes}`;
+
+  const width = 650;
+  const height = 750;
+  const left = window.screenX + (window.outerWidth - width) / 2;
+  const top = window.screenY + (window.outerHeight - height) / 2;
+  const popup = window.open(
+    oauthUrl,
+    'InstagramBusinessLogin',
+    `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+  );
+
+  if (!popup) {
+    const err = new Error('Popup blocked by browser. Please allow popups or use Direct Token connect.');
+    err.code = 'POPUP_BLOCKED';
+    return Promise.reject(err);
   }
 
-  // Fallback: Open official Meta OAuth Dialog in popup window
   return new Promise((resolve, reject) => {
-    openMetaOAuthDialogFallback({ appId: targetAppId, resolve, reject });
+    let resolved = false;
+
+    function handleMessage(event) {
+      if (event.data?.type === 'IG_OAUTH_SUCCESS') {
+        resolved = true;
+        window.removeEventListener('message', handleMessage);
+        resolve({
+          accessToken: event.data.accessToken || null,
+          code: event.data.code || null,
+          status: 'connected',
+        });
+      } else if (event.data?.type === 'IG_OAUTH_ERROR') {
+        resolved = true;
+        window.removeEventListener('message', handleMessage);
+        const err = new Error(event.data.error || 'Instagram authorization was cancelled.');
+        err.code = 'USER_CANCELLED';
+        reject(err);
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+
+    const checkClosed = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(checkClosed);
+        window.removeEventListener('message', handleMessage);
+        setTimeout(() => {
+          if (!resolved) {
+            const err = new Error('Instagram Login popup was closed.');
+            err.code = 'USER_CANCELLED';
+            reject(err);
+          }
+        }, 500);
+      }
+    }, 600);
   });
+}
+
+/**
+ * Launch Meta Instagram Professional Account Connect Dialog
+ * Opens official Instagram Business Login flow (matches Wati).
+ */
+export async function launchInstagramConnect({ appId = DEFAULT_APP_ID } = {}) {
+  return openInstagramBusinessLoginPopup({ appId });
 }

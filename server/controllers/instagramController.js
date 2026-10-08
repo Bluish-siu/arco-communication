@@ -296,18 +296,20 @@ export const instagramController = {
    */
   connect: async (req, res, next) => {
     try {
-      const { userAccessToken } = req.body;
+      const { userAccessToken, code, redirectUri } = req.body;
       const userId = req.user?.id;
 
-      if (!userAccessToken) {
+      if (!userAccessToken && !code) {
         return res.status(400).json({
           success: false,
-          error: 'userAccessToken is required from Facebook Login.',
+          error: 'userAccessToken or authorization code is required from Instagram Login.',
         });
       }
 
       const result = await metaInstagramService.connectWithToken({
         userAccessToken,
+        code,
+        redirectUri,
         userId,
       });
 

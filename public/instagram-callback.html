@@ -48,23 +48,38 @@
     <script>
       (function() {
         var hash = window.location.hash.substring(1);
-        var params = new URLSearchParams(hash);
-        var accessToken = params.get('access_token');
-        var error = params.get('error') || new URLSearchParams(window.location.search).get('error');
+        var hashParams = new URLSearchParams(hash);
+        var searchParams = new URLSearchParams(window.location.search);
+
+        var accessToken = hashParams.get('access_token') || searchParams.get('access_token');
+        var code = searchParams.get('code') || hashParams.get('code');
+        if (code) {
+          code = code.replace(/#_$/, '');
+        }
+
+        var error = searchParams.get('error_description') || searchParams.get('error') || hashParams.get('error');
 
         if (window.opener) {
-          if (accessToken) {
-            window.opener.postMessage({ type: 'IG_OAUTH_SUCCESS', accessToken: accessToken }, '*');
+          if (accessToken || code) {
+            window.opener.postMessage({
+              type: 'IG_OAUTH_SUCCESS',
+              accessToken: accessToken || null,
+              code: code || null,
+            }, '*');
           } else {
-            window.opener.postMessage({ type: 'IG_OAUTH_ERROR', error: error || 'Authentication was cancelled' }, '*');
+            window.opener.postMessage({
+              type: 'IG_OAUTH_ERROR',
+              error: error || 'Authentication was cancelled'
+            }, '*');
           }
           setTimeout(function() {
             window.close();
           }, 600);
         } else {
           // Fallback if opener is detached
-          if (accessToken) {
-            sessionStorage.setItem('ig_temp_access_token', accessToken);
+          if (accessToken || code) {
+            if (accessToken) sessionStorage.setItem('ig_temp_access_token', accessToken);
+            if (code) sessionStorage.setItem('ig_temp_auth_code', code);
             window.location.href = '/dashboard';
           }
         }
