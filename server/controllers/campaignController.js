@@ -46,11 +46,41 @@ export const campaignController = {
         });
       }
 
+      // Dynamically resolve recipient WhatsApp profile/contact name if variable 1 is missing or default
+      let resolvedVariables = { ...(variables || {}) };
+      const rawTargetPhone = String(targetPhone).trim();
+      const cleanPhoneDigits = rawTargetPhone.replace(/\D/g, '').slice(-10);
+
+      if (!resolvedVariables['1'] || resolvedVariables['1'] === 'Shraddha') {
+        try {
+          const contactMatch = await query(
+            `SELECT name FROM contacts WHERE REPLACE(phone, '+', '') LIKE $1 ORDER BY updated_at DESC LIMIT 1`,
+            [`%${cleanPhoneDigits}%`]
+          );
+          let recipientName = contactMatch.rows[0]?.name;
+          if (!recipientName) {
+            const convMatch = await query(
+              `SELECT name FROM conversations WHERE REPLACE(phone, '+', '') LIKE $1 ORDER BY updated_at DESC LIMIT 1`,
+              [`%${cleanPhoneDigits}%`]
+            );
+            recipientName = convMatch.rows[0]?.name;
+          }
+
+          if (recipientName && !/whatsapp user/i.test(recipientName)) {
+            resolvedVariables['1'] = recipientName;
+          } else {
+            resolvedVariables['1'] = 'Valued Partner';
+          }
+        } catch (dbLookupErr) {
+          console.warn('[sendTestMessage] Contact lookup warning:', dbLookupErr.message);
+        }
+      }
+
       const result = await metaWhatsAppService.sendTemplateMessage({
         to: targetPhone,
         templateName: String(templateName).trim(),
         languageCode: templateLanguage,
-        variables,
+        variables: resolvedVariables,
         headerVariables,
         headerText,
         headerMediaUrl: headerMediaUrl || headerImageUrl,

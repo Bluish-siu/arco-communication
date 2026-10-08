@@ -7,6 +7,7 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/count', contactController.getCount);
+router.get('/lookup', contactController.lookupByPhone);
 router.get('/', contactController.getAll);
 router.post('/', contactController.create);
 router.post('/bulk-upload', contactController.bulkUpload);

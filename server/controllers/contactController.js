@@ -173,6 +173,65 @@ export function buildConditionClause(conditions, logic = 'AND', params = []) {
 }
 
 export const contactController = {
+  // GET /api/contacts/lookup?phone=+919920858396
+  lookupByPhone: async (req, res, next) => {
+    try {
+      const { phone } = req.query;
+      if (!phone) {
+        return res.status(400).json({ success: false, error: 'Phone parameter is required' });
+      }
+
+      const digits = String(phone).replace(/\D/g, '').slice(-10);
+      if (digits.length < 8) {
+        return res.json({ success: true, found: false, contact: null });
+      }
+
+      // 1. Search contacts table
+      const contactRes = await query(
+        `SELECT id, name, phone, email, channel FROM contacts 
+         WHERE REPLACE(phone, '+', '') LIKE $1 
+         ORDER BY updated_at DESC LIMIT 1`,
+        [`%${digits}%`]
+      );
+
+      if (contactRes.rows.length > 0 && contactRes.rows[0].name && !/whatsapp user/i.test(contactRes.rows[0].name)) {
+        return res.json({
+          success: true,
+          found: true,
+          contact: contactRes.rows[0],
+        });
+      }
+
+      // 2. Search conversations table (which stores incoming Meta WhatsApp profile names)
+      const convRes = await query(
+        `SELECT id, name, phone FROM conversations 
+         WHERE REPLACE(phone, '+', '') LIKE $1 
+         ORDER BY updated_at DESC LIMIT 1`,
+        [`%${digits}%`]
+      );
+
+      if (convRes.rows.length > 0 && convRes.rows[0].name && !/whatsapp user/i.test(convRes.rows[0].name)) {
+        return res.json({
+          success: true,
+          found: true,
+          contact: {
+            id: convRes.rows[0].id,
+            name: convRes.rows[0].name,
+            phone: convRes.rows[0].phone,
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        found: false,
+        contact: null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // GET /api/contacts (Server-side paginated contacts query)
   getAll: async (req, res, next) => {
     try {

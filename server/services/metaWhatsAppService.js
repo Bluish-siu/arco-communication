@@ -620,7 +620,32 @@ export const metaWhatsAppService = {
         if (bodyParams.length < requiredCount) {
           const sampleExamples = bodyComp.example?.body_text?.[0] || [];
           for (let i = bodyParams.length; i < requiredCount; i++) {
-            const fallbackText = sampleExamples[i] || (i === 0 ? 'Partner' : i === 1 ? 'Mumbai' : `Value_${i + 1}`);
+            let fallbackText = sampleExamples[i];
+            if (!fallbackText) {
+              if (i === 0) {
+                const cleanDigits = cleanTo.slice(-10);
+                try {
+                  const cRes = await query(
+                    `SELECT name FROM contacts WHERE REPLACE(phone, '+', '') LIKE $1 ORDER BY updated_at DESC LIMIT 1`,
+                    [`%${cleanDigits}%`]
+                  );
+                  fallbackText = cRes.rows[0]?.name;
+                  if (!fallbackText) {
+                    const cvRes = await query(
+                      `SELECT name FROM conversations WHERE REPLACE(phone, '+', '') LIKE $1 ORDER BY updated_at DESC LIMIT 1`,
+                      [`%${cleanDigits}%`]
+                    );
+                    fallbackText = cvRes.rows[0]?.name;
+                  }
+                } catch (e) {}
+
+                if (!fallbackText || /whatsapp user/i.test(fallbackText)) {
+                  fallbackText = 'Valued Partner';
+                }
+              } else {
+                fallbackText = i === 1 ? 'Mumbai' : `Value_${i + 1}`;
+              }
+            }
             bodyParams.push({ type: 'text', text: String(fallbackText) });
           }
         }

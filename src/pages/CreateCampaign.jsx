@@ -588,10 +588,53 @@ export default function CreateCampaign() {
   // Test Message State
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [testPhone, setTestPhone] = useState('+91 ');
+  const [resolvedContactName, setResolvedContactName] = useState('');
+  const [isLookingUpContact, setIsLookingUpContact] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [isPollingStatus, setIsPollingStatus] = useState(false);
   const statusPollRef = useRef(null);
+
+  // Auto-lookup recipient contact/WhatsApp name when test phone changes
+  useEffect(() => {
+    const rawDigits = (testPhone || '').replace(/\D/g, '');
+    if (rawDigits.length >= 10) {
+      let isMounted = true;
+      setIsLookingUpContact(true);
+      const cleanDigits = rawDigits.slice(-10);
+      fetch(`/api/contacts/lookup?phone=${encodeURIComponent(cleanDigits)}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+        },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (isMounted) {
+            if (data.found && data.contact?.name) {
+              setResolvedContactName(data.contact.name);
+              setVariableValues((prev) => ({
+                ...prev,
+                '1': prev['1'] || data.contact.name,
+              }));
+            } else {
+              setResolvedContactName('');
+            }
+          }
+        })
+        .catch(() => {
+          if (isMounted) setResolvedContactName('');
+        })
+        .finally(() => {
+          if (isMounted) setIsLookingUpContact(false);
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    } else {
+      setResolvedContactName('');
+    }
+  }, [testPhone]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -669,12 +712,18 @@ export default function CreateCampaign() {
     setTestResult(null);
 
     try {
-      // Build test variables: fallback to sample test values if empty
+      // Build test variables: dynamically resolve recipient name, NEVER hardcode Shraddha
       const testVariables = { ...variableValues };
       if (detectedVariables.length > 0) {
         detectedVariables.forEach((vNum) => {
           if (!testVariables[vNum] || typeof testVariables[vNum] !== 'string' || !testVariables[vNum].trim()) {
-            testVariables[vNum] = vNum === '1' ? 'Shraddha' : vNum === '2' ? 'Bandra' : `Sample_${vNum}`;
+            if (vNum === '1') {
+              testVariables[vNum] = resolvedContactName || 'Valued Partner';
+            } else if (vNum === '2') {
+              testVariables[vNum] = 'Mumbai';
+            } else {
+              testVariables[vNum] = `Sample_${vNum}`;
+            }
           }
         });
       }
@@ -2685,6 +2734,48 @@ export default function CreateCampaign() {
                     </button>
                   </div>
 
+                  {/* Auto-resolved WhatsApp contact name indicator */}
+                  {isLookingUpContact && (
+                    <div className="text-[10px] text-gray-500 flex items-center gap-1 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>Checking WhatsApp contact profile...</span>
+                    </div>
+                  )}
+                  {resolvedContactName && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100/70 border border-emerald-300 rounded-lg text-[11px] text-emerald-950 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span>WhatsApp Name:</span>
+                      <strong className="text-emerald-900 font-bold">{resolvedContactName}</strong>
+                      <span className="text-[10px] text-emerald-700 font-mono">(auto-mapped to &#123;&#123;1&#125;&#125;)</span>
+                    </div>
+                  )}
+
+                  {/* Dynamic Variables Inputs for Testing */}
+                  {detectedVariables.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-emerald-200/60">
+                      <div className="text-[10px] font-bold text-gray-700 flex items-center justify-between">
+                        <span>Dynamic Variables for Test:</span>
+                        <span className="text-[9px] text-gray-500 font-normal">Customizable</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {detectedVariables.map((vNum) => (
+                          <div key={vNum} className="flex items-center gap-1.5">
+                            <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">
+                              {`{{${vNum}}}`}
+                            </span>
+                            <input
+                              type="text"
+                              value={variableValues[vNum] || ''}
+                              onChange={(e) => setVariableValues({ ...variableValues, [vNum]: e.target.value })}
+                              placeholder={vNum === '1' ? (resolvedContactName || 'Recipient Name') : `Variable ${vNum}`}
+                              className="flex-1 h-7 px-2 text-xs rounded border border-gray-300 bg-white focus:outline-none focus:border-emerald-700"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {testResult && (
                     <div
                       className={`p-2.5 rounded-lg text-xs space-y-2 border transition-all ${
@@ -2837,6 +2928,48 @@ export default function CreateCampaign() {
                 <p className="text-[11px] text-gray-400">
                   Include international country code prefix (e.g. +91 for India, +1 for US).
                 </p>
+
+                {/* Auto-resolved WhatsApp contact name indicator */}
+                {isLookingUpContact && (
+                  <div className="text-[10px] text-gray-500 flex items-center gap-1 animate-pulse">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Checking WhatsApp contact profile...</span>
+                  </div>
+                )}
+                {resolvedContactName && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100/70 border border-emerald-300 rounded-lg text-[11px] text-emerald-950 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span>WhatsApp Contact:</span>
+                    <strong className="text-emerald-900 font-bold">{resolvedContactName}</strong>
+                    <span className="text-[10px] text-emerald-700 font-mono">(mapped to &#123;&#123;1&#125;&#125;)</span>
+                  </div>
+                )}
+
+                {/* Dynamic Variables Inputs for Testing */}
+                {detectedVariables.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                    <div className="text-[10px] font-bold text-gray-700 flex items-center justify-between">
+                      <span>Dynamic Variables for Test:</span>
+                      <span className="text-[9px] text-gray-500 font-normal">Customizable</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {detectedVariables.map((vNum) => (
+                        <div key={vNum} className="flex items-center gap-1.5">
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">
+                            {`{{${vNum}}}`}
+                          </span>
+                          <input
+                            type="text"
+                            value={variableValues[vNum] || ''}
+                            onChange={(e) => setVariableValues({ ...variableValues, [vNum]: e.target.value })}
+                            placeholder={vNum === '1' ? (resolvedContactName || 'Recipient Name') : `Variable ${vNum}`}
+                            className="flex-1 h-7 px-2 text-xs rounded border border-gray-300 bg-white focus:outline-none focus:border-emerald-700"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Live Multi-Stage WhatsApp Delivery Result */}
