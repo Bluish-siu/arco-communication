@@ -598,17 +598,32 @@ export const metaWhatsAppService = {
 
       // B. BODY COMPONENT: Only add body parameters if variables are required/provided
       const bodyParams = [];
-      if (Array.isArray(variables)) {
+      if (Array.isArray(variables) && variables.length > 0) {
         variables.forEach((val) => {
           bodyParams.push({ type: 'text', text: String(val) });
         });
-      } else if (typeof variables === 'object' && variables !== null) {
+      } else if (typeof variables === 'object' && variables !== null && Object.keys(variables).length > 0) {
         const keys = Object.keys(variables).sort((a, b) => Number(a) - Number(b));
         keys.forEach((k) => {
           if (variables[k] !== undefined && variables[k] !== null && variables[k] !== '') {
             bodyParams.push({ type: 'text', text: String(variables[k]) });
           }
         });
+      }
+
+      // Auto-fallback: If Meta template requires N variables, but fewer/none were provided (e.g. quick test send),
+      // populate with template examples or sensible test values to prevent Meta Error #132000
+      const bodyComp = foundTmpl?.components?.find((c) => c.type === 'BODY');
+      if (bodyComp) {
+        const matches = (bodyComp.text || '').match(/\{\{(\d+)\}\}/g) || [];
+        const requiredCount = matches.length;
+        if (bodyParams.length < requiredCount) {
+          const sampleExamples = bodyComp.example?.body_text?.[0] || [];
+          for (let i = bodyParams.length; i < requiredCount; i++) {
+            const fallbackText = sampleExamples[i] || (i === 0 ? 'Partner' : i === 1 ? 'Mumbai' : `Value_${i + 1}`);
+            bodyParams.push({ type: 'text', text: String(fallbackText) });
+          }
+        }
       }
 
       if (bodyParams.length > 0) {

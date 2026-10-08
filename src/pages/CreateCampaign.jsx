@@ -669,11 +669,21 @@ export default function CreateCampaign() {
     setTestResult(null);
 
     try {
+      // Build test variables: fallback to sample test values if empty
+      const testVariables = { ...variableValues };
+      if (detectedVariables.length > 0) {
+        detectedVariables.forEach((vNum) => {
+          if (!testVariables[vNum] || typeof testVariables[vNum] !== 'string' || !testVariables[vNum].trim()) {
+            testVariables[vNum] = vNum === '1' ? 'Shraddha' : vNum === '2' ? 'Bandra' : `Sample_${vNum}`;
+          }
+        });
+      }
+
       const payload = {
         recipientPhone: rawPhone,
         templateName: selectedTemplate.name || selectedTemplate.id,
         templateLanguage: selectedTemplate.language || 'en_US',
-        variables: variableValues,
+        variables: testVariables,
         headerText: selectedTemplate.headerText,
         headerMediaUrl: selectedTemplate.headerMediaUrl || selectedTemplate.header_media_url || null,
         buttons: selectedTemplate.buttons,
