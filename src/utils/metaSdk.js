@@ -134,9 +134,9 @@ export function openMetaOAuthDialog({ appId = DEFAULT_APP_ID } = {}) {
   const targetAppId = appId || DEFAULT_APP_ID;
   const redirectUri = encodeURIComponent(`${window.location.origin}/instagram-callback.html`);
   const scopes = encodeURIComponent(
-    'pages_show_list,instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments'
+    'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages,pages_messaging'
   );
-  const oauthUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${targetAppId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}`;
+  const oauthUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${targetAppId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}&auth_type=rerequest`;
 
   const width = 650;
   const height = 750;
@@ -353,7 +353,7 @@ export async function launchInstagramConnect({ appId = DEFAULT_APP_ID, forceNati
           },
           {
             scope:
-              'pages_show_list,instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments',
+              'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages,pages_messaging',
             return_scopes: true,
             auth_type: 'rerequest',
           }
