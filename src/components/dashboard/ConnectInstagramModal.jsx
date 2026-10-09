@@ -70,8 +70,16 @@ export default function ConnectInstagramModal({
         redirectUri: `${window.location.origin}/instagram-callback.html`,
       });
       if (res?.success) {
-        showToast(`Connected Instagram account @${res.data?.instagramUsername || 'Business'}!`, 'success');
-        if (onStatusChange) onStatusChange(res.data);
+        const username = res.data?.instagramUsername || res.data?.pageName || 'Business';
+        showToast(`Connected Instagram account @${username}!`, 'success');
+        if (onStatusChange) {
+          onStatusChange({
+            ...res.data,
+            connected: true,
+            status: 'connected',
+            username,
+          });
+        }
         onClose();
       } else {
         setError(res?.error || 'Failed to link Instagram account.');
@@ -104,8 +112,16 @@ export default function ConnectInstagramModal({
         igUsername: igUsername.trim() || undefined,
       });
       if (res?.success) {
-        showToast(`Instagram account @${res.data?.instagramUsername || 'Business'} connected!`, 'success');
-        if (onStatusChange) onStatusChange(res.data);
+        const username = res.data?.instagramUsername || res.data?.pageName || 'Business';
+        showToast(`Instagram account @${username} connected!`, 'success');
+        if (onStatusChange) {
+          onStatusChange({
+            ...res.data,
+            connected: true,
+            status: 'connected',
+            username,
+          });
+        }
         onClose();
       } else {
         setError(res?.error || 'Failed to connect direct credentials.');

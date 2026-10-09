@@ -174,13 +174,25 @@ export default function Dashboard() {
 
     try {
       const igRes = await integrationService.getInstagramStatus();
-      if (igRes?.success && igRes?.data) {
+      const ig = igRes?.data || igRes;
+      const isConnected = Boolean(ig && (ig.connected || ig.status === 'connected'));
+      if (isConnected) {
         setInstagramStatus({
-          connected: !!igRes.data.connected,
-          username: igRes.data.instagramUsername || '',
-          name: igRes.data.instagramName || '',
-          followerCount: igRes.data.followerCount || 0,
-          pageName: igRes.data.pageName || '',
+          connected: true,
+          status: 'connected',
+          username: ig.instagramUsername || ig.username || ig.pageName || 'Connected',
+          name: ig.instagramName || ig.name || '',
+          followerCount: ig.followerCount || 0,
+          pageName: ig.pageName || '',
+        });
+      } else {
+        setInstagramStatus({
+          connected: false,
+          status: 'disconnected',
+          username: '',
+          name: '',
+          followerCount: 0,
+          pageName: '',
         });
       }
     } catch (igErr) {
@@ -622,14 +634,14 @@ export default function Dashboard() {
                           </div>
                         </div>
 
-                        {instagramStatus.connected ? (
+                        {(instagramStatus.connected || instagramStatus.status === 'connected') ? (
                           <button
                             type="button"
                             onClick={() => setActiveModal('connect_instagram')}
                             className="px-4 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all shrink-0 cursor-pointer shadow-2xs flex items-center gap-1.5"
                           >
                             <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>@{instagramStatus.username || 'Connected'}</span>
+                            <span>@{instagramStatus.username || instagramStatus.pageName || 'Connected'}</span>
                           </button>
                         ) : (
                           <button
@@ -1269,7 +1281,12 @@ export default function Dashboard() {
         onClose={() => setActiveModal(null)}
         currentStatus={instagramStatus}
         onStatusChange={(newStatus) => {
-          setInstagramStatus(newStatus);
+          setInstagramStatus((prev) => ({
+            ...prev,
+            ...newStatus,
+            connected: Boolean(newStatus?.connected || newStatus?.status === 'connected'),
+            username: newStatus?.username || newStatus?.instagramUsername || newStatus?.pageName || prev.username,
+          }));
           loadDashboardData();
         }}
         showToast={showToast}

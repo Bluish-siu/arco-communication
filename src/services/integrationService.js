@@ -186,10 +186,15 @@ export const integrationService = {
   getInstagramStatus: async () => {
     try {
       const res = await apiRequest('/instagram/status');
-      return res?.data || { connected: false, status: 'disconnected' };
+      const data = res?.data || res || {};
+      return {
+        success: Boolean(res?.success || data.connected || data.status === 'connected'),
+        data,
+        ...data,
+      };
     } catch (err) {
       console.warn('[Integration Service] getInstagramStatus failed:', err.message);
-      return { connected: false, status: 'disconnected' };
+      return { success: false, connected: false, status: 'disconnected', data: { connected: false, status: 'disconnected' } };
     }
   },
 
