@@ -326,12 +326,44 @@ export function openInstagramBusinessLoginPopup({ appId = DEFAULT_INSTAGRAM_APP_
 
 /**
  * Launch Meta Instagram Professional Account Connect Dialog
- * Opens official Facebook Login for Instagram Business (primary, verified flow).
- * If forceNative is requested, opens native Instagram OAuth dialog.
+ * 1. Attempts official Meta JS SDK FB.login (bypasses URL redirect strict mismatch).
+ * 2. Falls back to direct OAuth popup window if SDK is blocked.
  */
 export async function launchInstagramConnect({ appId = DEFAULT_APP_ID, forceNative = false } = {}) {
   if (forceNative) {
     return openInstagramBusinessLoginPopup({ appId });
   }
+
+  const fb = await waitForMetaSdk(appId, 2500);
+  if (fb && typeof fb.login === 'function') {
+    return new Promise((resolve, reject) => {
+      try {
+        fb.login(
+          function (response) {
+            if (response && response.authResponse?.accessToken) {
+              resolve({
+                accessToken: response.authResponse.accessToken,
+                status: 'connected',
+              });
+            } else {
+              const err = new Error('Facebook Login was cancelled or incomplete.');
+              err.code = 'USER_CANCELLED';
+              reject(err);
+            }
+          },
+          {
+            scope:
+              'pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages,instagram_manage_comments',
+            return_scopes: true,
+            auth_type: 'rerequest',
+          }
+        );
+      } catch (err) {
+        console.warn('[Meta SDK] fb.login error, trying popup dialog:', err);
+        openMetaOAuthDialog({ appId }).then(resolve).catch(reject);
+      }
+    });
+  }
+
   return openMetaOAuthDialog({ appId });
 }
