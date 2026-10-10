@@ -8,6 +8,7 @@ import { globalApiLimiter } from './middleware/rateLimiter.js';
 import apiRoutes from './routes/index.js';
 import { testDbConnection, query } from './config/db.js';
 import { initInboxTwoWaySchema } from './config/initInboxTwoWaySchema.js';
+import { initInboxFiltersSchema } from './config/initInboxFiltersSchema.js';
 import { initOrderCurrencySchema } from './config/initOrderPanelTables.js';
 import { initCampaignReplyFlowsSchema } from './config/initCampaignReplyFlowsSchema.js';
 import { startCampaignScheduler, recoverStaleProcessing } from './services/campaignDispatcher.js';
@@ -120,6 +121,7 @@ const server = app.listen(PORT, HOST, async () => {
   await testDbConnection();
   try {
     await initInboxTwoWaySchema();
+    await initInboxFiltersSchema();
     await initOrderCurrencySchema();
     await initCampaignReplyFlowsSchema();
     await initShopifyEventsTable();

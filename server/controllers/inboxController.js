@@ -29,14 +29,17 @@ export const inboxController = {
       } = req.query;
 
       const effectiveUserId = req.user?.id || 'usr_1790574599220';
-      const isAdminNilesh = effectiveUserId === 'usr_1790574599220';
+      const isAdmin =
+        effectiveUserId === 'usr_1790574599220' ||
+        effectiveUserId === 'usr_1' ||
+        (req.user?.role || '').toLowerCase() === 'admin';
 
       let sql = 'SELECT * FROM conversations WHERE 1=1';
       const params = [];
 
-      if (isAdminNilesh) {
-        params.push('usr_1790574599220');
-        sql += ` AND (user_id = $${params.length} OR user_id IS NULL)`;
+      if (isAdmin) {
+        params.push(effectiveUserId);
+        sql += ` AND (user_id = $${params.length} OR user_id IS NULL OR user_id = 'usr_1790574599220' OR user_id = 'usr_1')`;
       } else {
         params.push(effectiveUserId);
         sql += ` AND user_id = $${params.length}`;

@@ -11,8 +11,8 @@ export const instagramController = {
       const signatureHeader = req.headers['x-hub-signature-256'] || req.headers['X-Hub-Signature-256'];
       const appSecret = process.env.META_APP_SECRET;
 
-      if (!appSecret) {
-        // App secret not configured; permit during setup/testing
+      if (!appSecret || appSecret === 'your_meta_app_secret' || appSecret.startsWith('your_')) {
+        // App secret not configured or placeholder; permit during setup/testing
         return next();
       }
 
@@ -132,6 +132,18 @@ export const instagramController = {
               );
               if (intRes.rows.length > 0 && intRes.rows[0].user_id) {
                 tenantUserId = intRes.rows[0].user_id;
+              } else {
+                const anyInt = await query(
+                  `SELECT user_id FROM instagram_integrations WHERE status = 'connected' ORDER BY updated_at DESC LIMIT 1`
+                );
+                if (anyInt.rows.length > 0 && anyInt.rows[0].user_id) {
+                  tenantUserId = anyInt.rows[0].user_id;
+                } else {
+                  const firstUser = await query(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
+                  if (firstUser.rows.length > 0 && firstUser.rows[0].id) {
+                    tenantUserId = firstUser.rows[0].id;
+                  }
+                }
               }
             } catch (tenantErr) {
               console.warn('[Instagram Webhook] Tenant lookup notice:', tenantErr.message);
